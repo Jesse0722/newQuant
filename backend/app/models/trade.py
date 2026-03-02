@@ -13,7 +13,7 @@ class TradePlan(Base):
     risk_level = Column(Integer, nullable=False, default=3)
     status = Column(String(16), nullable=False, default="pending")
     trigger_strategy = Column(Text)
-    alert_id = Column(String(36), ForeignKey("alert.id"), nullable=True)
+    alert_id = Column(String(36), nullable=True)
     event_note = Column(Text)
     action_suggestion = Column(String(16))
     planned_buy_price = Column(Float)
