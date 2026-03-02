@@ -1,6 +1,9 @@
+import os
 import tushare as ts
 import pandas as pd
 from app.config import TUSHARE_TOKEN
+
+TUSHARE_API_URL = os.getenv("TUSHARE_API_URL", "")
 
 
 class TushareAdapter:
@@ -11,6 +14,9 @@ class TushareAdapter:
     def pro(self):
         if self._pro is None:
             self._pro = ts.pro_api(TUSHARE_TOKEN)
+            if TUSHARE_API_URL:
+                self._pro._DataApi__token = TUSHARE_TOKEN
+                self._pro._DataApi__http_url = TUSHARE_API_URL
         return self._pro
 
     def get_stock_basic(self, ts_code: str = None) -> pd.DataFrame:

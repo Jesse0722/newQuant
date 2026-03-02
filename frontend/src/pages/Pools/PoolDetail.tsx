@@ -146,8 +146,8 @@ const PoolDetail: React.FC = () => {
 
       <Modal title="添加股票" open={addModalOpen} onOk={handleAddStock} onCancel={() => setAddModalOpen(false)}>
         <Form form={form} layout="vertical">
-          <Form.Item name="ts_code" label="股票代码" rules={[{ required: true, message: '请输入股票代码，如 000001.SZ' }]}>
-            <Input placeholder="000001.SZ" />
+          <Form.Item name="ts_code" label="股票代码" rules={[{ required: true, message: '请输入股票代码，如 000001' }]}>
+            <Input placeholder="输入6位代码，如 000001" />
           </Form.Item>
           <Form.Item name="added_price" label="加入价格">
             <InputNumber style={{ width: '100%' }} placeholder="可选" />
@@ -159,7 +159,7 @@ const PoolDetail: React.FC = () => {
       </Modal>
 
       <Modal title="CSV 批量导入" open={importModalOpen} footer={null} onCancel={() => setImportModalOpen(false)}>
-        <p>CSV 文件格式：必须包含 <code>ts_code</code> 列，可选 <code>added_price</code>、<code>note</code> 列</p>
+        <p>CSV 文件格式：必须包含 <code>ts_code</code>（或 <code>股票代码</code>/<code>code</code>）列，输入6位代码即可（如 000001），系统会自动补全交易所后缀。可选 <code>added_price</code>、<code>note</code> 列</p>
         <Upload.Dragger
           accept=".csv"
           showUploadList={false}

@@ -12,6 +12,7 @@ from app.schemas.pool import (
     CSVImportResult,
 )
 from app.exceptions import AppError
+from app.utils import normalize_ts_code
 from app.services.sync_service import sync_single_stock
 from app.tasks.background import submit_task
 
@@ -106,19 +107,25 @@ def add_stock(pool_id: str, body: WatchStockCreate, db: Session = Depends(get_db
     pool = db.query(WatchPool).filter(WatchPool.id == pool_id).first()
     if not pool:
         raise AppError(code=2001, message="观察池不存在", status_code=404)
+    try:
+        ts_code = normalize_ts_code(body.ts_code)
+    except ValueError as e:
+        raise AppError(code=2003, message=str(e))
     existing = db.query(WatchStock).filter(
-        WatchStock.pool_id == pool_id, WatchStock.ts_code == body.ts_code
+        WatchStock.pool_id == pool_id, WatchStock.ts_code == ts_code
     ).first()
     if existing:
         raise AppError(code=2002, message="股票已在观察池中")
-    stock = WatchStock(pool_id=pool_id, **body.model_dump())
+    data = body.model_dump()
+    data["ts_code"] = ts_code
+    stock = WatchStock(pool_id=pool_id, **data)
     db.add(stock)
     db.commit()
     db.refresh(stock)
     basic = db.query(StockBasic).filter(StockBasic.ts_code == stock.ts_code).first()
     out = WatchStockOut.model_validate(stock)
     out.stock_name = basic.name if basic else None
-    submit_task("sync", sync_single_stock, body.ts_code)
+    submit_task("sync", sync_single_stock, ts_code)
     return out
 
 
@@ -164,7 +171,11 @@ async def import_csv(pool_id: str, file: UploadFile = File(...), db: Session = D
         if not ts_code:
             result.errors.append(f"第 {i+1} 行缺少股票代码")
             continue
-        ts_code = ts_code.strip()
+        try:
+            ts_code = normalize_ts_code(ts_code)
+        except ValueError:
+            result.errors.append(f"第 {i+1} 行股票代码无效：{ts_code}")
+            continue
         existing = db.query(WatchStock).filter(
             WatchStock.pool_id == pool_id, WatchStock.ts_code == ts_code
         ).first()
