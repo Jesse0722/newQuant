@@ -9,6 +9,7 @@ from app.schemas.trade import (
     ReviewSubmit, PnlSummary,
 )
 from app.exceptions import AppError
+from app.utils import normalize_ts_code
 
 router = APIRouter(prefix="/api", tags=["plans"])
 
@@ -74,8 +75,14 @@ def list_plans(
 
 @router.post("/plans", response_model=TradePlanOut, status_code=201)
 def create_plan(body: TradePlanCreate, db: Session = Depends(get_db)):
-    basic = db.query(StockBasic).filter(StockBasic.ts_code == body.ts_code).first()
-    plan = TradePlan(**body.model_dump())
+    try:
+        ts_code = normalize_ts_code(body.ts_code)
+    except ValueError as e:
+        raise AppError(code=4004, message=str(e))
+    basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+    data = body.model_dump()
+    data["ts_code"] = ts_code
+    plan = TradePlan(**data)
     plan.stock_name = basic.name if basic else None
     plan.risk_reward_ratio = _calc_risk_reward(plan)
     db.add(plan)

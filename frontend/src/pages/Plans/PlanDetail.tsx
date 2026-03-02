@@ -4,8 +4,8 @@ import {
   Card, Descriptions, Tag, Rate, Table, Button, Modal, Form,
   Input, InputNumber, Select, Space, Statistic, Row, Col, Divider, message, Popconfirm,
 } from 'antd'
-import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
-import { getPlan, updatePlan, submitReview, createDetail, deleteDetail } from '../../api/plans'
+import { ArrowLeftOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
+import { getPlan, updatePlan, submitReview, createDetail, updateDetail, deleteDetail } from '../../api/plans'
 import type { TradePlan, TradeDetail } from '../../types'
 
 const typeMap: Record<string, string> = { trend: '趋势跟踪', short_term: '短线操作', event_driven: '事件驱动' }
@@ -23,8 +23,13 @@ const PlanDetail: React.FC = () => {
   const [, setLoading] = useState(true)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
+  const [editPlanModalOpen, setEditPlanModalOpen] = useState(false)
+  const [editDetailModalOpen, setEditDetailModalOpen] = useState(false)
+  const [editingDetail, setEditingDetail] = useState<TradeDetail | null>(null)
   const [detailForm] = Form.useForm()
   const [reviewForm] = Form.useForm()
+  const [planForm] = Form.useForm()
+  const [editDetailForm] = Form.useForm()
 
   const fetchPlan = () => {
     if (!id) return
@@ -64,6 +69,55 @@ const PlanDetail: React.FC = () => {
     fetchPlan()
   }
 
+  const openEditPlanModal = () => {
+    if (!plan) return
+    planForm.setFieldsValue({
+      plan_type: plan.plan_type,
+      risk_level: plan.risk_level,
+      trigger_strategy: plan.trigger_strategy,
+      event_note: plan.event_note,
+      planned_buy_price: plan.planned_buy_price,
+      target_price: plan.target_price,
+      stop_loss_price: plan.stop_loss_price,
+      position_plan: plan.position_plan,
+      action_suggestion: plan.action_suggestion,
+      note: plan.note,
+    })
+    setEditPlanModalOpen(true)
+  }
+
+  const handleEditPlan = async () => {
+    const values = await planForm.validateFields()
+    await updatePlan(id!, values)
+    message.success('计划已更新')
+    setEditPlanModalOpen(false)
+    fetchPlan()
+  }
+
+  const openEditDetailModal = (detail: TradeDetail) => {
+    setEditingDetail(detail)
+    editDetailForm.setFieldsValue({
+      trade_date: detail.trade_date,
+      trade_time: detail.trade_time,
+      direction: detail.direction,
+      price: detail.price,
+      quantity: detail.quantity,
+      commission: detail.commission,
+      exec_note: detail.exec_note,
+    })
+    setEditDetailModalOpen(true)
+  }
+
+  const handleEditDetail = async () => {
+    if (!editingDetail) return
+    const values = await editDetailForm.validateFields()
+    await updateDetail(editingDetail.id, values)
+    message.success('明细已更新')
+    setEditDetailModalOpen(false)
+    setEditingDetail(null)
+    fetchPlan()
+  }
+
   const detailColumns = [
     { title: '日期', dataIndex: 'trade_date', key: 'trade_date' },
     { title: '时间', dataIndex: 'trade_time', key: 'trade_time', render: (v: string) => v || '-' },
@@ -83,9 +137,12 @@ const PlanDetail: React.FC = () => {
       title: '操作',
       key: 'action',
       render: (_: any, r: TradeDetail) => (
-        <Popconfirm title="确定删除？" onConfirm={() => handleDeleteDetail(r.id)}>
-          <a style={{ color: 'red' }}>删除</a>
-        </Popconfirm>
+        <Space>
+          <a onClick={() => openEditDetailModal(r)}>编辑</a>
+          <Popconfirm title="确定删除？" onConfirm={() => handleDeleteDetail(r.id)}>
+            <a style={{ color: 'red' }}>删除</a>
+          </Popconfirm>
+        </Space>
       ),
     },
   ]
@@ -104,6 +161,7 @@ const PlanDetail: React.FC = () => {
             title={`${plan.stock_name || plan.ts_code} — ${typeMap[plan.plan_type] || plan.plan_type}`}
             extra={
               <Space>
+                <Button icon={<EditOutlined />} onClick={openEditPlanModal}>编辑计划</Button>
                 <Select value={plan.status} style={{ width: 120 }} onChange={handleStatusChange}>
                   <Select.Option value="pending">待触发</Select.Option>
                   <Select.Option value="active">执行中</Select.Option>
@@ -181,6 +239,55 @@ const PlanDetail: React.FC = () => {
         </>
       )}
 
+      {/* 编辑交易计划 */}
+      <Modal title="编辑交易计划" open={editPlanModalOpen} onOk={handleEditPlan} onCancel={() => setEditPlanModalOpen(false)} width={600}>
+        <Form form={planForm} layout="vertical">
+          <Form.Item name="plan_type" label="计划类型">
+            <Select options={[
+              { value: 'trend', label: '趋势跟踪' },
+              { value: 'short_term', label: '短线操作' },
+              { value: 'event_driven', label: '事件驱动' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="risk_level" label="风险等级">
+            <Rate count={5} />
+          </Form.Item>
+          <Form.Item name="trigger_strategy" label="触发策略">
+            <Input.TextArea placeholder="如：MACD 金叉触发" />
+          </Form.Item>
+          <Form.Item name="event_note" label="热点/事件">
+            <Input.TextArea placeholder="宏观背景、事件驱动原因" />
+          </Form.Item>
+          <Space style={{ width: '100%' }}>
+            <Form.Item name="planned_buy_price" label="计划买入价">
+              <InputNumber style={{ width: 150 }} />
+            </Form.Item>
+            <Form.Item name="target_price" label="目标价">
+              <InputNumber style={{ width: 150 }} />
+            </Form.Item>
+            <Form.Item name="stop_loss_price" label="止损价">
+              <InputNumber style={{ width: 150 }} />
+            </Form.Item>
+          </Space>
+          <Form.Item name="position_plan" label="仓位计划">
+            <Input placeholder="如：30%" />
+          </Form.Item>
+          <Form.Item name="action_suggestion" label="操作建议">
+            <Select allowClear options={[
+              { value: 'buy', label: '买入' },
+              { value: 'add_position', label: '加仓' },
+              { value: 'reduce', label: '减仓' },
+              { value: 'sell', label: '卖出' },
+              { value: 'watch', label: '观望' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="note" label="备注">
+            <Input.TextArea />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 添加交易明细 */}
       <Modal title="添加交易明细" open={detailModalOpen} onOk={handleAddDetail} onCancel={() => setDetailModalOpen(false)} width={500}>
         <Form form={detailForm} layout="vertical">
           <Form.Item name="trade_date" label="成交日期" rules={[{ required: true }]}>
@@ -207,6 +314,34 @@ const PlanDetail: React.FC = () => {
         </Form>
       </Modal>
 
+      {/* 编辑交易明细 */}
+      <Modal title="编辑交易明细" open={editDetailModalOpen} onOk={handleEditDetail} onCancel={() => { setEditDetailModalOpen(false); setEditingDetail(null) }} width={500}>
+        <Form form={editDetailForm} layout="vertical">
+          <Form.Item name="trade_date" label="成交日期" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="trade_time" label="成交时间">
+            <Input />
+          </Form.Item>
+          <Form.Item name="direction" label="方向" rules={[{ required: true }]}>
+            <Select options={[{ value: 'buy', label: '买入' }, { value: 'sell', label: '卖出' }]} />
+          </Form.Item>
+          <Form.Item name="price" label="成交价格" rules={[{ required: true }]}>
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="quantity" label="成交数量（股）" rules={[{ required: true }]}>
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="commission" label="佣金">
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="exec_note" label="执行备注">
+            <Input.TextArea />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 复盘 */}
       <Modal title="复盘" open={reviewModalOpen} onOk={handleReview} onCancel={() => setReviewModalOpen(false)}>
         <Form form={reviewForm} layout="vertical">
           <Form.Item name="review_summary" label="复盘总结" rules={[{ required: true }]}>

@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import { Table, Button, Modal, Form, Input, Card, Space, Popconfirm, message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { listPools, createPool, deletePool } from '../../api/pools'
+import { listPools, createPool, updatePool, deletePool } from '../../api/pools'
 import type { Pool } from '../../types'
 
 const PoolList: React.FC = () => {
   const [pools, setPools] = useState<Pool[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  const [editingPool, setEditingPool] = useState<Pool | null>(null)
   const [form] = Form.useForm()
   const navigate = useNavigate()
 
@@ -19,12 +20,30 @@ const PoolList: React.FC = () => {
 
   useEffect(() => { fetchPools() }, [])
 
-  const handleCreate = async () => {
+  const openCreateModal = () => {
+    setEditingPool(null)
+    form.resetFields()
+    setModalOpen(true)
+  }
+
+  const openEditModal = (pool: Pool) => {
+    setEditingPool(pool)
+    form.setFieldsValue({ name: pool.name, description: pool.description })
+    setModalOpen(true)
+  }
+
+  const handleSubmit = async () => {
     const values = await form.validateFields()
-    await createPool(values)
-    message.success('创建成功')
+    if (editingPool) {
+      await updatePool(editingPool.id, values)
+      message.success('更新成功')
+    } else {
+      await createPool(values)
+      message.success('创建成功')
+    }
     setModalOpen(false)
     form.resetFields()
+    setEditingPool(null)
     fetchPools()
   }
 
@@ -46,6 +65,7 @@ const PoolList: React.FC = () => {
       render: (_: any, r: Pool) => (
         <Space>
           <a onClick={() => navigate(`/pools/${r.id}`)}>查看</a>
+          <a onClick={() => openEditModal(r)}>编辑</a>
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(r.id)}>
             <a style={{ color: 'red' }}>删除</a>
           </Popconfirm>
@@ -57,10 +77,15 @@ const PoolList: React.FC = () => {
   return (
     <Card
       title="观察池"
-      extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>新建观察池</Button>}
+      extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>新建观察池</Button>}
     >
       <Table dataSource={pools} columns={columns} rowKey="id" loading={loading} />
-      <Modal title="新建观察池" open={modalOpen} onOk={handleCreate} onCancel={() => setModalOpen(false)}>
+      <Modal
+        title={editingPool ? '编辑观察池' : '新建观察池'}
+        open={modalOpen}
+        onOk={handleSubmit}
+        onCancel={() => { setModalOpen(false); setEditingPool(null) }}
+      >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
             <Input placeholder="如：短线池、趋势跟踪" />

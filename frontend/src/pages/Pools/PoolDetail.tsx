@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Table, Button, Modal, Form, Input, InputNumber, Space, Tag, Upload, message, Popconfirm, Progress, Select } from 'antd'
-import { PlusOutlined, UploadOutlined, SyncOutlined, ArrowLeftOutlined } from '@ant-design/icons'
-import { getPool, listStocks, addStock, deleteStock, updateStock, importCSV } from '../../api/pools'
+import { PlusOutlined, UploadOutlined, SyncOutlined, ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
+import { getPool, listStocks, addStock, deleteStock, updateStock, updatePool, importCSV } from '../../api/pools'
 import { syncPool } from '../../api/sync'
 import { getTaskStatus } from '../../api/sync'
 import type { Pool, WatchStock } from '../../types'
@@ -15,9 +15,14 @@ const PoolDetail: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
+  const [editPoolModalOpen, setEditPoolModalOpen] = useState(false)
+  const [editStockModalOpen, setEditStockModalOpen] = useState(false)
+  const [editingStock, setEditingStock] = useState<WatchStock | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState(0)
   const [form] = Form.useForm()
+  const [poolForm] = Form.useForm()
+  const [stockForm] = Form.useForm()
 
   const fetchData = () => {
     if (!id) return
@@ -88,6 +93,36 @@ const PoolDetail: React.FC = () => {
     fetchData()
   }
 
+  const openEditPoolModal = () => {
+    if (!pool) return
+    poolForm.setFieldsValue({ name: pool.name, description: pool.description })
+    setEditPoolModalOpen(true)
+  }
+
+  const handleEditPool = async () => {
+    const values = await poolForm.validateFields()
+    await updatePool(id!, values)
+    message.success('更新成功')
+    setEditPoolModalOpen(false)
+    fetchData()
+  }
+
+  const openEditStockModal = (stock: WatchStock) => {
+    setEditingStock(stock)
+    stockForm.setFieldsValue({ note: stock.note, monitor_status: stock.monitor_status })
+    setEditStockModalOpen(true)
+  }
+
+  const handleEditStock = async () => {
+    if (!editingStock) return
+    const values = await stockForm.validateFields()
+    await updateStock(id!, editingStock.id, values)
+    message.success('更新成功')
+    setEditStockModalOpen(false)
+    setEditingStock(null)
+    fetchData()
+  }
+
   const columns = [
     { title: '股票代码', dataIndex: 'ts_code', key: 'ts_code' },
     { title: '股票名称', dataIndex: 'stock_name', key: 'stock_name', render: (v: string) => v || '-' },
@@ -111,9 +146,12 @@ const PoolDetail: React.FC = () => {
       title: '操作',
       key: 'action',
       render: (_: any, r: WatchStock) => (
-        <Popconfirm title="确定移除？" onConfirm={() => handleDeleteStock(r.id)}>
-          <a style={{ color: 'red' }}>移除</a>
-        </Popconfirm>
+        <Space>
+          <a onClick={() => openEditStockModal(r)}>编辑</a>
+          <Popconfirm title="确定移除？" onConfirm={() => handleDeleteStock(r.id)}>
+            <a style={{ color: 'red' }}>移除</a>
+          </Popconfirm>
+        </Space>
       ),
     },
   ]
@@ -124,7 +162,12 @@ const PoolDetail: React.FC = () => {
         返回列表
       </Button>
       <Card
-        title={pool?.name || '加载中...'}
+        title={
+          <Space>
+            {pool?.name || '加载中...'}
+            <Button type="text" size="small" icon={<EditOutlined />} onClick={openEditPoolModal} />
+          </Space>
+        }
         extra={
           <Space>
             <Button icon={<SyncOutlined spin={syncing} />} loading={syncing} onClick={handleSync}>
@@ -154,6 +197,35 @@ const PoolDetail: React.FC = () => {
           </Form.Item>
           <Form.Item name="note" label="备注">
             <Input.TextArea placeholder="可选" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal title="编辑观察池" open={editPoolModalOpen} onOk={handleEditPool} onCancel={() => setEditPoolModalOpen(false)}>
+        <Form form={poolForm} layout="vertical">
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal title="编辑股票" open={editStockModalOpen} onOk={handleEditStock} onCancel={() => { setEditStockModalOpen(false); setEditingStock(null) }}>
+        <Form form={stockForm} layout="vertical">
+          <Form.Item label="股票">
+            <Input disabled value={editingStock ? `${editingStock.ts_code} ${editingStock.stock_name || ''}` : ''} />
+          </Form.Item>
+          <Form.Item name="monitor_status" label="监控状态">
+            <Select>
+              <Select.Option value="monitoring">监控中</Select.Option>
+              <Select.Option value="paused">已暂停</Select.Option>
+              <Select.Option value="triggered">已触发</Select.Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="note" label="备注">
+            <Input.TextArea placeholder="如：关注理由、买入条件等" />
           </Form.Item>
         </Form>
       </Modal>

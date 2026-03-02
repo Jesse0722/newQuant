@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Rate, Tag, Space, Popconfirm, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { listPlans, createPlan, deletePlan } from '../../api/plans'
+import { listPlans, createPlan, updatePlan, deletePlan } from '../../api/plans'
 import type { TradePlan } from '../../types'
 
 const typeMap: Record<string, string> = { trend: '趋势跟踪', short_term: '短线操作', event_driven: '事件驱动' }
@@ -121,7 +121,7 @@ const PlanList: React.FC = () => {
       <Modal title="新建交易计划" open={modalOpen} onOk={handleCreate} onCancel={() => setModalOpen(false)} width={600}>
         <Form form={form} layout="vertical" initialValues={{ risk_level: 3, plan_type: 'trend' }}>
           <Form.Item name="ts_code" label="股票代码" rules={[{ required: true }]}>
-            <Input placeholder="000001.SZ" />
+            <Input placeholder="输入6位代码，如 000001" />
           </Form.Item>
           <Form.Item name="plan_type" label="计划类型" rules={[{ required: true }]}>
             <Select options={[
