@@ -21,6 +21,11 @@ app.add_middleware(
 
 app.add_exception_handler(AppError, app_error_handler)
 
+from app.routers import pools, sync
+
+app.include_router(pools.router)
+app.include_router(sync.router)
+
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
