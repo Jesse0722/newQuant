@@ -12,6 +12,8 @@ from app.schemas.pool import (
     CSVImportResult,
 )
 from app.exceptions import AppError
+from app.services.sync_service import sync_single_stock
+from app.tasks.background import submit_task
 
 router = APIRouter(prefix="/api/pools", tags=["pools"])
 
@@ -116,6 +118,7 @@ def add_stock(pool_id: str, body: WatchStockCreate, db: Session = Depends(get_db
     basic = db.query(StockBasic).filter(StockBasic.ts_code == stock.ts_code).first()
     out = WatchStockOut.model_validate(stock)
     out.stock_name = basic.name if basic else None
+    submit_task("sync", sync_single_stock, body.ts_code)
     return out
 
 
@@ -155,6 +158,7 @@ async def import_csv(pool_id: str, file: UploadFile = File(...), db: Session = D
         text = content.decode("gbk")
     reader = csv.DictReader(io.StringIO(text))
     result = CSVImportResult()
+    imported_codes: list[str] = []
     for i, row in enumerate(reader):
         ts_code = row.get("ts_code") or row.get("股票代码") or row.get("code")
         if not ts_code:
@@ -182,5 +186,8 @@ async def import_csv(pool_id: str, file: UploadFile = File(...), db: Session = D
         )
         db.add(stock)
         result.imported += 1
+        imported_codes.append(ts_code)
     db.commit()
+    for code in imported_codes:
+        submit_task("sync", sync_single_stock, code)
     return result
