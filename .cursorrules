@@ -1,22 +1,30 @@
 # 量化交易系统 - Cursor 规则
 
-## 规划与设计
-
-当用户提出规划、设计、脑暴、或「先不着急实施」时，必须采用 **问答式规划** 流程：
-
-1. **一次只问一个问题**，等用户回答后再继续
-2. **优先使用选择题**，便于快速拍板
-3. **设计获批前不写代码**，不创建文件，不执行实现
-4. 设计定稿后保存到 `docs/plans/` 或合并进 `docs/01-产品设计-定稿.md`
-
-参考：`docs/PLANNING_WITH_SUPERPOWERS.md`（Superpowers brainstorming 流程）
-
-## 文档
-
-- 产品设计定稿：`docs/01-产品设计-定稿.md`
-- 待定稿项（脑暴续）：`docs/02-脑暴续-待定稿.md`
-- 实施计划：`docs/03-实施计划-Phase1.md`
-
 ## 语言
 
 始终使用中文回复。
+
+## Superpowers 工作流（.cursor/rules/）
+
+本项目采用 [Superpowers](https://github.com/obra/superpowers) 方法论，通过 `.cursor/rules/` 中的规则文件自动触发：
+
+- **brainstorming.mdc** — 规划/设计/新功能时自动触发，问答式规划，设计获批前不写代码
+- **writing-plans.mdc** — 设计批准后生成细粒度实施计划（TDD、DRY、YAGNI）
+- **subagent-driven-dev.mdc** — 用 subagent 驱动执行计划，含两阶段 review
+
+### 规划流程简述
+
+1. 用户提出想法 → brainstorming 规则触发 → 一次一问、选择题优先
+2. 设计获批 → 保存到 `docs/plans/YYYY-MM-DD-xxx-design.md`
+3. 生成实施计划 → 保存到 `docs/plans/YYYY-MM-DD-xxx-plan.md`
+4. 选择执行方式：subagent 驱动 / 手动逐步
+
+## 文档
+
+- 方案讨论记录：`docs/01-方案讨论-定稿.md`
+- 产品设计定稿：`docs/02-产品设计-定稿.md`
+- 技术方案定稿：`docs/03-技术方案-定稿.md`
+- UI 线框图：`docs/UI设计提示词-StitchAI.md`
+- 实施计划：`docs/plans/2026-03-02-v1-implementation-plan.md`
+- 设计与计划输出目录：`docs/plans/`
+- 文档导航：`docs/README.md`（新会话先读此文件）
