@@ -3,7 +3,7 @@ __pycache__/
 *.pyo
 backend/venv/
 backend/data/quant.db
-.env
+**/.env
 *.egg-info/
 dist/
 build/

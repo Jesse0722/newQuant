@@ -15,5 +15,5 @@ def get_db():
         db.close()
 
 def init_db():
-    import app.models  # noqa: F401 — 确保所有模型被注册
+    import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)
