@@ -65,6 +65,10 @@ def sync_pool(task_id: str, pool_id: str, days: int = 250):
                 pass
             task_registry[task_id].progress = (i + 1) / total if total else 1.0
             task_registry[task_id].message = f"已同步 {i+1}/{total}"
+        # 同步完成后自动触发监控扫描
+        from app.services.monitor_engine import scan_pool as _scan_pool
+        from app.tasks.background import submit_task as _submit
+        _submit("scan", _scan_pool, pool_id)
     finally:
         db.close()
 
