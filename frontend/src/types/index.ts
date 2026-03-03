@@ -20,6 +20,7 @@ export interface WatchStock {
   trade_date?: string
   source: string
   monitor_status: string
+  pinned: boolean
   note?: string
   created_at: string
 }

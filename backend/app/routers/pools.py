@@ -104,7 +104,7 @@ def list_stocks(
     q = db.query(WatchStock).filter(WatchStock.pool_id == pool_id)
     if monitor_status:
         q = q.filter(WatchStock.monitor_status == monitor_status)
-    stocks = q.order_by(WatchStock.created_at.desc()).all()
+    stocks = q.order_by(WatchStock.pinned.desc(), WatchStock.created_at.desc()).all()
     result = []
     for s in stocks:
         out = _enrich_stock(db, s)

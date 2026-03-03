@@ -36,6 +36,7 @@ class WatchStockUpdate(BaseModel):
     added_price: Optional[float] = None
     note: Optional[str] = None
     monitor_status: Optional[str] = None
+    pinned: Optional[bool] = None
 
 
 class WatchStockOut(BaseModel):
@@ -50,6 +51,7 @@ class WatchStockOut(BaseModel):
     trade_date: Optional[str] = None
     source: str
     monitor_status: str
+    pinned: bool = False
     note: Optional[str] = None
     created_at: datetime
     model_config = {"from_attributes": True}

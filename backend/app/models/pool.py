@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Float, Text, DateTime, JSON, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Float, Text, DateTime, JSON, ForeignKey, UniqueConstraint, Boolean
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -26,6 +26,7 @@ class WatchStock(Base):
     added_price = Column(Float)
     source = Column(String(16), nullable=False, default="manual")
     monitor_status = Column(String(16), nullable=False, default="monitoring")
+    pinned = Column(Boolean, nullable=False, default=False)
     note = Column(Text)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     pool = relationship("WatchPool", back_populates="stocks")

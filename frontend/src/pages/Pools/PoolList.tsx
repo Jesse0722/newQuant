@@ -3,12 +3,16 @@ import {
   Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Space,
   Tag, Upload, message, Popconfirm, Select, Tooltip,
 } from 'antd'
-import { PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined } from '@ant-design/icons'
+import {
+  PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
+  PushpinOutlined, PushpinFilled, FileAddOutlined,
+} from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
   listPools, createPool, updatePool, deletePool,
   listStocks, addStock, deleteStock, updateStock, importCSV,
 } from '../../api/pools'
+import { createPlan } from '../../api/plans'
 import { syncPool, getTaskStatus } from '../../api/sync'
 import type { Pool, WatchStock } from '../../types'
 
@@ -20,12 +24,12 @@ const PoolList: React.FC = () => {
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [editPoolModalOpen, setEditPoolModalOpen] = useState(false)
-  const [editStockModalOpen, setEditStockModalOpen] = useState(false)
-  const [editingStock, setEditingStock] = useState<WatchStock | null>(null)
+  const [planModalOpen, setPlanModalOpen] = useState(false)
+  const [planStock, setPlanStock] = useState<WatchStock | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [addForm] = Form.useForm()
   const [poolForm] = Form.useForm()
-  const [stockForm] = Form.useForm()
+  const [planForm] = Form.useForm()
   const navigate = useNavigate()
   const initialLoaded = useRef(false)
 
@@ -62,7 +66,7 @@ const PoolList: React.FC = () => {
   const handleAddPool = async () => {
     const name = `新观察池 ${pools.length + 1}`
     const res = await createPool({ name })
-    const updated = await fetchPools()
+    await fetchPools()
     setActivePoolId(res.data.id)
     message.success('已创建')
   }
@@ -153,37 +157,46 @@ const PoolList: React.FC = () => {
     }
   }
 
-  const handleStatusChange = async (stockId: string, status: string) => {
-    await updateStock(activePoolId, stockId, { monitor_status: status })
+  const handleFieldUpdate = async (stockId: string, field: string, value: any) => {
+    await updateStock(activePoolId, stockId, { [field]: value } as any)
     fetchStocks(activePoolId)
   }
 
-  const openEditStockModal = (stock: WatchStock) => {
-    setEditingStock(stock)
-    stockForm.setFieldsValue({
-      added_price: stock.added_price,
-      note: stock.note,
-      monitor_status: stock.monitor_status,
+  const handleTogglePin = async (stock: WatchStock) => {
+    await updateStock(activePoolId, stock.id, { pinned: !stock.pinned })
+    fetchStocks(activePoolId)
+  }
+
+  const openCreatePlanModal = (stock: WatchStock) => {
+    setPlanStock(stock)
+    planForm.resetFields()
+    planForm.setFieldsValue({
+      ts_code: stock.ts_code,
+      plan_type: 'trend',
+      risk_level: 3,
     })
-    setEditStockModalOpen(true)
+    setPlanModalOpen(true)
   }
 
-  const handleEditStock = async () => {
-    if (!editingStock) return
-    const values = await stockForm.validateFields()
-    await updateStock(activePoolId, editingStock.id, values)
-    message.success('更新成功')
-    setEditStockModalOpen(false)
-    setEditingStock(null)
-    fetchStocks(activePoolId)
-  }
-
-  const handleAddedPriceChange = async (stockId: string, value: number | null) => {
-    await updateStock(activePoolId, stockId, { added_price: value ?? undefined } as any)
-    fetchStocks(activePoolId)
+  const handleCreatePlan = async () => {
+    const values = await planForm.validateFields()
+    await createPlan(values)
+    message.success('交易计划已创建')
+    setPlanModalOpen(false)
+    setPlanStock(null)
   }
 
   const columns = [
+    {
+      title: '', dataIndex: 'pinned', key: 'pinned', width: 36,
+      render: (_: any, r: WatchStock) => (
+        <Tooltip title={r.pinned ? '取消置顶' : '置顶'}>
+          <a onClick={() => handleTogglePin(r)} style={{ color: r.pinned ? '#faad14' : '#d9d9d9', fontSize: 16 }}>
+            {r.pinned ? <PushpinFilled /> : <PushpinOutlined />}
+          </a>
+        </Tooltip>
+      ),
+    },
     {
       title: '股票代码', dataIndex: 'ts_code', key: 'ts_code',
       render: (v: string) => <a onClick={() => navigate(`/stocks/${v}`)}>{v}</a>,
@@ -216,7 +229,7 @@ const PoolList: React.FC = () => {
           controls={false}
           onBlur={(e) => {
             const newVal = e.target.value ? parseFloat(e.target.value) : null
-            if (newVal !== v) handleAddedPriceChange(r.id, newVal)
+            if (newVal !== v) handleFieldUpdate(r.id, 'added_price', newVal)
           }}
           onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
         />
@@ -225,7 +238,7 @@ const PoolList: React.FC = () => {
     {
       title: '监控状态', dataIndex: 'monitor_status', key: 'monitor_status',
       render: (s: string, r: WatchStock) => (
-        <Select size="small" value={s} style={{ width: 100 }} onChange={(v) => handleStatusChange(r.id, v)}>
+        <Select size="small" value={s} style={{ width: 100 }} onChange={(v) => handleFieldUpdate(r.id, 'monitor_status', v)}>
           <Select.Option value="monitoring"><Tag color="green">监控中</Tag></Select.Option>
           <Select.Option value="paused"><Tag>已暂停</Tag></Select.Option>
           <Select.Option value="triggered"><Tag color="orange">已触发</Tag></Select.Option>
@@ -233,14 +246,31 @@ const PoolList: React.FC = () => {
       ),
     },
     {
-      title: '备注', dataIndex: 'note', key: 'note', ellipsis: true,
-      render: (v: string) => v || '-',
+      title: '备注', dataIndex: 'note', key: 'note', width: 180,
+      render: (v: string, r: WatchStock) => (
+        <Input
+          size="small"
+          defaultValue={v || ''}
+          placeholder="点击编辑备注"
+          style={{ border: 'none', background: 'transparent', padding: '0 4px' }}
+          onFocus={(e) => { e.target.style.background = '#fff'; e.target.style.border = '1px solid #d9d9d9' }}
+          onBlur={(e) => {
+            e.target.style.background = 'transparent'
+            e.target.style.border = 'none'
+            const newVal = e.target.value.trim()
+            if (newVal !== (v || '')) handleFieldUpdate(r.id, 'note', newVal || null)
+          }}
+          onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
+        />
+      ),
     },
     {
       title: '操作', key: 'action', width: 120,
       render: (_: any, r: WatchStock) => (
-        <Space>
-          <a onClick={() => openEditStockModal(r)}>编辑</a>
+        <Space size={0} split={<span style={{ color: '#d9d9d9', margin: '0 4px' }}>|</span>}>
+          <Tooltip title="创建交易计划">
+            <a onClick={() => openCreatePlanModal(r)}><FileAddOutlined /></a>
+          </Tooltip>
           <Popconfirm title="确定移除？" onConfirm={() => handleDeleteStock(r.id)}>
             <a style={{ color: 'red' }}>移除</a>
           </Popconfirm>
@@ -333,24 +363,39 @@ const PoolList: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* 编辑股票 */}
-      <Modal title="编辑股票" open={editStockModalOpen} onOk={handleEditStock} onCancel={() => { setEditStockModalOpen(false); setEditingStock(null) }}>
-        <Form form={stockForm} layout="vertical">
-          <Form.Item label="股票">
-            <Input disabled value={editingStock ? `${editingStock.ts_code} ${editingStock.stock_name || ''}` : ''} />
+      {/* 创建交易计划 */}
+      <Modal title={`创建交易计划 - ${planStock?.stock_name || planStock?.ts_code || ''}`} open={planModalOpen} onOk={handleCreatePlan} onCancel={() => { setPlanModalOpen(false); setPlanStock(null) }} width={600}>
+        <Form form={planForm} layout="vertical" initialValues={{ risk_level: 3, plan_type: 'trend' }}>
+          <Form.Item name="ts_code" hidden><Input /></Form.Item>
+          <Form.Item name="plan_type" label="计划类型" rules={[{ required: true }]}>
+            <Select options={[
+              { value: 'trend', label: '趋势跟踪' },
+              { value: 'short_term', label: '短线操作' },
+              { value: 'event_driven', label: '事件驱动' },
+            ]} />
           </Form.Item>
-          <Form.Item name="added_price" label="加入价格">
-            <InputNumber style={{ width: '100%' }} />
+          <Form.Item name="risk_level" label="风险等级">
+            <InputNumber min={1} max={5} />
           </Form.Item>
-          <Form.Item name="monitor_status" label="监控状态">
-            <Select>
-              <Select.Option value="monitoring">监控中</Select.Option>
-              <Select.Option value="paused">已暂停</Select.Option>
-              <Select.Option value="triggered">已触发</Select.Option>
-            </Select>
+          <Form.Item name="trigger_strategy" label="触发策略">
+            <Input.TextArea placeholder="如：MACD 金叉触发" rows={2} />
           </Form.Item>
+          <Form.Item name="event_note" label="热点/事件">
+            <Input.TextArea placeholder="宏观背景、事件驱动原因" rows={2} />
+          </Form.Item>
+          <Space>
+            <Form.Item name="planned_buy_price" label="计划买入价">
+              <InputNumber style={{ width: 150 }} />
+            </Form.Item>
+            <Form.Item name="target_price" label="目标价">
+              <InputNumber style={{ width: 150 }} />
+            </Form.Item>
+            <Form.Item name="stop_loss_price" label="止损价">
+              <InputNumber style={{ width: 150 }} />
+            </Form.Item>
+          </Space>
           <Form.Item name="note" label="备注">
-            <Input.TextArea />
+            <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
       </Modal>
