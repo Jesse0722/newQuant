@@ -33,6 +33,7 @@ class WatchStockCreate(BaseModel):
 
 
 class WatchStockUpdate(BaseModel):
+    added_price: Optional[float] = None
     note: Optional[str] = None
     monitor_status: Optional[str] = None
 
@@ -44,6 +45,9 @@ class WatchStockOut(BaseModel):
     stock_name: Optional[str] = None
     added_at: datetime
     added_price: Optional[float] = None
+    latest_price: Optional[float] = None
+    pct_chg: Optional[float] = None
+    trade_date: Optional[str] = None
     source: str
     monitor_status: str
     note: Optional[str] = None

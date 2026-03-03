@@ -15,9 +15,65 @@ export interface WatchStock {
   stock_name?: string
   added_at: string
   added_price?: number
+  latest_price?: number
+  pct_chg?: number
+  trade_date?: string
   source: string
   monitor_status: string
   note?: string
+  created_at: string
+}
+
+export interface StockBasicInfo {
+  ts_code: string
+  name: string
+  industry?: string
+  area?: string
+  market?: string
+  list_date?: string
+}
+
+export interface QuoteItem {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  vol: number
+  amount: number
+  pct_chg: number
+}
+
+export interface StockChartData {
+  basic: StockBasicInfo
+  quotes: QuoteItem[]
+  indicators: {
+    ma5: (number | null)[]
+    ma10: (number | null)[]
+    ma20: (number | null)[]
+    macd: {
+      dif: (number | null)[]
+      dea: (number | null)[]
+      histogram: (number | null)[]
+    }
+    rsi: (number | null)[]
+  }
+}
+
+export interface StockAlertItem {
+  id: string
+  trigger_date: string
+  status: string
+  snapshot?: Record<string, any>
+  created_at: string
+}
+
+export interface StockPlanItem {
+  id: string
+  plan_type: string
+  status: string
+  risk_level: number
+  actual_pnl?: number
   created_at: string
 }
 

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app.models.pool import WatchPool, WatchStock
-from app.models.stock import StockBasic
+from app.models.stock import StockBasic, DailyQuote
 from app.schemas.pool import (
     PoolCreate, PoolUpdate, PoolOut,
     WatchStockCreate, WatchStockUpdate, WatchStockOut,
@@ -17,6 +17,20 @@ from app.services.sync_service import sync_single_stock
 from app.tasks.background import submit_task
 
 router = APIRouter(prefix="/api/pools", tags=["pools"])
+
+
+def _enrich_stock(db: Session, stock: WatchStock) -> WatchStockOut:
+    basic = db.query(StockBasic).filter(StockBasic.ts_code == stock.ts_code).first()
+    latest = db.query(DailyQuote).filter(
+        DailyQuote.ts_code == stock.ts_code
+    ).order_by(DailyQuote.trade_date.desc()).first()
+    out = WatchStockOut.model_validate(stock)
+    out.stock_name = basic.name if basic else None
+    if latest:
+        out.latest_price = latest.close
+        out.pct_chg = latest.pct_chg
+        out.trade_date = latest.trade_date
+    return out
 
 
 @router.get("", response_model=list[PoolOut])
@@ -93,9 +107,7 @@ def list_stocks(
     stocks = q.order_by(WatchStock.created_at.desc()).all()
     result = []
     for s in stocks:
-        basic = db.query(StockBasic).filter(StockBasic.ts_code == s.ts_code).first()
-        out = WatchStockOut.model_validate(s)
-        out.stock_name = basic.name if basic else None
+        out = _enrich_stock(db, s)
         if keyword and keyword.lower() not in (s.ts_code + (out.stock_name or "")).lower():
             continue
         result.append(out)
@@ -122,9 +134,7 @@ def add_stock(pool_id: str, body: WatchStockCreate, db: Session = Depends(get_db
     db.add(stock)
     db.commit()
     db.refresh(stock)
-    basic = db.query(StockBasic).filter(StockBasic.ts_code == stock.ts_code).first()
-    out = WatchStockOut.model_validate(stock)
-    out.stock_name = basic.name if basic else None
+    out = _enrich_stock(db, stock)
     submit_task("sync", sync_single_stock, ts_code)
     return out
 
@@ -138,10 +148,7 @@ def update_stock(pool_id: str, stock_id: str, body: WatchStockUpdate, db: Sessio
         setattr(stock, k, v)
     db.commit()
     db.refresh(stock)
-    basic = db.query(StockBasic).filter(StockBasic.ts_code == stock.ts_code).first()
-    out = WatchStockOut.model_validate(stock)
-    out.stock_name = basic.name if basic else None
-    return out
+    return _enrich_stock(db, stock)
 
 
 @router.delete("/{pool_id}/stocks/{stock_id}", status_code=204)
