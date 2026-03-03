@@ -173,7 +173,8 @@ async def import_csv(pool_id: str, file: UploadFile = File(...), db: Session = D
     reader = csv.DictReader(io.StringIO(text))
     result = CSVImportResult()
     imported_codes: list[str] = []
-    for i, row in enumerate(reader):
+    for i, raw_row in enumerate(reader):
+        row = {k.strip(): v.strip() if v else v for k, v in raw_row.items() if k}
         ts_code = row.get("ts_code") or row.get("股票代码") or row.get("code")
         if not ts_code:
             result.errors.append(f"第 {i+1} 行缺少股票代码")
