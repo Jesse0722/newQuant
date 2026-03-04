@@ -173,6 +173,7 @@ export interface DashboardData {
     stock_name?: string
     trigger_date: string
     status: string
+    plan_id?: string
   }>
   active_plans: Array<{
     id: string

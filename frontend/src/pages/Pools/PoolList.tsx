@@ -220,15 +220,20 @@ const PoolList: React.FC = () => {
       },
     },
     {
-      title: '加入价格', dataIndex: 'added_price', key: 'added_price',
+      title: '加入价格', dataIndex: 'added_price', key: 'added_price', width: 100,
       render: (v: number, r: WatchStock) => (
-        <InputNumber
+        <Input
           size="small"
-          value={v}
-          style={{ width: 90 }}
-          controls={false}
+          defaultValue={v != null ? String(v) : ''}
+          placeholder="点击编辑"
+          style={{ border: 'none', background: 'transparent', padding: '0 4px', width: 80 }}
+          onFocus={(e) => { e.target.style.background = '#fff'; e.target.style.border = '1px solid #d9d9d9' }}
           onBlur={(e) => {
-            const newVal = e.target.value ? parseFloat(e.target.value) : null
+            e.target.style.background = 'transparent'
+            e.target.style.border = 'none'
+            const raw = e.target.value.trim()
+            const parsed = raw ? parseFloat(raw) : NaN
+            const newVal = raw === '' ? null : (Number.isFinite(parsed) ? parsed : v)
             if (newVal !== v) handleFieldUpdate(r.id, 'added_price', newVal)
           }}
           onPressEnter={(e) => (e.target as HTMLInputElement).blur()}

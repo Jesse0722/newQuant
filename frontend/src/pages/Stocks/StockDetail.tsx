@@ -1,11 +1,14 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Card, Descriptions, Tag, Table, Button, Tabs, Space, Statistic, Row, Col, Segmented, Rate,
+  Card, Tag, Table, Button, Tabs, Space, Statistic, Row, Col, Segmented, Rate,
+  Modal, Form, Input, InputNumber, Select, DatePicker, message,
 } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
+import { ArrowLeftOutlined, FileAddOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import { getStockChart, getStockAlerts, getStockPlans } from '../../api/stocks'
+import { createPlan, createDetail } from '../../api/plans'
 import type { StockChartData, StockAlertItem, StockPlanItem } from '../../types'
 
 const typeMap: Record<string, string> = { trend: '趋势跟踪', short_term: '短线操作', event_driven: '事件驱动' }
@@ -21,8 +24,54 @@ const StockDetail: React.FC = () => {
   const [plans, setPlans] = useState<StockPlanItem[]>([])
   const [period, setPeriod] = useState(120)
   const [subIndicator, setSubIndicator] = useState<string>('macd')
+  const [planModalOpen, setPlanModalOpen] = useState(false)
+  const [detailModalOpen, setDetailModalOpen] = useState(false)
+  const [detailPlanId, setDetailPlanId] = useState<string | null>(null)
+  const [planForm] = Form.useForm()
+  const [detailForm] = Form.useForm()
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
+
+  const openPlanModal = () => {
+    planForm.resetFields()
+    planForm.setFieldsValue({ ts_code: tsCode, plan_type: 'trend', risk_level: 3 })
+    setPlanModalOpen(true)
+  }
+
+  const handleCreatePlan = async () => {
+    const values = await planForm.validateFields()
+    await createPlan(values)
+    message.success('交易计划已创建')
+    setPlanModalOpen(false)
+    if (tsCode) getStockPlans(tsCode).then((res) => setPlans(res.data))
+  }
+
+  const openDetailModal = (planId: string) => {
+    setDetailPlanId(planId)
+    detailForm.resetFields()
+    setDetailModalOpen(true)
+  }
+
+  const handleQuickRecord = async () => {
+    if (!tsCode) return
+    const res = await createPlan({ ts_code: tsCode, plan_type: 'short_term', risk_level: 3 })
+    message.success('已创建临时计划，请填写交易明细')
+    const updated = await getStockPlans(tsCode)
+    setPlans(updated.data)
+    openDetailModal(res.data.id)
+  }
+
+  const handleAddDetail = async () => {
+    if (!detailPlanId) return
+    const values = await detailForm.validateFields()
+    const payload = { ...values }
+    if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
+    await createDetail(detailPlanId, payload)
+    message.success('交易明细已添加')
+    setDetailModalOpen(false)
+    setDetailPlanId(null)
+    if (tsCode) getStockPlans(tsCode).then((res) => setPlans(res.data))
+  }
 
   useEffect(() => {
     if (!tsCode) return
@@ -41,7 +90,7 @@ const StockDetail: React.FC = () => {
     const { quotes, indicators } = chartData
     const dates = quotes.map((q) => q.date)
     const ohlc = quotes.map((q) => [q.open, q.close, q.low, q.high])
-    const volumes = quotes.map((q, i) => ({
+    const volumes = quotes.map((q) => ({
       value: q.vol,
       itemStyle: { color: q.close >= q.open ? '#ec0000' : '#00da3c' },
     }))
@@ -139,7 +188,12 @@ const StockDetail: React.FC = () => {
     { title: '创建时间', dataIndex: 'created_at', key: 'created_at', render: (v: string) => v?.slice(0, 10) },
     {
       title: '操作', key: 'action',
-      render: (_: any, r: StockPlanItem) => <a onClick={() => navigate(`/plans/${r.id}`)}>查看</a>,
+      render: (_: any, r: StockPlanItem) => (
+        <Space size={0} split={<span style={{ color: '#d9d9d9', margin: '0 4px' }}>|</span>}>
+          <a onClick={() => navigate(`/plans/${r.id}`)}>查看</a>
+          <a onClick={() => openDetailModal(r.id)}>添加明细</a>
+        </Space>
+      ),
     },
   ]
 
@@ -150,7 +204,20 @@ const StockDetail: React.FC = () => {
       </Button>
 
       {basic && (
-        <Card title={`${basic.name} ${basic.ts_code}`} style={{ marginBottom: 16 }}>
+        <Card
+          title={`${basic.name} ${basic.ts_code}`}
+          style={{ marginBottom: 16 }}
+          extra={
+            <Space>
+              <Button size="small" icon={<ThunderboltOutlined />} onClick={handleQuickRecord}>
+                快速记录
+              </Button>
+              <Button type="primary" size="small" icon={<FileAddOutlined />} onClick={openPlanModal}>
+                创建交易计划
+              </Button>
+            </Space>
+          }
+        >
           <Row gutter={24}>
             <Col span={3}><Statistic title="行业" value={basic.industry || '-'} valueStyle={{ fontSize: 16 }} /></Col>
             <Col span={3}><Statistic title="地区" value={basic.area || '-'} valueStyle={{ fontSize: 16 }} /></Col>
@@ -232,6 +299,82 @@ const StockDetail: React.FC = () => {
           ]}
         />
       </Card>
+
+      {/* 创建交易计划 */}
+      <Modal
+        title={`创建交易计划 - ${basic?.name || tsCode || ''}`}
+        open={planModalOpen}
+        onOk={handleCreatePlan}
+        onCancel={() => setPlanModalOpen(false)}
+        width={600}
+      >
+        <Form form={planForm} layout="vertical" initialValues={{ risk_level: 3, plan_type: 'trend' }}>
+          <Form.Item name="ts_code" hidden><Input /></Form.Item>
+          <Form.Item name="plan_type" label="计划类型" rules={[{ required: true }]}>
+            <Select options={[
+              { value: 'trend', label: '趋势跟踪' },
+              { value: 'short_term', label: '短线操作' },
+              { value: 'event_driven', label: '事件驱动' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="risk_level" label="风险等级">
+            <InputNumber min={1} max={5} />
+          </Form.Item>
+          <Form.Item name="trigger_strategy" label="触发策略">
+            <Input.TextArea placeholder="如：MACD 金叉触发" rows={2} />
+          </Form.Item>
+          <Form.Item name="event_note" label="热点/事件">
+            <Input.TextArea placeholder="宏观背景、事件驱动原因" rows={2} />
+          </Form.Item>
+          <Space>
+            <Form.Item name="planned_buy_price" label="计划买入价">
+              <InputNumber style={{ width: 150 }} />
+            </Form.Item>
+            <Form.Item name="target_price" label="目标价">
+              <InputNumber style={{ width: 150 }} />
+            </Form.Item>
+            <Form.Item name="stop_loss_price" label="止损价">
+              <InputNumber style={{ width: 150 }} />
+            </Form.Item>
+          </Space>
+          <Form.Item name="note" label="备注">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 添加交易明细 */}
+      <Modal
+        title="添加交易明细"
+        open={detailModalOpen}
+        onOk={handleAddDetail}
+        onCancel={() => { setDetailModalOpen(false); setDetailPlanId(null) }}
+        width={500}
+      >
+        <Form form={detailForm} layout="vertical">
+          <Form.Item name="trade_date" label="成交日期" rules={[{ required: true }]}>
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+          </Form.Item>
+          <Form.Item name="trade_time" label="成交时间">
+            <Input placeholder="09:35:00（可选）" />
+          </Form.Item>
+          <Form.Item name="direction" label="方向" rules={[{ required: true }]}>
+            <Select options={[{ value: 'buy', label: '买入' }, { value: 'sell', label: '卖出' }]} />
+          </Form.Item>
+          <Form.Item name="price" label="成交价格" rules={[{ required: true }]}>
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="quantity" label="成交数量（股）" rules={[{ required: true }]}>
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="commission" label="佣金">
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="exec_note" label="执行备注">
+            <Input.TextArea />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }

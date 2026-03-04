@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Card, Descriptions, Tag, Rate, Table, Button, Modal, Form,
-  Input, InputNumber, Select, Space, Statistic, Row, Col, Divider, message, Popconfirm,
+  Input, InputNumber, Select, Space, Statistic, Row, Col, Divider, message, Popconfirm, DatePicker,
 } from 'antd'
+import dayjs from 'dayjs'
 import { ArrowLeftOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { getPlan, updatePlan, submitReview, createDetail, updateDetail, deleteDetail } from '../../api/plans'
 import type { TradePlan, TradeDetail } from '../../types'
@@ -41,7 +42,9 @@ const PlanDetail: React.FC = () => {
 
   const handleAddDetail = async () => {
     const values = await detailForm.validateFields()
-    await createDetail(id!, values)
+    const payload = { ...values }
+    if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
+    await createDetail(id!, payload)
     message.success('添加成功')
     setDetailModalOpen(false)
     detailForm.resetFields()
@@ -97,7 +100,7 @@ const PlanDetail: React.FC = () => {
   const openEditDetailModal = (detail: TradeDetail) => {
     setEditingDetail(detail)
     editDetailForm.setFieldsValue({
-      trade_date: detail.trade_date,
+      trade_date: detail.trade_date ? dayjs(detail.trade_date, 'YYYYMMDD') : undefined,
       trade_time: detail.trade_time,
       direction: detail.direction,
       price: detail.price,
@@ -111,7 +114,9 @@ const PlanDetail: React.FC = () => {
   const handleEditDetail = async () => {
     if (!editingDetail) return
     const values = await editDetailForm.validateFields()
-    await updateDetail(editingDetail.id, values)
+    const payload = { ...values }
+    if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
+    await updateDetail(editingDetail.id, payload)
     message.success('明细已更新')
     setEditDetailModalOpen(false)
     setEditingDetail(null)
@@ -291,7 +296,7 @@ const PlanDetail: React.FC = () => {
       <Modal title="添加交易明细" open={detailModalOpen} onOk={handleAddDetail} onCancel={() => setDetailModalOpen(false)} width={500}>
         <Form form={detailForm} layout="vertical">
           <Form.Item name="trade_date" label="成交日期" rules={[{ required: true }]}>
-            <Input placeholder="20260301" />
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
           </Form.Item>
           <Form.Item name="trade_time" label="成交时间">
             <Input placeholder="09:35:00（可选）" />
@@ -318,10 +323,10 @@ const PlanDetail: React.FC = () => {
       <Modal title="编辑交易明细" open={editDetailModalOpen} onOk={handleEditDetail} onCancel={() => { setEditDetailModalOpen(false); setEditingDetail(null) }} width={500}>
         <Form form={editDetailForm} layout="vertical">
           <Form.Item name="trade_date" label="成交日期" rules={[{ required: true }]}>
-            <Input />
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
           </Form.Item>
           <Form.Item name="trade_time" label="成交时间">
-            <Input />
+            <Input placeholder="09:35:00（可选）" />
           </Form.Item>
           <Form.Item name="direction" label="方向" rules={[{ required: true }]}>
             <Select options={[{ value: 'buy', label: '买入' }, { value: 'sell', label: '卖出' }]} />

@@ -28,6 +28,7 @@ def get_dashboard(db: Session = Depends(get_db)):
             "stock_name": basic.name if basic else None,
             "trigger_date": a.trigger_date,
             "status": a.status,
+            "plan_id": a.plan_id,
         })
 
     active_plans_raw = db.query(TradePlan).filter(

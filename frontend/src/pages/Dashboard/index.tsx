@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Col, Row, Statistic, Table, Tag, Empty } from 'antd'
+import { Card, Col, Row, Statistic, Table, Tag, Empty, Spin } from 'antd'
 import { EyeOutlined, AlertOutlined, FileTextOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { getDashboard } from '../../api/dashboard'
@@ -7,10 +7,11 @@ import type { DashboardData } from '../../types'
 
 const Dashboard: React.FC = () => {
   const [data, setData] = useState<DashboardData | null>(null)
+  const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
-    getDashboard().then((res) => setData(res.data))
+    getDashboard().then((res) => setData(res.data)).finally(() => setLoading(false))
   }, [])
 
   const alertColumns = [
@@ -50,6 +51,14 @@ const Dashboard: React.FC = () => {
 
   const ps = data?.pool_summary
 
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: 48 }}>
+        <Spin size="large" tip="加载中..." />
+      </div>
+    )
+  }
+
   return (
     <div>
       <Row gutter={16} style={{ marginBottom: 24 }}>
@@ -74,7 +83,17 @@ const Dashboard: React.FC = () => {
         <Col span={12}>
           <Card title="最新提醒" extra={<a onClick={() => navigate('/alerts')}>查看全部</a>}>
             {data?.recent_alerts?.length ? (
-              <Table dataSource={data.recent_alerts} columns={alertColumns} rowKey="id" pagination={false} size="small" />
+              <Table
+                dataSource={data.recent_alerts}
+                columns={alertColumns}
+                rowKey="id"
+                pagination={false}
+                size="small"
+                onRow={(r) => ({
+                  onClick: () => r.plan_id ? navigate(`/plans/${r.plan_id}`) : navigate('/alerts'),
+                  style: { cursor: 'pointer' },
+                })}
+              />
             ) : (
               <Empty description="暂无提醒" />
             )}

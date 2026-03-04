@@ -48,6 +48,20 @@ Phase 5 → 前端（React + Ant Design，6 个页面 + 联调）
 
 ---
 
+## 启动服务
+
+**前置**：确保 `backend/.env` 已配置 `TUSHARE_TOKEN`（可从 `backend/.env.example` 复制并填入）。
+
+```bash
+# 后端（默认 http://localhost:8000）
+cd backend && source venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# 前端（默认 http://localhost:5173 或 3000）
+cd frontend && npm run dev
+```
+
+---
+
 ## 项目配置
 
 | 配置 | 路径 | 说明 |
