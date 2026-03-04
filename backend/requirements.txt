@@ -6,3 +6,5 @@ sqlalchemy>=2.0.0
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 python-multipart>=0.0.6
+pytesseract>=0.3.10
+Pillow>=10.0.0

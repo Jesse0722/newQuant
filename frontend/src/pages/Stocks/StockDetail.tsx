@@ -2,13 +2,14 @@ import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Card, Tag, Table, Button, Tabs, Space, Statistic, Row, Col, Segmented, Rate,
-  Modal, Form, Input, InputNumber, Select, DatePicker, message,
+  Modal, Form, Input, InputNumber, Select, DatePicker, message, Upload,
 } from 'antd'
 import dayjs from 'dayjs'
-import { ArrowLeftOutlined, FileAddOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, FileAddOutlined, ThunderboltOutlined, InboxOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import { getStockChart, getStockAlerts, getStockPlans } from '../../api/stocks'
 import { createPlan, createDetail } from '../../api/plans'
+import { extractTradeFromImage } from '../../api/ocr'
 import type { StockChartData, StockAlertItem, StockPlanItem } from '../../types'
 
 const typeMap: Record<string, string> = { trend: '趋势跟踪', short_term: '短线操作', event_driven: '事件驱动' }
@@ -27,6 +28,10 @@ const StockDetail: React.FC = () => {
   const [planModalOpen, setPlanModalOpen] = useState(false)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [detailPlanId, setDetailPlanId] = useState<string | null>(null)
+  const [quickRecordModalOpen, setQuickRecordModalOpen] = useState(false)
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [ocrRawText, setOcrRawText] = useState<string>('')
+  const [quickRecordForm] = Form.useForm()
   const [planForm] = Form.useForm()
   const [detailForm] = Form.useForm()
   const chartRef = useRef<HTMLDivElement>(null)
@@ -52,13 +57,54 @@ const StockDetail: React.FC = () => {
     setDetailModalOpen(true)
   }
 
-  const handleQuickRecord = async () => {
+  const openQuickRecordModal = () => {
+    quickRecordForm.resetFields()
+    setOcrRawText('')
+    setQuickRecordModalOpen(true)
+  }
+
+  const handleOcrUpload = async (file: File) => {
+    setOcrLoading(true)
+    setOcrRawText('')
+    try {
+      const res = await extractTradeFromImage(file)
+      if (res.data.error) {
+        message.warning(res.data.error + '，请手动填写')
+      } else {
+        setOcrRawText(res.data.raw_text)
+        const p = res.data.parsed || {}
+        const values: Record<string, any> = {}
+        if (p.trade_date) values.trade_date = dayjs(p.trade_date, 'YYYYMMDD')
+        if (p.trade_time) values.trade_time = p.trade_time
+        if (p.direction) values.direction = p.direction
+        if (p.price != null) values.price = p.price
+        if (p.quantity != null) values.quantity = p.quantity
+        quickRecordForm.setFieldsValue(values)
+        message.success('识别完成，请校对后提交')
+      }
+    } catch {
+      message.error('识别失败，请手动填写')
+    } finally {
+      setOcrLoading(false)
+    }
+    return false
+  }
+
+  const handleSkipUpload = () => {
+    setOcrRawText('')
+    quickRecordForm.resetFields()
+  }
+
+  const handleQuickRecordSubmit = async () => {
     if (!tsCode) return
-    const res = await createPlan({ ts_code: tsCode, plan_type: 'short_term', risk_level: 3 })
-    message.success('已创建临时计划，请填写交易明细')
-    const updated = await getStockPlans(tsCode)
-    setPlans(updated.data)
-    openDetailModal(res.data.id)
+    const values = await quickRecordForm.validateFields()
+    const payload = { ...values }
+    if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
+    const planRes = await createPlan({ ts_code: tsCode, plan_type: 'short_term', risk_level: 3 })
+    await createDetail(planRes.data.id, payload)
+    message.success('交易记录已添加')
+    setQuickRecordModalOpen(false)
+    getStockPlans(tsCode).then((res) => setPlans(res.data))
   }
 
   const handleAddDetail = async () => {
@@ -209,7 +255,7 @@ const StockDetail: React.FC = () => {
           style={{ marginBottom: 16 }}
           extra={
             <Space>
-              <Button size="small" icon={<ThunderboltOutlined />} onClick={handleQuickRecord}>
+              <Button size="small" icon={<ThunderboltOutlined />} onClick={openQuickRecordModal}>
                 快速记录
               </Button>
               <Button type="primary" size="small" icon={<FileAddOutlined />} onClick={openPlanModal}>
@@ -339,6 +385,62 @@ const StockDetail: React.FC = () => {
           </Space>
           <Form.Item name="note" label="备注">
             <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 快速记录 - 上传截图 OCR */}
+      <Modal
+        title={`快速记录 - ${basic?.name || tsCode || ''}`}
+        open={quickRecordModalOpen}
+        onOk={handleQuickRecordSubmit}
+        onCancel={() => setQuickRecordModalOpen(false)}
+        width={560}
+        okText="确认并添加"
+      >
+        <Upload.Dragger
+          accept="image/*"
+          showUploadList={false}
+          beforeUpload={(file) => { handleOcrUpload(file); return false }}
+          disabled={ocrLoading}
+        >
+          <p className="ant-upload-drag-icon">
+            <InboxOutlined style={{ fontSize: 48, color: ocrLoading ? '#999' : '#1890ff' }} />
+          </p>
+          <p className="ant-upload-text">
+            {ocrLoading ? '识别中...' : '点击或拖拽券商成交截图到此处'}
+          </p>
+        </Upload.Dragger>
+        <div style={{ marginTop: 8, marginBottom: 16 }}>
+          <a onClick={handleSkipUpload}>跳过上传，手动填写</a>
+        </div>
+        {ocrRawText && (
+          <div style={{ marginBottom: 16, padding: 8, background: '#f5f5f5', borderRadius: 4, maxHeight: 80, overflow: 'auto', fontSize: 12 }}>
+            <div style={{ color: '#666', marginBottom: 4 }}>识别文本（供对照）：</div>
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{ocrRawText}</pre>
+          </div>
+        )}
+        <Form form={quickRecordForm} layout="vertical">
+          <Form.Item name="trade_date" label="成交日期" rules={[{ required: true }]}>
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+          </Form.Item>
+          <Form.Item name="trade_time" label="成交时间">
+            <Input placeholder="09:35:00（可选）" />
+          </Form.Item>
+          <Form.Item name="direction" label="方向" rules={[{ required: true }]}>
+            <Select options={[{ value: 'buy', label: '买入' }, { value: 'sell', label: '卖出' }]} />
+          </Form.Item>
+          <Form.Item name="price" label="成交价格" rules={[{ required: true }]}>
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="quantity" label="成交数量（股）" rules={[{ required: true }]}>
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="commission" label="佣金">
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="exec_note" label="执行备注">
+            <Input.TextArea />
           </Form.Item>
         </Form>
       </Modal>

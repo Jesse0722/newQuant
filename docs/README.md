@@ -50,7 +50,9 @@ Phase 5 → 前端（React + Ant Design，6 个页面 + 联调）
 
 ## 启动服务
 
-**前置**：确保 `backend/.env` 已配置 `TUSHARE_TOKEN`（可从 `backend/.env.example` 复制并填入）。
+**前置**：
+- `backend/.env` 已配置 `TUSHARE_TOKEN`（可从 `backend/.env.example` 复制并填入）
+- 快速记录 OCR 功能需安装 Tesseract：`brew install tesseract`（中文：`brew install tesseract-lang`）
 
 ```bash
 # 后端（默认 http://localhost:8000）
