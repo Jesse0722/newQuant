@@ -9,9 +9,9 @@ from app.tasks.background import task_registry
 
 
 def _get_trade_dates(days: int = 60) -> list[str]:
-    """获取最近 N 个交易日日期（YYYYMMDD）"""
+    """获取最近 N 个交易日日期（YYYYMMDD），从昨天开始（今日数据可能未就绪）"""
     dates = []
-    d = datetime.now()
+    d = datetime.now() - timedelta(days=1)
     while len(dates) < days:
         s = d.strftime("%Y%m%d")
         if d.weekday() < 5:

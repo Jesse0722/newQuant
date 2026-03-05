@@ -63,6 +63,8 @@ cd backend && source venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --
 cd frontend && npm run dev
 ```
 
+**注意**：代码更新后需**重启后端**，否则新接口（如全市场同步）可能返回 404。
+
 ---
 
 ## 项目配置
