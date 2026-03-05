@@ -9,6 +9,7 @@ import PlanList from './pages/Plans/PlanList'
 import PlanDetail from './pages/Plans/PlanDetail'
 import StockDetail from './pages/Stocks/StockDetail'
 import StrategyPage from './pages/Strategy/StrategyPage'
+import DataPage from './pages/Data/DataPage'
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
             <Route path="/plans" element={<PlanList />} />
             <Route path="/plans/:id" element={<PlanDetail />} />
             <Route path="/strategy" element={<StrategyPage />} />
+            <Route path="/data" element={<DataPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

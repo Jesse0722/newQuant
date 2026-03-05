@@ -191,6 +191,21 @@ export interface TaskStatus {
   status: string
   progress: number
   message?: string
+  result?: {
+    success_count?: number
+    failed_count?: number
+    skipped_count?: number
+    days_synced?: number
+    failed_dates?: Array<{ date: string; message: string }>
+    message?: string
+  }
+}
+
+export interface DataSummary {
+  stock_count: number
+  total_quotes: number
+  quote_date_range: { min: string | null; max: string | null }
+  last_sync_at: string | null
 }
 
 export interface Pagination<T> {
