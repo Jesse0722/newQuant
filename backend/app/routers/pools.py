@@ -45,6 +45,31 @@ def list_pools(db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/all-stocks")
+def list_all_stocks(
+    keyword: str = Query(None),
+    db: Session = Depends(get_db),
+):
+    """所有观察池股票（扁平列表），支持 keyword 按名称/代码模糊搜索"""
+    q = db.query(WatchStock, WatchPool).join(WatchPool, WatchStock.pool_id == WatchPool.id)
+    rows = q.order_by(WatchPool.name, WatchStock.ts_code).all()
+    result = []
+    for ws, pool in rows:
+        basic = db.query(StockBasic).filter(StockBasic.ts_code == ws.ts_code).first()
+        stock_name = basic.name if basic else None
+        if keyword:
+            kw = keyword.lower()
+            if kw not in (ws.ts_code or "").lower() and kw not in (stock_name or "").lower():
+                continue
+        result.append({
+            "ts_code": ws.ts_code,
+            "stock_name": stock_name,
+            "pool_id": pool.id,
+            "pool_name": pool.name,
+        })
+    return result
+
+
 @router.post("", response_model=PoolOut, status_code=201)
 def create_pool(body: PoolCreate, db: Session = Depends(get_db)):
     pool = WatchPool(**body.model_dump())

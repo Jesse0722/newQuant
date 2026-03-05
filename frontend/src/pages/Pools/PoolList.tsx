@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import {
   Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Space,
-  Tag, Upload, message, Popconfirm, Select, Tooltip, Rate,
+  Tag, Upload, message, Popconfirm, Select, Tooltip, AutoComplete,
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
@@ -171,8 +171,8 @@ const PoolList: React.FC = () => {
     setPlanStock(stock)
     planForm.resetFields()
     planForm.setFieldsValue({
-      stocks: [{ ts_code: stock.ts_code, risk_level: 3, planned_buy_price: stock.added_price }],
-      plan_type: 'trend',
+      title: `${stock.stock_name || stock.ts_code} - 计划`,
+      stocks: [{ ts_code: stock.ts_code, risk_level: 2, planned_buy_price: stock.added_price }],
     })
     setPlanModalOpen(true)
   }
@@ -181,10 +181,8 @@ const PoolList: React.FC = () => {
     const values = await planForm.validateFields()
     const stocks = values.stocks.map((s: any) => ({
       ts_code: s.ts_code,
-      risk_level: s.risk_level ?? 3,
+      risk_level: s.risk_level ?? 2,
       trigger_strategy: s.trigger_strategy,
-      event_note: s.event_note,
-      action_suggestion: s.action_suggestion,
       planned_buy_price: s.planned_buy_price,
       target_price: s.target_price,
       stop_loss_price: s.stop_loss_price,
@@ -192,8 +190,8 @@ const PoolList: React.FC = () => {
       note: s.note,
     }))
     await createPlan({
+      title: values.title,
       stocks,
-      plan_type: values.plan_type,
       note: values.note,
     })
     message.success('交易计划已创建')
@@ -384,32 +382,20 @@ const PoolList: React.FC = () => {
       </Modal>
 
       {/* 创建交易计划 */}
-      <Modal title={`创建交易计划 - ${planStock?.stock_name || planStock?.ts_code || ''}`} open={planModalOpen} onOk={handleCreatePlan} onCancel={() => { setPlanModalOpen(false); setPlanStock(null) }} width={600}>
-        <Form form={planForm} layout="vertical" initialValues={{ plan_type: 'trend' }}>
+      <Modal title={`创建交易计划 - ${planStock?.stock_name || planStock?.ts_code || ''}`} open={planModalOpen} onOk={handleCreatePlan} onCancel={() => { setPlanModalOpen(false); setPlanStock(null) }} width={560}>
+        <Form form={planForm} layout="vertical">
+          <Form.Item name="title" label="标题" rules={[{ required: true }]}>
+            <Input placeholder="计划标题" />
+          </Form.Item>
           <Form.Item name={['stocks', 0, 'ts_code']} hidden><Input /></Form.Item>
           <Form.Item noStyle shouldUpdate>
             {() => (
               <div style={{ marginBottom: 16, padding: 12, background: '#fafafa', borderRadius: 8 }}>
                 <div style={{ marginBottom: 8 }}>股票：{planStock?.stock_name || planStock?.ts_code || '-'}</div>
-                <Form.Item name={['stocks', 0, 'risk_level']} label="风险等级">
-                  <Rate count={5} />
-                </Form.Item>
                 <Form.Item name={['stocks', 0, 'trigger_strategy']} label="触发策略">
-                  <Input.TextArea placeholder="如：MACD 金叉触发" rows={2} />
+                  <AutoComplete options={['短线', '龙头战法', 'MACD金叉', '突破', '回调', '趋势跟踪', '事件驱动', '均线支撑', '量价配合'].map((o) => ({ value: o }))} placeholder="输入或选择" />
                 </Form.Item>
-                <Form.Item name={['stocks', 0, 'event_note']} label="热点/事件">
-                  <Input.TextArea placeholder="宏观背景、事件驱动原因" rows={2} />
-                </Form.Item>
-                <Form.Item name={['stocks', 0, 'action_suggestion']} label="操作建议">
-                  <Select allowClear options={[
-                    { value: 'buy', label: '买入' },
-                    { value: 'add_position', label: '加仓' },
-                    { value: 'reduce', label: '减仓' },
-                    { value: 'sell', label: '卖出' },
-                    { value: 'watch', label: '观望' },
-                  ]} />
-                </Form.Item>
-                <Space>
+                <Space wrap>
                   <Form.Item name={['stocks', 0, 'planned_buy_price']} label="计划买入价">
                     <InputNumber style={{ width: 120 }} />
                   </Form.Item>
@@ -420,21 +406,21 @@ const PoolList: React.FC = () => {
                     <InputNumber style={{ width: 120 }} />
                   </Form.Item>
                 </Space>
-                <Form.Item name={['stocks', 0, 'position_plan']} label="仓位计划">
-                  <Input placeholder="如：30%" style={{ width: 200 }} />
+                <Form.Item name={['stocks', 0, 'position_plan']} label="仓位(%)">
+                  <InputNumber min={0} max={100} addonAfter="%" style={{ width: 140 }} />
+                </Form.Item>
+                <Form.Item name={['stocks', 0, 'risk_level']} label="风险程度">
+                  <Select style={{ width: 120 }} options={[
+                    { value: 1, label: '低风险' },
+                    { value: 2, label: '中风险' },
+                    { value: 3, label: '高风险' },
+                  ]} />
                 </Form.Item>
                 <Form.Item name={['stocks', 0, 'note']} label="备注">
                   <Input.TextArea rows={2} />
                 </Form.Item>
               </div>
             )}
-          </Form.Item>
-          <Form.Item name="plan_type" label="计划类型" rules={[{ required: true }]}>
-            <Select options={[
-              { value: 'trend', label: '趋势跟踪' },
-              { value: 'short_term', label: '短线操作' },
-              { value: 'event_driven', label: '事件驱动' },
-            ]} />
           </Form.Item>
           <Form.Item name="note" label="计划备注">
             <Input.TextArea rows={2} />

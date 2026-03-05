@@ -71,8 +71,9 @@ def create_plan_from_alert(alert_id: str, db: Session = Depends(get_db)):
     trigger_desc = ""
     if rule and rule.template_id and rule.template_id in TEMPLATE_INFO:
         trigger_desc = TEMPLATE_INFO[rule.template_id]["name"]
+    stock_label = basic.name if basic else alert.ts_code
     plan = TradePlan(
-        plan_type="short_term",
+        title=f"{stock_label} - 提醒触发",
         alert_id=alert.id,
     )
     db.add(plan)
@@ -82,7 +83,7 @@ def create_plan_from_alert(alert_id: str, db: Session = Depends(get_db)):
         ts_code=alert.ts_code,
         stock_name=basic.name if basic else None,
         trigger_strategy=trigger_desc,
-        risk_level=3,
+        risk_level=2,
     )
     db.add(ps)
     alert.status = "processed"

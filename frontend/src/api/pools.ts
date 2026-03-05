@@ -2,6 +2,15 @@ import client from './client'
 import type { Pool, WatchStock } from '../types'
 
 export const listPools = () => client.get<Pool[]>('/pools')
+
+export interface AllStockItem {
+  ts_code: string
+  stock_name?: string
+  pool_id: string
+  pool_name: string
+}
+export const getAllStocks = (keyword?: string) =>
+  client.get<AllStockItem[]>('/pools/all-stocks', { params: keyword ? { keyword } : {} })
 export const createPool = (data: { name: string; description?: string }) => client.post<Pool>('/pools', data)
 export const getPool = (id: string) => client.get<Pool>(`/pools/${id}`)
 export const updatePool = (id: string, data: Partial<Pool>) => client.put<Pool>(`/pools/${id}`, data)

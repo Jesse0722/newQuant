@@ -53,7 +53,7 @@ def _enrich_plan(db: Session, plan: TradePlan, include_details: bool = False) ->
     pnl = _calc_pnl_for_ts_codes(db, ts_codes)
     out = TradePlanOut(
         id=plan.id,
-        plan_type=plan.plan_type,
+        title=plan.title,
         status=plan.status,
         alert_id=plan.alert_id,
         actual_pnl=plan.actual_pnl if plan.actual_pnl is not None else pnl.net_pnl,
@@ -71,10 +71,8 @@ def _enrich_plan(db: Session, plan: TradePlan, include_details: bool = False) ->
             plan_id=ps.plan_id,
             ts_code=ps.ts_code,
             stock_name=ps.stock_name,
-            risk_level=ps.risk_level if ps.risk_level is not None else 3,
+            risk_level=ps.risk_level if ps.risk_level is not None else 2,
             trigger_strategy=ps.trigger_strategy,
-            event_note=ps.event_note,
-            action_suggestion=ps.action_suggestion,
             planned_buy_price=ps.planned_buy_price,
             target_price=ps.target_price,
             stop_loss_price=ps.stop_loss_price,
@@ -100,7 +98,6 @@ def _enrich_plan(db: Session, plan: TradePlan, include_details: bool = False) ->
 @router.get("/plans", response_model=TradePlanPagination)
 def list_plans(
     status: str = Query(None),
-    plan_type: str = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -108,8 +105,6 @@ def list_plans(
     q = db.query(TradePlan)
     if status:
         q = q.filter(TradePlan.status == status)
-    if plan_type:
-        q = q.filter(TradePlan.plan_type == plan_type)
     total = q.count()
     items = q.order_by(TradePlan.created_at.desc()).offset((page - 1) * size).limit(size).all()
     return TradePlanPagination(
@@ -123,7 +118,7 @@ def create_plan(body: TradePlanCreate, db: Session = Depends(get_db)):
     if not body.stocks:
         raise AppError(code=4004, message="至少需要一只股票", status_code=400)
     plan = TradePlan(
-        plan_type=body.plan_type,
+        title=body.title,
         alert_id=body.alert_id,
         note=body.note,
     )
@@ -142,15 +137,13 @@ def create_plan(body: TradePlanCreate, db: Session = Depends(get_db)):
             plan_id=plan.id,
             ts_code=ts_code,
             stock_name=basic.name if basic else None,
-            risk_level=s.risk_level if s.risk_level is not None else 3,
+            risk_level=s.risk_level if s.risk_level is not None else 2,
             trigger_strategy=s.trigger_strategy,
-            event_note=s.event_note,
-            action_suggestion=s.action_suggestion,
             planned_buy_price=s.planned_buy_price,
             target_price=s.target_price,
             stop_loss_price=s.stop_loss_price,
             risk_reward_ratio=rr,
-            position_plan=s.position_plan,
+            position_plan=str(s.position_plan) if s.position_plan is not None else None,
             note=s.note,
         )
         db.add(ps)
@@ -187,15 +180,13 @@ def update_plan(plan_id: str, body: TradePlanUpdate, db: Session = Depends(get_d
                         plan_id=plan.id,
                         ts_code=ts_code,
                         stock_name=basic.name if basic else None,
-                        risk_level=getattr(s, "risk_level", 3) or 3,
+                        risk_level=getattr(s, "risk_level", 2) or 2,
                         trigger_strategy=getattr(s, "trigger_strategy", None),
-                        event_note=getattr(s, "event_note", None),
-                        action_suggestion=getattr(s, "action_suggestion", None),
                         planned_buy_price=s.planned_buy_price,
                         target_price=s.target_price,
                         stop_loss_price=s.stop_loss_price,
                         risk_reward_ratio=rr,
-                        position_plan=s.position_plan,
+                        position_plan=str(s.position_plan) if s.position_plan is not None else None,
                         note=s.note,
                     )
                     db.add(ps)

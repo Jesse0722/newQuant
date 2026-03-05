@@ -1,18 +1,16 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from pydantic import BaseModel
 
 
 class TradePlanStockCreate(BaseModel):
     ts_code: str
-    risk_level: int = 3
+    risk_level: int = 2  # 1=低 2=中 3=高
     trigger_strategy: Optional[str] = None
-    event_note: Optional[str] = None
-    action_suggestion: Optional[str] = None
     planned_buy_price: Optional[float] = None
     target_price: Optional[float] = None
     stop_loss_price: Optional[float] = None
-    position_plan: Optional[str] = None
+    position_plan: Optional[Union[str, int, float]] = None  # 数字百分比，如 30
     note: Optional[str] = None
 
 
@@ -21,10 +19,8 @@ class TradePlanStockOut(BaseModel):
     plan_id: str
     ts_code: str
     stock_name: Optional[str] = None
-    risk_level: int = 3
+    risk_level: int = 2  # 1=低 2=中 3=高
     trigger_strategy: Optional[str] = None
-    event_note: Optional[str] = None
-    action_suggestion: Optional[str] = None
     planned_buy_price: Optional[float] = None
     target_price: Optional[float] = None
     stop_loss_price: Optional[float] = None
@@ -36,8 +32,8 @@ class TradePlanStockOut(BaseModel):
 
 
 class TradePlanCreate(BaseModel):
+    title: str
     stocks: list[TradePlanStockCreate]
-    plan_type: str
     alert_id: Optional[str] = None
     note: Optional[str] = None
 
@@ -45,8 +41,6 @@ class TradePlanCreate(BaseModel):
 class TradePlanStockUpdate(BaseModel):
     risk_level: Optional[int] = None
     trigger_strategy: Optional[str] = None
-    event_note: Optional[str] = None
-    action_suggestion: Optional[str] = None
     planned_buy_price: Optional[float] = None
     target_price: Optional[float] = None
     stop_loss_price: Optional[float] = None
@@ -55,7 +49,7 @@ class TradePlanStockUpdate(BaseModel):
 
 
 class TradePlanUpdate(BaseModel):
-    plan_type: Optional[str] = None
+    title: Optional[str] = None
     status: Optional[str] = None
     note: Optional[str] = None
     stocks: Optional[list[TradePlanStockCreate]] = None
@@ -116,7 +110,7 @@ class PnlSummary(BaseModel):
 
 class TradePlanOut(BaseModel):
     id: str
-    plan_type: str
+    title: str
     status: str
     alert_id: Optional[str] = None
     actual_pnl: Optional[float] = None

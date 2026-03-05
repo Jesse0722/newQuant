@@ -1,16 +1,24 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Rate, Tag, Space, Popconfirm, message } from 'antd'
+import { Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, AutoComplete, Tag, Space, Popconfirm, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { listPlans, createPlan, deletePlan } from '../../api/plans'
+import { getAllStocks } from '../../api/pools'
 import type { TradePlan } from '../../types'
 
-const typeMap: Record<string, string> = { trend: '趋势跟踪', short_term: '短线操作', event_driven: '事件驱动' }
+const TRIGGER_OPTIONS = ['短线', '龙头战法', 'MACD金叉', '突破', '回调', '趋势跟踪', '事件驱动', '均线支撑', '量价配合']
+
 const statusMap: Record<string, { label: string; color: string }> = {
   pending: { label: '待触发', color: 'default' },
   active: { label: '执行中', color: 'blue' },
   completed: { label: '已完结', color: 'green' },
   cancelled: { label: '已取消', color: 'red' },
+}
+
+const riskMap: Record<number, { label: string; color: string }> = {
+  1: { label: '低风险', color: 'green' },
+  2: { label: '中风险', color: 'orange' },
+  3: { label: '高风险', color: 'red' },
 }
 
 const PlanList: React.FC = () => {
@@ -20,6 +28,7 @@ const PlanList: React.FC = () => {
   const [tab, setTab] = useState<string>('')
   const [page, setPage] = useState(1)
   const [modalOpen, setModalOpen] = useState(false)
+  const [allStocks, setAllStocks] = useState<Array<{ ts_code: string; stock_name?: string }>>([])
   const [form] = Form.useForm()
   const navigate = useNavigate()
 
@@ -35,14 +44,18 @@ const PlanList: React.FC = () => {
 
   useEffect(() => { fetchPlans(tab, 1); setPage(1) }, [tab])
 
+  useEffect(() => {
+    if (modalOpen) {
+      getAllStocks().then((res) => setAllStocks(res.data || []))
+    }
+  }, [modalOpen])
+
   const handleCreate = async () => {
     const values = await form.validateFields()
     const stocks = values.stocks.map((s: any) => ({
       ts_code: s.ts_code,
-      risk_level: s.risk_level ?? 3,
+      risk_level: s.risk_level ?? 2,
       trigger_strategy: s.trigger_strategy,
-      event_note: s.event_note,
-      action_suggestion: s.action_suggestion,
       planned_buy_price: s.planned_buy_price,
       target_price: s.target_price,
       stop_loss_price: s.stop_loss_price,
@@ -50,8 +63,8 @@ const PlanList: React.FC = () => {
       note: s.note,
     }))
     await createPlan({
+      title: values.title,
       stocks,
-      plan_type: values.plan_type,
       note: values.note,
     })
     message.success('创建成功')
@@ -77,7 +90,21 @@ const PlanList: React.FC = () => {
     return first?.risk_reward_ratio?.toFixed(2) ?? '-'
   }
 
+  const stockOptions = allStocks.map((s) => ({
+    value: s.ts_code,
+    label: `${s.stock_name || s.ts_code} (${s.ts_code})`,
+  }))
+
   const columns = [
+    {
+      title: '标题',
+      dataIndex: 'title',
+      key: 'title',
+      ellipsis: true,
+      render: (t: string, r: TradePlan) => (
+        <a onClick={() => navigate(`/plans/${r.id}`)}>{t || '-'}</a>
+      ),
+    },
     {
       title: '股票',
       key: 'stock',
@@ -85,11 +112,15 @@ const PlanList: React.FC = () => {
         <a onClick={() => navigate(`/plans/${r.id}`)}>{stockDisplay(r)}</a>
       ),
     },
-    { title: '类型', dataIndex: 'plan_type', key: 'plan_type', render: (t: string) => typeMap[t] || t },
     {
-      title: '风险等级',
+      title: '风险',
       key: 'risk_level',
-      render: (_: any, r: TradePlan) => <Rate disabled value={r.stocks?.[0]?.risk_level ?? 3} count={5} style={{ fontSize: 14 }} />,
+      width: 90,
+      render: (_: any, r: TradePlan) => {
+        const lv = r.stocks?.[0]?.risk_level ?? 2
+        const m = riskMap[lv] || riskMap[2]
+        return <Tag color={m.color}>{m.label}</Tag>
+      },
     },
     {
       title: '状态',
@@ -145,16 +176,12 @@ const PlanList: React.FC = () => {
       />
 
       <Modal title="新建交易计划" open={modalOpen} onOk={handleCreate} onCancel={() => setModalOpen(false)} width={900}>
-        <Form form={form} layout="vertical" initialValues={{ plan_type: 'trend', stocks: [{ risk_level: 3 }] }}>
-          <Form.Item name="plan_type" label="计划类型" rules={[{ required: true }]}>
-            <Select options={[
-              { value: 'trend', label: '趋势跟踪' },
-              { value: 'short_term', label: '短线操作' },
-              { value: 'event_driven', label: '事件驱动' },
-            ]} />
+        <Form form={form} layout="vertical" initialValues={{ stocks: [{ risk_level: 2 }] }}>
+          <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
+            <Input placeholder="计划标题" />
           </Form.Item>
           <Form.Item name="note" label="计划备注">
-            <Input.TextArea />
+            <Input.TextArea rows={2} />
           </Form.Item>
           <Form.Item label="股票列表">
             <Form.List name="stocks" rules={[{ validator: (_, v) => (v?.length ? Promise.resolve() : Promise.reject('至少添加一只股票')) }]}>
@@ -165,22 +192,110 @@ const PlanList: React.FC = () => {
                     rowKey={(f) => String(f.key)}
                     pagination={false}
                     size="small"
-                    scroll={{ x: 1200 }}
+                    scroll={{ x: 1100 }}
                     columns={[
-                      { title: '股票代码', key: 'ts_code', width: 100, render: (_, __, i) => <Form.Item name={[fields[i].name, 'ts_code']} noStyle rules={[{ required: true }]}><Input placeholder="6位" size="small" /></Form.Item> },
-                      { title: '风险', key: 'risk_level', width: 90, render: (_, __, i) => <Form.Item name={[fields[i].name, 'risk_level']} noStyle><Rate count={5} style={{ fontSize: 14 }} /></Form.Item> },
-                      { title: '触发策略', key: 'trigger_strategy', width: 120, render: (_, __, i) => <Form.Item name={[fields[i].name, 'trigger_strategy']} noStyle><Input placeholder="策略" size="small" /></Form.Item> },
-                      { title: '热点/事件', key: 'event_note', width: 120, render: (_, __, i) => <Form.Item name={[fields[i].name, 'event_note']} noStyle><Input placeholder="事件" size="small" /></Form.Item> },
-                      { title: '操作建议', key: 'action_suggestion', width: 90, render: (_, __, i) => <Form.Item name={[fields[i].name, 'action_suggestion']} noStyle><Select placeholder="建议" size="small" allowClear options={[{ value: 'buy', label: '买入' }, { value: 'add_position', label: '加仓' }, { value: 'reduce', label: '减仓' }, { value: 'sell', label: '卖出' }, { value: 'watch', label: '观望' }]} style={{ width: 80 }} /></Form.Item> },
-                      { title: '买入价', key: 'planned_buy_price', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'planned_buy_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
-                      { title: '目标价', key: 'target_price', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'target_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
-                      { title: '止损价', key: 'stop_loss_price', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'stop_loss_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
-                      { title: '仓位', key: 'position_plan', width: 80, render: (_, __, i) => <Form.Item name={[fields[i].name, 'position_plan']} noStyle><Input placeholder="30%" size="small" style={{ width: 60 }} /></Form.Item> },
-                      { title: '备注', key: 'note', width: 100, render: (_, __, i) => <Form.Item name={[fields[i].name, 'note']} noStyle><Input placeholder="备注" size="small" /></Form.Item> },
-                      { title: '', key: 'action', width: 40, render: (_, __, i) => fields.length > 1 ? <a onClick={() => remove(fields[i].name)} style={{ color: '#ff4d4f' }}>删</a> : null },
+                      {
+                        title: '股票',
+                        key: 'ts_code',
+                        width: 180,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'ts_code']} noStyle rules={[{ required: true, message: '请选择' }]}>
+                            <Select
+                              showSearch
+                              placeholder="选择或搜索"
+                              size="small"
+                              style={{ width: 160 }}
+                              options={stockOptions}
+                              filterOption={(input, opt) =>
+                                (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                              }
+                            />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '触发策略',
+                        key: 'trigger_strategy',
+                        width: 130,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'trigger_strategy']} noStyle>
+                            <AutoComplete options={TRIGGER_OPTIONS.map((o) => ({ value: o }))} placeholder="输入或选择" size="small" style={{ width: 120 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '买入价',
+                        key: 'planned_buy_price',
+                        width: 85,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'planned_buy_price']} noStyle>
+                            <InputNumber size="small" style={{ width: 70 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '目标价',
+                        key: 'target_price',
+                        width: 85,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'target_price']} noStyle>
+                            <InputNumber size="small" style={{ width: 70 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '止损价',
+                        key: 'stop_loss_price',
+                        width: 85,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'stop_loss_price']} noStyle>
+                            <InputNumber size="small" style={{ width: 70 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '仓位(%)',
+                        key: 'position_plan',
+                        width: 90,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'position_plan']} noStyle>
+                            <InputNumber size="small" min={0} max={100} addonAfter="%" style={{ width: 80 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '风险',
+                        key: 'risk_level',
+                        width: 100,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'risk_level']} noStyle>
+                            <Select size="small" style={{ width: 90 }} options={[
+                              { value: 1, label: '低风险' },
+                              { value: 2, label: '中风险' },
+                              { value: 3, label: '高风险' },
+                            ]} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '备注',
+                        key: 'note',
+                        width: 100,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'note']} noStyle>
+                            <Input placeholder="备注" size="small" />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '',
+                        key: 'action',
+                        width: 40,
+                        render: (_, __, i) => fields.length > 1 ? <a onClick={() => remove(fields[i].name)} style={{ color: '#ff4d4f' }}>删</a> : null,
+                      },
                     ]}
                   />
-                  <Button type="dashed" onClick={() => add({ risk_level: 3 })} block icon={<PlusOutlined />} style={{ marginTop: 8 }}>添加股票</Button>
+                  <Button type="dashed" onClick={() => add({ risk_level: 2 })} block icon={<PlusOutlined />} style={{ marginTop: 8 }}>添加股票</Button>
                 </>
               )}
             </Form.List>

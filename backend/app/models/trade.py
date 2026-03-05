@@ -9,7 +9,7 @@ class TradePlan(Base):
     """交易计划（一对多股票）"""
     __tablename__ = "trade_plan"
     id = Column(String(36), primary_key=True, default=gen_uuid)
-    plan_type = Column(String(16), nullable=False)
+    title = Column(String(64), nullable=False)
     status = Column(String(16), nullable=False, default="pending")
     alert_id = Column(String(36), nullable=True)
     actual_pnl = Column(Float)
@@ -28,10 +28,8 @@ class TradePlanStock(Base):
     plan_id = Column(String(36), ForeignKey("trade_plan.id"), nullable=False)
     ts_code = Column(String(16), nullable=False)
     stock_name = Column(String(32))
-    risk_level = Column(Integer, nullable=False, default=3)
+    risk_level = Column(Integer, nullable=False, default=2)  # 1=低 2=中 3=高
     trigger_strategy = Column(Text)
-    event_note = Column(Text)
-    action_suggestion = Column(String(16))
     planned_buy_price = Column(Float)
     target_price = Column(Float)
     stop_loss_price = Column(Float)

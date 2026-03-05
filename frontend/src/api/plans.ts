@@ -1,22 +1,20 @@
 import client from './client'
 import type { TradePlan, TradeDetail, Pagination } from '../types'
 
-export const listPlans = (params?: { status?: string; plan_type?: string; page?: number; size?: number }) =>
+export const listPlans = (params?: { status?: string; page?: number; size?: number }) =>
   client.get<Pagination<TradePlan>>('/plans', { params })
 export const createPlan = (data: {
+  title: string
   stocks: Array<{
     ts_code: string
     risk_level?: number
     trigger_strategy?: string
-    event_note?: string
-    action_suggestion?: string
     planned_buy_price?: number
     target_price?: number
     stop_loss_price?: number
-    position_plan?: string
+    position_plan?: number | string
     note?: string
   }>
-  plan_type: string
   alert_id?: string
   note?: string
 }) => client.post<TradePlan>('/plans', data)

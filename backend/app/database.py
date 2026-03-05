@@ -19,5 +19,7 @@ def init_db():
     migrate_trade_plan()
     from scripts.migrate_plan_stock_fields import migrate as migrate_plan_stock_fields
     migrate_plan_stock_fields()
+    from scripts.migrate_plan_title_remove_type import migrate as migrate_plan_title_remove_type
+    migrate_plan_title_remove_type()
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

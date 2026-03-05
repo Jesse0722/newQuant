@@ -48,7 +48,7 @@ def get_data_summary(db: Session = Depends(get_db)):
         func.min(DailyQuote.trade_date),
         func.max(DailyQuote.trade_date),
     ).first()
-    min_date, max_date = date_range[0] if date_range else (None, None)
+    min_date, max_date = (date_range[0], date_range[1]) if date_range else (None, None)
     return {
         "stock_count": stock_count,
         "total_quotes": total_quotes,

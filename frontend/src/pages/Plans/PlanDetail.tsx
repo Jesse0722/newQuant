@@ -1,21 +1,29 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Card, Descriptions, Tag, Rate, Table, Button, Modal, Form,
-  Input, InputNumber, Select, Space, Statistic, Row, Col, message, Popconfirm, DatePicker,
+  Card, Descriptions, Tag, Table, Button, Modal, Form,
+  Input, InputNumber, Select, AutoComplete, Space, Statistic, Row, Col, message, Popconfirm, DatePicker,
 } from 'antd'
 import dayjs from 'dayjs'
 import { ArrowLeftOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { getPlan, updatePlan, submitReview, updateDetail, deleteDetail } from '../../api/plans'
 import { createStockDetail } from '../../api/stocks'
+import { getAllStocks } from '../../api/pools'
 import type { TradePlan, TradeDetail, TradePlanStock } from '../../types'
 
-const typeMap: Record<string, string> = { trend: '趋势跟踪', short_term: '短线操作', event_driven: '事件驱动' }
+const TRIGGER_OPTIONS = ['短线', '龙头战法', 'MACD金叉', '突破', '回调', '趋势跟踪', '事件驱动', '均线支撑', '量价配合']
+
 const statusMap: Record<string, { label: string; color: string }> = {
   pending: { label: '待触发', color: 'default' },
   active: { label: '执行中', color: 'blue' },
   completed: { label: '已完结', color: 'green' },
   cancelled: { label: '已取消', color: 'red' },
+}
+
+const riskMap: Record<number, { label: string; color: string }> = {
+  1: { label: '低风险', color: 'green' },
+  2: { label: '中风险', color: 'orange' },
+  3: { label: '高风险', color: 'red' },
 }
 
 const PlanDetail: React.FC = () => {
@@ -29,6 +37,7 @@ const PlanDetail: React.FC = () => {
   const [editPlanModalOpen, setEditPlanModalOpen] = useState(false)
   const [editDetailModalOpen, setEditDetailModalOpen] = useState(false)
   const [editingDetail, setEditingDetail] = useState<TradeDetail | null>(null)
+  const [allStocks, setAllStocks] = useState<Array<{ ts_code: string; stock_name?: string }>>([])
   const [detailForm] = Form.useForm()
   const [reviewForm] = Form.useForm()
   const [planForm] = Form.useForm()
@@ -86,19 +95,18 @@ const PlanDetail: React.FC = () => {
 
   const openEditPlanModal = () => {
     if (!plan) return
+    getAllStocks().then((res) => setAllStocks(res.data || []))
     planForm.setFieldsValue({
-      plan_type: plan.plan_type,
+      title: plan.title,
       note: plan.note,
       stocks: plan.stocks?.map((s) => ({
         ts_code: s.ts_code,
-        risk_level: s.risk_level ?? 3,
+        risk_level: s.risk_level ?? 2,
         trigger_strategy: s.trigger_strategy,
-        event_note: s.event_note,
-        action_suggestion: s.action_suggestion,
         planned_buy_price: s.planned_buy_price,
         target_price: s.target_price,
         stop_loss_price: s.stop_loss_price,
-        position_plan: s.position_plan,
+        position_plan: s.position_plan != null ? (typeof s.position_plan === 'string' ? parseFloat(s.position_plan) || undefined : s.position_plan) : undefined,
         note: s.note,
       })) || [],
     })
@@ -107,7 +115,17 @@ const PlanDetail: React.FC = () => {
 
   const handleEditPlan = async () => {
     const values = await planForm.validateFields()
-    await updatePlan(id!, { ...values, stocks: values.stocks })
+    const stocks = values.stocks.map((s: any) => ({
+      ts_code: s.ts_code,
+      risk_level: s.risk_level ?? 2,
+      trigger_strategy: s.trigger_strategy,
+      planned_buy_price: s.planned_buy_price,
+      target_price: s.target_price,
+      stop_loss_price: s.stop_loss_price,
+      position_plan: s.position_plan,
+      note: s.note,
+    }))
+    await updatePlan(id!, { title: values.title, note: values.note, stocks })
     message.success('计划已更新')
     setEditPlanModalOpen(false)
     fetchPlan()
@@ -169,10 +187,7 @@ const PlanDetail: React.FC = () => {
   ]
 
   const pnl = plan?.pnl_summary
-  const titleStock = plan?.stocks?.[0]
-  const titleStr = plan?.stocks?.length === 1
-    ? `${titleStock?.stock_name || titleStock?.ts_code}`
-    : `多股计划（${plan?.stocks?.length || 0}只）`
+  const stockOptions = allStocks.map((s) => ({ value: s.ts_code, label: `${s.stock_name || s.ts_code} (${s.ts_code})` }))
 
   return (
     <div>
@@ -183,7 +198,7 @@ const PlanDetail: React.FC = () => {
       {plan && (
         <>
           <Card
-            title={`${titleStr} — ${typeMap[plan.plan_type] || plan.plan_type}`}
+            title={plan.title || '交易计划'}
             extra={
               <Space>
                 <Button icon={<EditOutlined />} onClick={openEditPlanModal}>编辑计划</Button>
@@ -227,16 +242,14 @@ const PlanDetail: React.FC = () => {
                 rowExpandable: () => true,
               }}
               columns={[
-                { title: '股票', key: 'stock', render: (_: any, ps: TradePlanStock) => `${ps.stock_name || ps.ts_code} ${ps.ts_code}` },
-                { title: '风险等级', dataIndex: 'risk_level', key: 'risk_level', width: 90, render: (v: number) => <Rate disabled value={v ?? 3} count={5} style={{ fontSize: 12 }} /> },
+                { title: '股票', key: 'stock', render: (_: any, ps: TradePlanStock) => `${ps.stock_name || ps.ts_code} (${ps.ts_code})` },
+                { title: '风险', dataIndex: 'risk_level', key: 'risk_level', width: 90, render: (v: number) => { const m = riskMap[v ?? 2] || riskMap[2]; return <Tag color={m.color}>{m.label}</Tag> } },
                 { title: '触发策略', dataIndex: 'trigger_strategy', key: 'trigger_strategy', ellipsis: true, render: (v: string) => v || '-' },
-                { title: '热点/事件', dataIndex: 'event_note', key: 'event_note', ellipsis: true, render: (v: string) => v || '-' },
-                { title: '操作建议', dataIndex: 'action_suggestion', key: 'action_suggestion', width: 90, render: (v: string) => (v === 'buy' ? '买入' : v === 'add_position' ? '加仓' : v === 'reduce' ? '减仓' : v === 'sell' ? '卖出' : v === 'watch' ? '观望' : v || '-') },
                 { title: '计划买入价', dataIndex: 'planned_buy_price', key: 'planned_buy_price', width: 100, render: (v: number) => v != null ? v.toFixed(2) : '-' },
                 { title: '目标价', dataIndex: 'target_price', key: 'target_price', width: 90, render: (v: number) => v != null ? v.toFixed(2) : '-' },
                 { title: '止损价', dataIndex: 'stop_loss_price', key: 'stop_loss_price', width: 90, render: (v: number) => v != null ? v.toFixed(2) : '-' },
                 { title: '盈亏比', dataIndex: 'risk_reward_ratio', key: 'rr', width: 80, render: (v: number) => v != null ? v.toFixed(2) : '-' },
-                { title: '仓位', dataIndex: 'position_plan', key: 'position_plan', width: 80, render: (v: string) => v || '-' },
+                { title: '仓位', dataIndex: 'position_plan', key: 'position_plan', width: 80, render: (v: string | number) => v != null ? `${v}%` : '-' },
                 { title: '备注', dataIndex: 'note', key: 'note', ellipsis: true, render: (v: string) => v || '-' },
               ]}
             />
@@ -285,15 +298,11 @@ const PlanDetail: React.FC = () => {
       {/* 编辑交易计划 */}
       <Modal title="编辑交易计划" open={editPlanModalOpen} onOk={handleEditPlan} onCancel={() => setEditPlanModalOpen(false)} width={900}>
         <Form form={planForm} layout="vertical">
-          <Form.Item name="plan_type" label="计划类型">
-            <Select options={[
-              { value: 'trend', label: '趋势跟踪' },
-              { value: 'short_term', label: '短线操作' },
-              { value: 'event_driven', label: '事件驱动' },
-            ]} />
+          <Form.Item name="title" label="标题" rules={[{ required: true }]}>
+            <Input placeholder="计划标题" />
           </Form.Item>
           <Form.Item name="note" label="计划备注">
-            <Input.TextArea />
+            <Input.TextArea rows={2} />
           </Form.Item>
           <Form.Item label="股票列表">
             <Form.List name="stocks">
@@ -304,17 +313,15 @@ const PlanDetail: React.FC = () => {
                     rowKey={(f) => String(f.key)}
                     pagination={false}
                     size="small"
-                    scroll={{ x: 1200 }}
+                    scroll={{ x: 1100 }}
                     columns={[
-                      { title: '股票代码', key: 'ts_code', width: 100, render: (_, __, i) => <Form.Item name={[fields[i].name, 'ts_code']} noStyle rules={[{ required: true }]}><Input placeholder="6位" size="small" /></Form.Item> },
-                      { title: '风险', key: 'risk_level', width: 90, render: (_, __, i) => <Form.Item name={[fields[i].name, 'risk_level']} noStyle><Rate count={5} style={{ fontSize: 14 }} /></Form.Item> },
-                      { title: '触发策略', key: 'trigger_strategy', width: 120, render: (_, __, i) => <Form.Item name={[fields[i].name, 'trigger_strategy']} noStyle><Input placeholder="策略" size="small" /></Form.Item> },
-                      { title: '热点/事件', key: 'event_note', width: 120, render: (_, __, i) => <Form.Item name={[fields[i].name, 'event_note']} noStyle><Input placeholder="事件" size="small" /></Form.Item> },
-                      { title: '操作建议', key: 'action_suggestion', width: 90, render: (_, __, i) => <Form.Item name={[fields[i].name, 'action_suggestion']} noStyle><Select placeholder="建议" size="small" allowClear options={[{ value: 'buy', label: '买入' }, { value: 'add_position', label: '加仓' }, { value: 'reduce', label: '减仓' }, { value: 'sell', label: '卖出' }, { value: 'watch', label: '观望' }]} style={{ width: 80 }} /></Form.Item> },
+                      { title: '股票', key: 'ts_code', width: 180, render: (_, __, i) => <Form.Item name={[fields[i].name, 'ts_code']} noStyle rules={[{ required: true }]}><Select showSearch placeholder="选择" size="small" style={{ width: 160 }} options={stockOptions} filterOption={(input, opt) => (opt?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())} /></Form.Item> },
+                      { title: '触发策略', key: 'trigger_strategy', width: 130, render: (_, __, i) => <Form.Item name={[fields[i].name, 'trigger_strategy']} noStyle><AutoComplete options={TRIGGER_OPTIONS.map((o) => ({ value: o }))} placeholder="输入或选择" size="small" style={{ width: 120 }} /></Form.Item> },
                       { title: '买入价', key: 'planned_buy_price', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'planned_buy_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
                       { title: '目标价', key: 'target_price', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'target_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
                       { title: '止损价', key: 'stop_loss_price', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'stop_loss_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
-                      { title: '仓位', key: 'position_plan', width: 80, render: (_, __, i) => <Form.Item name={[fields[i].name, 'position_plan']} noStyle><Input placeholder="30%" size="small" style={{ width: 60 }} /></Form.Item> },
+                      { title: '仓位(%)', key: 'position_plan', width: 90, render: (_, __, i) => <Form.Item name={[fields[i].name, 'position_plan']} noStyle><InputNumber size="small" min={0} max={100} addonAfter="%" style={{ width: 80 }} /></Form.Item> },
+                      { title: '风险', key: 'risk_level', width: 100, render: (_, __, i) => <Form.Item name={[fields[i].name, 'risk_level']} noStyle><Select size="small" style={{ width: 90 }} options={[{ value: 1, label: '低风险' }, { value: 2, label: '中风险' }, { value: 3, label: '高风险' }]} /></Form.Item> },
                       { title: '备注', key: 'note', width: 100, render: (_, __, i) => <Form.Item name={[fields[i].name, 'note']} noStyle><Input placeholder="备注" size="small" /></Form.Item> },
                       { title: '', key: 'action', width: 40, render: (_, __, i) => fields.length > 1 ? <a onClick={() => remove(fields[i].name)} style={{ color: '#ff4d4f' }}>删</a> : null },
                     ]}

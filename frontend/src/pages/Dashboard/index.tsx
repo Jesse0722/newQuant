@@ -32,16 +32,17 @@ const Dashboard: React.FC = () => {
 
   const planColumns = [
     {
+      title: '标题',
+      dataIndex: 'title',
+      key: 'title',
+      ellipsis: true,
+      render: (t: string) => t || '-',
+    },
+    {
       title: '股票',
       key: 'stock',
       render: (_: any, r: any) =>
         r.stock_count > 1 ? `${r.stock_name || r.ts_code} 等${r.stock_count}只` : `${r.stock_name || ''} (${r.ts_code || '-'})`,
-    },
-    {
-      title: '类型',
-      dataIndex: 'plan_type',
-      key: 'plan_type',
-      render: (t: string) => ({ trend: '趋势跟踪', short_term: '短线操作', event_driven: '事件驱动' }[t] || t),
     },
     {
       title: '状态',

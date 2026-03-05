@@ -71,7 +71,7 @@ export interface StockAlertItem {
 
 export interface StockPlanItem {
   id: string
-  plan_type: string
+  title?: string
   status: string
   risk_level: number
   actual_pnl?: number
@@ -131,10 +131,8 @@ export interface TradePlanStock {
   plan_id: string
   ts_code: string
   stock_name?: string
-  risk_level: number
+  risk_level: number  // 1=低 2=中 3=高
   trigger_strategy?: string
-  event_note?: string
-  action_suggestion?: string
   planned_buy_price?: number
   target_price?: number
   stop_loss_price?: number
@@ -155,7 +153,7 @@ export interface PnlSummary {
 
 export interface TradePlan {
   id: string
-  plan_type: string
+  title: string
   status: string
   alert_id?: string
   actual_pnl?: number
@@ -184,10 +182,10 @@ export interface DashboardData {
   }>
   active_plans: Array<{
     id: string
+    title?: string
     ts_code?: string
     stock_name?: string
     stock_count?: number
-    plan_type: string
     status: string
     risk_level: number
     risk_reward_ratio?: number

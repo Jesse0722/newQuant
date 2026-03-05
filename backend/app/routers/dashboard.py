@@ -43,12 +43,12 @@ def get_dashboard(db: Session = Depends(get_db)):
         first_stock = p.stocks[0] if p.stocks else None
         active_plans.append({
             "id": p.id,
+            "title": p.title,
             "ts_code": first_stock.ts_code if first_stock else None,
             "stock_name": first_stock.stock_name if first_stock else None,
             "stock_count": len(p.stocks),
-            "plan_type": p.plan_type,
             "status": p.status,
-            "risk_level": first_stock.risk_level if first_stock else 3,
+            "risk_level": first_stock.risk_level if first_stock else 2,
             "risk_reward_ratio": first_stock.risk_reward_ratio if first_stock else None,
         })
 
