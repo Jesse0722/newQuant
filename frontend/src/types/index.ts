@@ -131,6 +131,10 @@ export interface TradePlanStock {
   plan_id: string
   ts_code: string
   stock_name?: string
+  risk_level: number
+  trigger_strategy?: string
+  event_note?: string
+  action_suggestion?: string
   planned_buy_price?: number
   target_price?: number
   stop_loss_price?: number
@@ -152,12 +156,8 @@ export interface PnlSummary {
 export interface TradePlan {
   id: string
   plan_type: string
-  risk_level: number
   status: string
-  trigger_strategy?: string
   alert_id?: string
-  event_note?: string
-  action_suggestion?: string
   actual_pnl?: number
   review_summary?: string
   lessons_learned?: string

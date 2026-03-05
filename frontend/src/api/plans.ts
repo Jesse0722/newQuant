@@ -3,8 +3,23 @@ import type { TradePlan, TradeDetail, Pagination } from '../types'
 
 export const listPlans = (params?: { status?: string; plan_type?: string; page?: number; size?: number }) =>
   client.get<Pagination<TradePlan>>('/plans', { params })
-export const createPlan = (data: { stocks: Array<{ ts_code: string; planned_buy_price?: number; target_price?: number; stop_loss_price?: number; position_plan?: string; note?: string }>; plan_type: string; risk_level?: number; trigger_strategy?: string; alert_id?: string; event_note?: string; action_suggestion?: string; note?: string }) =>
-  client.post<TradePlan>('/plans', data)
+export const createPlan = (data: {
+  stocks: Array<{
+    ts_code: string
+    risk_level?: number
+    trigger_strategy?: string
+    event_note?: string
+    action_suggestion?: string
+    planned_buy_price?: number
+    target_price?: number
+    stop_loss_price?: number
+    position_plan?: string
+    note?: string
+  }>
+  plan_type: string
+  alert_id?: string
+  note?: string
+}) => client.post<TradePlan>('/plans', data)
 export const getPlan = (id: string) => client.get<TradePlan>(`/plans/${id}`)
 export const updatePlan = (id: string, data: any) => client.put<TradePlan>(`/plans/${id}`, data)
 export const deletePlan = (id: string) => client.delete(`/plans/${id}`)

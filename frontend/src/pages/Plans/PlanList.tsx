@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Rate, Tag, Space, Popconfirm, message } from 'antd'
-import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons'
+import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { listPlans, createPlan, deletePlan } from '../../api/plans'
 import type { TradePlan } from '../../types'
@@ -39,6 +39,10 @@ const PlanList: React.FC = () => {
     const values = await form.validateFields()
     const stocks = values.stocks.map((s: any) => ({
       ts_code: s.ts_code,
+      risk_level: s.risk_level ?? 3,
+      trigger_strategy: s.trigger_strategy,
+      event_note: s.event_note,
+      action_suggestion: s.action_suggestion,
       planned_buy_price: s.planned_buy_price,
       target_price: s.target_price,
       stop_loss_price: s.stop_loss_price,
@@ -48,10 +52,6 @@ const PlanList: React.FC = () => {
     await createPlan({
       stocks,
       plan_type: values.plan_type,
-      risk_level: values.risk_level,
-      trigger_strategy: values.trigger_strategy,
-      event_note: values.event_note,
-      action_suggestion: values.action_suggestion,
       note: values.note,
     })
     message.success('创建成功')
@@ -88,9 +88,8 @@ const PlanList: React.FC = () => {
     { title: '类型', dataIndex: 'plan_type', key: 'plan_type', render: (t: string) => typeMap[t] || t },
     {
       title: '风险等级',
-      dataIndex: 'risk_level',
       key: 'risk_level',
-      render: (v: number) => <Rate disabled value={v} count={5} style={{ fontSize: 14 }} />,
+      render: (_: any, r: TradePlan) => <Rate disabled value={r.stocks?.[0]?.risk_level ?? 3} count={5} style={{ fontSize: 14 }} />,
     },
     {
       title: '状态',
@@ -145,67 +144,46 @@ const PlanList: React.FC = () => {
         pagination={{ current: page, total, pageSize: 20, onChange: (p) => { setPage(p); fetchPlans(tab, p) } }}
       />
 
-      <Modal title="新建交易计划" open={modalOpen} onOk={handleCreate} onCancel={() => setModalOpen(false)} width={680}>
-        <Form form={form} layout="vertical" initialValues={{ risk_level: 3, plan_type: 'trend', stocks: [{}] }}>
-          <Form.List name="stocks" rules={[{ validator: (_, v) => (v?.length ? Promise.resolve() : Promise.reject('至少添加一只股票')) }]}>
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...rest }) => (
-                  <div key={key} style={{ marginBottom: 16, padding: 12, border: '1px solid #f0f0f0', borderRadius: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <span>股票 {name + 1}</span>
-                      {fields.length > 1 && (
-                        <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f' }} />
-                      )}
-                    </div>
-                    <Form.Item {...rest} name={[name, 'ts_code']} label="股票代码" rules={[{ required: true }]}>
-                      <Input placeholder="6位代码，如 000001" />
-                    </Form.Item>
-                    <Space>
-                      <Form.Item {...rest} name={[name, 'planned_buy_price']} label="计划买入价">
-                        <InputNumber style={{ width: 120 }} />
-                      </Form.Item>
-                      <Form.Item {...rest} name={[name, 'target_price']} label="目标价">
-                        <InputNumber style={{ width: 120 }} />
-                      </Form.Item>
-                      <Form.Item {...rest} name={[name, 'stop_loss_price']} label="止损价">
-                        <InputNumber style={{ width: 120 }} />
-                      </Form.Item>
-                    </Space>
-                    <Form.Item {...rest} name={[name, 'position_plan']} label="仓位计划">
-                      <Input placeholder="如：30%" style={{ width: 200 }} />
-                    </Form.Item>
-                  </div>
-                ))}
-                <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>添加股票</Button>
-              </>
-            )}
-          </Form.List>
-          <Form.Item name="plan_type" label="计划类型" rules={[{ required: true }]} style={{ marginTop: 16 }}>
+      <Modal title="新建交易计划" open={modalOpen} onOk={handleCreate} onCancel={() => setModalOpen(false)} width={900}>
+        <Form form={form} layout="vertical" initialValues={{ plan_type: 'trend', stocks: [{ risk_level: 3 }] }}>
+          <Form.Item name="plan_type" label="计划类型" rules={[{ required: true }]}>
             <Select options={[
               { value: 'trend', label: '趋势跟踪' },
               { value: 'short_term', label: '短线操作' },
               { value: 'event_driven', label: '事件驱动' },
             ]} />
           </Form.Item>
-          <Form.Item name="risk_level" label="风险等级">
-            <Rate count={5} />
-          </Form.Item>
-          <Form.Item name="trigger_strategy" label="触发策略">
-            <Input.TextArea placeholder="如：MACD 金叉触发" />
-          </Form.Item>
-          <Form.Item name="event_note" label="热点/事件">
-            <Input.TextArea placeholder="宏观背景、事件驱动原因" />
-          </Form.Item>
-          <Form.Item name="action_suggestion" label="操作建议">
-            <Select allowClear options={[
-              { value: 'buy', label: '买入' },
-              { value: 'add_position', label: '加仓' },
-              { value: 'watch', label: '观望' },
-            ]} />
-          </Form.Item>
-          <Form.Item name="note" label="备注">
+          <Form.Item name="note" label="计划备注">
             <Input.TextArea />
+          </Form.Item>
+          <Form.Item label="股票列表">
+            <Form.List name="stocks" rules={[{ validator: (_, v) => (v?.length ? Promise.resolve() : Promise.reject('至少添加一只股票')) }]}>
+              {(fields, { add, remove }) => (
+                <>
+                  <Table
+                    dataSource={fields}
+                    rowKey={(f) => String(f.key)}
+                    pagination={false}
+                    size="small"
+                    scroll={{ x: 1200 }}
+                    columns={[
+                      { title: '股票代码', key: 'ts_code', width: 100, render: (_, __, i) => <Form.Item name={[fields[i].name, 'ts_code']} noStyle rules={[{ required: true }]}><Input placeholder="6位" size="small" /></Form.Item> },
+                      { title: '风险', key: 'risk_level', width: 90, render: (_, __, i) => <Form.Item name={[fields[i].name, 'risk_level']} noStyle><Rate count={5} style={{ fontSize: 14 }} /></Form.Item> },
+                      { title: '触发策略', key: 'trigger_strategy', width: 120, render: (_, __, i) => <Form.Item name={[fields[i].name, 'trigger_strategy']} noStyle><Input placeholder="策略" size="small" /></Form.Item> },
+                      { title: '热点/事件', key: 'event_note', width: 120, render: (_, __, i) => <Form.Item name={[fields[i].name, 'event_note']} noStyle><Input placeholder="事件" size="small" /></Form.Item> },
+                      { title: '操作建议', key: 'action_suggestion', width: 90, render: (_, __, i) => <Form.Item name={[fields[i].name, 'action_suggestion']} noStyle><Select placeholder="建议" size="small" allowClear options={[{ value: 'buy', label: '买入' }, { value: 'add_position', label: '加仓' }, { value: 'reduce', label: '减仓' }, { value: 'sell', label: '卖出' }, { value: 'watch', label: '观望' }]} style={{ width: 80 }} /></Form.Item> },
+                      { title: '买入价', key: 'planned_buy_price', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'planned_buy_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
+                      { title: '目标价', key: 'target_price', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'target_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
+                      { title: '止损价', key: 'stop_loss_price', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'stop_loss_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
+                      { title: '仓位', key: 'position_plan', width: 80, render: (_, __, i) => <Form.Item name={[fields[i].name, 'position_plan']} noStyle><Input placeholder="30%" size="small" style={{ width: 60 }} /></Form.Item> },
+                      { title: '备注', key: 'note', width: 100, render: (_, __, i) => <Form.Item name={[fields[i].name, 'note']} noStyle><Input placeholder="备注" size="small" /></Form.Item> },
+                      { title: '', key: 'action', width: 40, render: (_, __, i) => fields.length > 1 ? <a onClick={() => remove(fields[i].name)} style={{ color: '#ff4d4f' }}>删</a> : null },
+                    ]}
+                  />
+                  <Button type="dashed" onClick={() => add({ risk_level: 3 })} block icon={<PlusOutlined />} style={{ marginTop: 8 }}>添加股票</Button>
+                </>
+              )}
+            </Form.List>
           </Form.Item>
         </Form>
       </Modal>

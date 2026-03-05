@@ -48,7 +48,7 @@ def get_dashboard(db: Session = Depends(get_db)):
             "stock_count": len(p.stocks),
             "plan_type": p.plan_type,
             "status": p.status,
-            "risk_level": p.risk_level,
+            "risk_level": first_stock.risk_level if first_stock else 3,
             "risk_reward_ratio": first_stock.risk_reward_ratio if first_stock else None,
         })
 

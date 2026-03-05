@@ -5,6 +5,10 @@ from pydantic import BaseModel
 
 class TradePlanStockCreate(BaseModel):
     ts_code: str
+    risk_level: int = 3
+    trigger_strategy: Optional[str] = None
+    event_note: Optional[str] = None
+    action_suggestion: Optional[str] = None
     planned_buy_price: Optional[float] = None
     target_price: Optional[float] = None
     stop_loss_price: Optional[float] = None
@@ -17,6 +21,10 @@ class TradePlanStockOut(BaseModel):
     plan_id: str
     ts_code: str
     stock_name: Optional[str] = None
+    risk_level: int = 3
+    trigger_strategy: Optional[str] = None
+    event_note: Optional[str] = None
+    action_suggestion: Optional[str] = None
     planned_buy_price: Optional[float] = None
     target_price: Optional[float] = None
     stop_loss_price: Optional[float] = None
@@ -30,15 +38,15 @@ class TradePlanStockOut(BaseModel):
 class TradePlanCreate(BaseModel):
     stocks: list[TradePlanStockCreate]
     plan_type: str
-    risk_level: int = 3
-    trigger_strategy: Optional[str] = None
     alert_id: Optional[str] = None
-    event_note: Optional[str] = None
-    action_suggestion: Optional[str] = None
     note: Optional[str] = None
 
 
 class TradePlanStockUpdate(BaseModel):
+    risk_level: Optional[int] = None
+    trigger_strategy: Optional[str] = None
+    event_note: Optional[str] = None
+    action_suggestion: Optional[str] = None
     planned_buy_price: Optional[float] = None
     target_price: Optional[float] = None
     stop_loss_price: Optional[float] = None
@@ -48,11 +56,7 @@ class TradePlanStockUpdate(BaseModel):
 
 class TradePlanUpdate(BaseModel):
     plan_type: Optional[str] = None
-    risk_level: Optional[int] = None
     status: Optional[str] = None
-    trigger_strategy: Optional[str] = None
-    event_note: Optional[str] = None
-    action_suggestion: Optional[str] = None
     note: Optional[str] = None
     stocks: Optional[list[TradePlanStockCreate]] = None
 
@@ -113,12 +117,8 @@ class PnlSummary(BaseModel):
 class TradePlanOut(BaseModel):
     id: str
     plan_type: str
-    risk_level: int
     status: str
-    trigger_strategy: Optional[str] = None
     alert_id: Optional[str] = None
-    event_note: Optional[str] = None
-    action_suggestion: Optional[str] = None
     actual_pnl: Optional[float] = None
     review_summary: Optional[str] = None
     lessons_learned: Optional[str] = None
