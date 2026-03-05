@@ -53,6 +53,7 @@ Phase 5 → 前端（React + Ant Design，6 个页面 + 联调）
 **前置**：
 - `backend/.env` 已配置 `TUSHARE_TOKEN`（可从 `backend/.env.example` 复制并填入）
 - 快速记录 OCR 功能需安装 Tesseract：`brew install tesseract`（中文：`brew install tesseract-lang`）
+- AI 智能选股需配置 `OPENAI_API_KEY` 或 `DASHSCOPE_API_KEY` 或 `OLLAMA_BASE_URL`（见 `.env.example`）
 
 ```bash
 # 后端（默认 http://localhost:8000）
@@ -85,6 +86,15 @@ cd frontend && npm run dev
 | 监控提醒 | 6 个预置模板 + 自定义组合、同步后自动扫描 + 手动、系统内提醒 |
 | 交易计划 | 单股/计划、CRUD + 编辑、价格目标 + 盈亏比（自动计算）、风险等级 1-5 星、计划级复盘 |
 | 交易明细 | 手动记录 + 编辑、关联交易计划、自动算金额/印花税、盈亏自动汇总 |
+| 策略选股 | 指标组合（10 条件）+ AI 智能选股、批量添加 / 快捷建池 |
+
+## 策略选股（V2 已实现）
+
+- **指标组合选股**：最多 10 个条件（MA 金叉、MACD 金叉、RSI 超卖等），支持全市场或池内筛选
+- **AI 智能选股**：一句话描述（≤200 字），支持 OpenAI / 通义千问 / Ollama
+- **添加到观察池**：批量添加、快捷创建新池
+
+---
 
 ## V2 规划（后续）
 

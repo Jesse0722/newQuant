@@ -20,3 +20,20 @@ export const importCSV = (poolId: string, file: File) => {
   form.append('file', file)
   return client.post(`/pools/${poolId}/stocks/import`, form)
 }
+
+export interface BatchAddResult {
+  added: number
+  skipped: number
+  errors: string[]
+}
+
+export const batchAddStocks = (
+  poolId: string,
+  data: { ts_codes: string[]; added_price?: number; note?: string }
+) => client.post<BatchAddResult>(`/pools/${poolId}/stocks/batch`, data)
+
+export const quickCreatePool = (data: {
+  name: string
+  ts_codes: string[]
+  description?: string
+}) => client.post<Pool>('/pools/quick-create', data)

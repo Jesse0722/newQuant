@@ -61,3 +61,21 @@ class CSVImportResult(BaseModel):
     imported: int = 0
     skipped: int = 0
     errors: list[str] = []
+
+
+class BatchAddStocks(BaseModel):
+    ts_codes: list[str]
+    added_price: Optional[float] = None
+    note: Optional[str] = None
+
+
+class BatchAddResult(BaseModel):
+    added: int = 0
+    skipped: int = 0
+    errors: list[str] = []
+
+
+class QuickCreatePool(BaseModel):
+    name: str
+    ts_codes: list[str]
+    description: Optional[str] = None

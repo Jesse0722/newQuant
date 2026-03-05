@@ -10,6 +10,7 @@ class TaskStatus:
     status: str = "running"
     progress: float = 0.0
     message: str = ""
+    result: dict | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
 
 executor = ThreadPoolExecutor(max_workers=2)

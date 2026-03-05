@@ -9,7 +9,7 @@ from app.models.stock import StockBasic, DailyQuote
 from app.schemas.pool import (
     PoolCreate, PoolUpdate, PoolOut,
     WatchStockCreate, WatchStockUpdate, WatchStockOut,
-    CSVImportResult,
+    CSVImportResult, BatchAddStocks, BatchAddResult, QuickCreatePool,
 )
 from app.exceptions import AppError
 from app.utils import normalize_ts_code
@@ -53,6 +53,36 @@ def create_pool(body: PoolCreate, db: Session = Depends(get_db)):
     db.refresh(pool)
     out = PoolOut.model_validate(pool)
     out.stock_count = 0
+    return out
+
+
+@router.post("/quick-create", response_model=PoolOut, status_code=201)
+def quick_create_pool(body: QuickCreatePool, db: Session = Depends(get_db)):
+    """快捷创建观察池并批量添加股票"""
+    pool = WatchPool(name=body.name, description=body.description)
+    db.add(pool)
+    db.commit()
+    db.refresh(pool)
+    added = 0
+    for ts_code in body.ts_codes:
+        try:
+            code = normalize_ts_code(ts_code)
+        except ValueError:
+            continue
+        existing = db.query(WatchStock).filter(
+            WatchStock.pool_id == pool.id, WatchStock.ts_code == code
+        ).first()
+        if existing:
+            continue
+        stock = WatchStock(pool_id=pool.id, ts_code=code, source="strategy")
+        db.add(stock)
+        added += 1
+    db.commit()
+    for ws in db.query(WatchStock).filter(WatchStock.pool_id == pool.id).all():
+        submit_task("sync", sync_single_stock, ws.ts_code)
+    count = db.query(func.count(WatchStock.id)).filter(WatchStock.pool_id == pool.id).scalar()
+    out = PoolOut.model_validate(pool)
+    out.stock_count = count
     return out
 
 
@@ -137,6 +167,39 @@ def add_stock(pool_id: str, body: WatchStockCreate, db: Session = Depends(get_db
     out = _enrich_stock(db, stock)
     submit_task("sync", sync_single_stock, ts_code)
     return out
+
+
+@router.post("/{pool_id}/stocks/batch", response_model=BatchAddResult)
+def batch_add_stocks(pool_id: str, body: BatchAddStocks, db: Session = Depends(get_db)):
+    """批量添加股票到观察池（策略选股结果）"""
+    pool = db.query(WatchPool).filter(WatchPool.id == pool_id).first()
+    if not pool:
+        raise AppError(code=2001, message="观察池不存在", status_code=404)
+    result = BatchAddResult()
+    added_codes = []
+    for ts_code in body.ts_codes:
+        try:
+            code = normalize_ts_code(ts_code)
+        except ValueError as e:
+            result.errors.append(f"{ts_code}: {e}")
+            continue
+        existing = db.query(WatchStock).filter(
+            WatchStock.pool_id == pool_id, WatchStock.ts_code == code
+        ).first()
+        if existing:
+            result.skipped += 1
+            continue
+        stock = WatchStock(
+            pool_id=pool_id, ts_code=code, source="strategy",
+            added_price=body.added_price, note=body.note,
+        )
+        db.add(stock)
+        result.added += 1
+        added_codes.append(code)
+    db.commit()
+    for code in added_codes:
+        submit_task("sync", sync_single_stock, code)
+    return result
 
 
 @router.put("/{pool_id}/stocks/{stock_id}", response_model=WatchStockOut)

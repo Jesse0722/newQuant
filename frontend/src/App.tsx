@@ -8,6 +8,7 @@ import Alerts from './pages/Alerts'
 import PlanList from './pages/Plans/PlanList'
 import PlanDetail from './pages/Plans/PlanDetail'
 import StockDetail from './pages/Stocks/StockDetail'
+import StrategyPage from './pages/Strategy/StrategyPage'
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/plans" element={<PlanList />} />
             <Route path="/plans/:id" element={<PlanDetail />} />
+            <Route path="/strategy" element={<StrategyPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
