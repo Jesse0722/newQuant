@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Card, Descriptions, Tag, Rate, Table, Button, Modal, Form,
-  Input, InputNumber, Select, Space, Statistic, Row, Col, Divider, message, Popconfirm, DatePicker,
+  Input, InputNumber, Select, Space, Statistic, Row, Col, message, Popconfirm, DatePicker,
 } from 'antd'
 import dayjs from 'dayjs'
 import { ArrowLeftOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
-import { getPlan, updatePlan, submitReview, createDetail, updateDetail, deleteDetail } from '../../api/plans'
-import type { TradePlan, TradeDetail } from '../../types'
+import { getPlan, updatePlan, submitReview, updateDetail, deleteDetail } from '../../api/plans'
+import { createStockDetail } from '../../api/stocks'
+import type { TradePlan, TradeDetail, TradePlanStock } from '../../types'
 
 const typeMap: Record<string, string> = { trend: '趋势跟踪', short_term: '短线操作', event_driven: '事件驱动' }
 const statusMap: Record<string, { label: string; color: string }> = {
@@ -23,6 +24,7 @@ const PlanDetail: React.FC = () => {
   const [plan, setPlan] = useState<TradePlan | null>(null)
   const [, setLoading] = useState(true)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
+  const [detailStockTsCode, setDetailStockTsCode] = useState<string | null>(null)
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
   const [editPlanModalOpen, setEditPlanModalOpen] = useState(false)
   const [editDetailModalOpen, setEditDetailModalOpen] = useState(false)
@@ -40,14 +42,24 @@ const PlanDetail: React.FC = () => {
 
   useEffect(() => { fetchPlan() }, [id])
 
+  const openAddDetailModal = () => {
+    if (!plan?.stocks?.length) {
+      message.warning('计划暂无股票')
+      return
+    }
+    setDetailStockTsCode(plan.stocks[0].ts_code)
+    detailForm.resetFields()
+    setDetailModalOpen(true)
+  }
+
   const handleAddDetail = async () => {
+    if (!detailStockTsCode) return
     const values = await detailForm.validateFields()
     const payload = { ...values }
     if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
-    await createDetail(id!, payload)
+    await createStockDetail(detailStockTsCode, payload)
     message.success('添加成功')
     setDetailModalOpen(false)
-    detailForm.resetFields()
     fetchPlan()
   }
 
@@ -79,19 +91,23 @@ const PlanDetail: React.FC = () => {
       risk_level: plan.risk_level,
       trigger_strategy: plan.trigger_strategy,
       event_note: plan.event_note,
-      planned_buy_price: plan.planned_buy_price,
-      target_price: plan.target_price,
-      stop_loss_price: plan.stop_loss_price,
-      position_plan: plan.position_plan,
       action_suggestion: plan.action_suggestion,
       note: plan.note,
+      stocks: plan.stocks?.map((s) => ({
+        ts_code: s.ts_code,
+        planned_buy_price: s.planned_buy_price,
+        target_price: s.target_price,
+        stop_loss_price: s.stop_loss_price,
+        position_plan: s.position_plan,
+        note: s.note,
+      })) || [],
     })
     setEditPlanModalOpen(true)
   }
 
   const handleEditPlan = async () => {
     const values = await planForm.validateFields()
-    await updatePlan(id!, values)
+    await updatePlan(id!, { ...values, stocks: values.stocks })
     message.success('计划已更新')
     setEditPlanModalOpen(false)
     fetchPlan()
@@ -153,6 +169,10 @@ const PlanDetail: React.FC = () => {
   ]
 
   const pnl = plan?.pnl_summary
+  const titleStock = plan?.stocks?.[0]
+  const titleStr = plan?.stocks?.length === 1
+    ? `${titleStock?.stock_name || titleStock?.ts_code}`
+    : `多股计划（${plan?.stocks?.length || 0}只）`
 
   return (
     <div>
@@ -163,7 +183,7 @@ const PlanDetail: React.FC = () => {
       {plan && (
         <>
           <Card
-            title={`${plan.stock_name || plan.ts_code} — ${typeMap[plan.plan_type] || plan.plan_type}`}
+            title={`${titleStr} — ${typeMap[plan.plan_type] || plan.plan_type}`}
             extra={
               <Space>
                 <Button icon={<EditOutlined />} onClick={openEditPlanModal}>编辑计划</Button>
@@ -180,51 +200,57 @@ const PlanDetail: React.FC = () => {
             }
           >
             <Descriptions column={3} bordered size="small">
-              <Descriptions.Item label="股票代码">{plan.ts_code}</Descriptions.Item>
+              <Descriptions.Item label="股票">
+                {plan.stocks?.map((s) => s.stock_name || s.ts_code).join('、') || '-'}
+              </Descriptions.Item>
               <Descriptions.Item label="风险等级"><Rate disabled value={plan.risk_level} count={5} style={{ fontSize: 14 }} /></Descriptions.Item>
               <Descriptions.Item label="状态"><Tag color={statusMap[plan.status]?.color}>{statusMap[plan.status]?.label}</Tag></Descriptions.Item>
               <Descriptions.Item label="触发策略" span={3}>{plan.trigger_strategy || '-'}</Descriptions.Item>
               <Descriptions.Item label="热点/事件" span={3}>{plan.event_note || '-'}</Descriptions.Item>
               <Descriptions.Item label="操作建议">{plan.action_suggestion || '-'}</Descriptions.Item>
-              <Descriptions.Item label="仓位计划">{plan.position_plan || '-'}</Descriptions.Item>
-              <Descriptions.Item label="备注">{plan.note || '-'}</Descriptions.Item>
+              <Descriptions.Item label="备注" span={2}>{plan.note || '-'}</Descriptions.Item>
             </Descriptions>
           </Card>
 
-          <Card title="价格目标" style={{ marginTop: 16 }}>
-            <Row gutter={24}>
-              <Col span={6}><Statistic title="计划买入价" value={plan.planned_buy_price ?? '-'} precision={2} /></Col>
-              <Col span={6}><Statistic title="目标价" value={plan.target_price ?? '-'} precision={2} /></Col>
-              <Col span={6}><Statistic title="止损价" value={plan.stop_loss_price ?? '-'} precision={2} /></Col>
-              <Col span={6}><Statistic title="盈亏比" value={plan.risk_reward_ratio ?? '-'} precision={2} /></Col>
-            </Row>
-          </Card>
+          {plan.stocks?.map((ps: TradePlanStock) => (
+            <Card key={ps.id} title={`${ps.stock_name || ps.ts_code} ${ps.ts_code}`} style={{ marginTop: 16 }}>
+              <Row gutter={24} style={{ marginBottom: 16 }}>
+                <Col span={6}><Statistic title="计划买入价" value={ps.planned_buy_price ?? '-'} precision={2} /></Col>
+                <Col span={6}><Statistic title="目标价" value={ps.target_price ?? '-'} precision={2} /></Col>
+                <Col span={6}><Statistic title="止损价" value={ps.stop_loss_price ?? '-'} precision={2} /></Col>
+                <Col span={6}><Statistic title="盈亏比" value={ps.risk_reward_ratio ?? '-'} precision={2} /></Col>
+              </Row>
+              <Table
+                dataSource={ps.details || []}
+                columns={detailColumns}
+                rowKey="id"
+                pagination={false}
+                size="small"
+              />
+            </Card>
+          ))}
 
           <Card
-            title="交易明细"
+            title="交易明细汇总"
             style={{ marginTop: 16 }}
-            extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setDetailModalOpen(true)}>添加明细</Button>}
+            extra={<Button type="primary" icon={<PlusOutlined />} onClick={openAddDetailModal}>添加明细</Button>}
           >
-            <Table dataSource={plan.details || []} columns={detailColumns} rowKey="id" pagination={false} />
             {pnl && (
-              <>
-                <Divider />
-                <Row gutter={24}>
-                  <Col span={4}><Statistic title="买入总额" value={pnl.total_buy_amount} precision={2} /></Col>
-                  <Col span={4}><Statistic title="卖出总额" value={pnl.total_sell_amount} precision={2} /></Col>
-                  <Col span={4}><Statistic title="佣金" value={pnl.total_commission} precision={2} /></Col>
-                  <Col span={4}><Statistic title="印花税" value={pnl.total_stamp_tax} precision={2} /></Col>
-                  <Col span={4}>
-                    <Statistic
-                      title="净盈亏"
-                      value={pnl.net_pnl}
-                      precision={2}
-                      valueStyle={{ color: pnl.net_pnl >= 0 ? '#3f8600' : '#cf1322' }}
-                    />
-                  </Col>
-                  <Col span={4}><Statistic title="持仓数量" value={pnl.holding_quantity} suffix="股" /></Col>
-                </Row>
-              </>
+              <Row gutter={24}>
+                <Col span={4}><Statistic title="买入总额" value={pnl.total_buy_amount} precision={2} /></Col>
+                <Col span={4}><Statistic title="卖出总额" value={pnl.total_sell_amount} precision={2} /></Col>
+                <Col span={4}><Statistic title="佣金" value={pnl.total_commission} precision={2} /></Col>
+                <Col span={4}><Statistic title="印花税" value={pnl.total_stamp_tax} precision={2} /></Col>
+                <Col span={4}>
+                  <Statistic
+                    title="净盈亏"
+                    value={pnl.net_pnl}
+                    precision={2}
+                    valueStyle={{ color: pnl.net_pnl >= 0 ? '#3f8600' : '#cf1322' }}
+                  />
+                </Col>
+                <Col span={4}><Statistic title="持仓数量" value={pnl.holding_quantity} suffix="股" /></Col>
+              </Row>
             )}
           </Card>
 
@@ -245,8 +271,38 @@ const PlanDetail: React.FC = () => {
       )}
 
       {/* 编辑交易计划 */}
-      <Modal title="编辑交易计划" open={editPlanModalOpen} onOk={handleEditPlan} onCancel={() => setEditPlanModalOpen(false)} width={600}>
+      <Modal title="编辑交易计划" open={editPlanModalOpen} onOk={handleEditPlan} onCancel={() => setEditPlanModalOpen(false)} width={680}>
         <Form form={planForm} layout="vertical">
+          <Form.List name="stocks">
+            {(fields) => (
+              <>
+                {fields.map(({ key, name }) => (
+                  <div key={key} style={{ marginBottom: 16, padding: 12, border: '1px solid #f0f0f0', borderRadius: 8 }}>
+                    <Form.Item name={[name, 'ts_code']} label="股票代码" rules={[{ required: true }]}>
+                      <Input placeholder="6位代码" />
+                    </Form.Item>
+                    <Space>
+                      <Form.Item name={[name, 'planned_buy_price']} label="计划买入价">
+                        <InputNumber style={{ width: 120 }} />
+                      </Form.Item>
+                      <Form.Item name={[name, 'target_price']} label="目标价">
+                        <InputNumber style={{ width: 120 }} />
+                      </Form.Item>
+                      <Form.Item name={[name, 'stop_loss_price']} label="止损价">
+                        <InputNumber style={{ width: 120 }} />
+                      </Form.Item>
+                    </Space>
+                    <Form.Item name={[name, 'position_plan']} label="仓位计划">
+                      <Input placeholder="如：30%" style={{ width: 200 }} />
+                    </Form.Item>
+                    <Form.Item name={[name, 'note']} label="备注">
+                      <Input.TextArea />
+                    </Form.Item>
+                  </div>
+                ))}
+              </>
+            )}
+          </Form.List>
           <Form.Item name="plan_type" label="计划类型">
             <Select options={[
               { value: 'trend', label: '趋势跟踪' },
@@ -258,24 +314,10 @@ const PlanDetail: React.FC = () => {
             <Rate count={5} />
           </Form.Item>
           <Form.Item name="trigger_strategy" label="触发策略">
-            <Input.TextArea placeholder="如：MACD 金叉触发" />
+            <Input.TextArea />
           </Form.Item>
           <Form.Item name="event_note" label="热点/事件">
-            <Input.TextArea placeholder="宏观背景、事件驱动原因" />
-          </Form.Item>
-          <Space style={{ width: '100%' }}>
-            <Form.Item name="planned_buy_price" label="计划买入价">
-              <InputNumber style={{ width: 150 }} />
-            </Form.Item>
-            <Form.Item name="target_price" label="目标价">
-              <InputNumber style={{ width: 150 }} />
-            </Form.Item>
-            <Form.Item name="stop_loss_price" label="止损价">
-              <InputNumber style={{ width: 150 }} />
-            </Form.Item>
-          </Space>
-          <Form.Item name="position_plan" label="仓位计划">
-            <Input placeholder="如：30%" />
+            <Input.TextArea />
           </Form.Item>
           <Form.Item name="action_suggestion" label="操作建议">
             <Select allowClear options={[
@@ -295,6 +337,13 @@ const PlanDetail: React.FC = () => {
       {/* 添加交易明细 */}
       <Modal title="添加交易明细" open={detailModalOpen} onOk={handleAddDetail} onCancel={() => setDetailModalOpen(false)} width={500}>
         <Form form={detailForm} layout="vertical">
+          <Form.Item label="股票">
+            <Select
+              value={detailStockTsCode}
+              onChange={setDetailStockTsCode}
+              options={plan?.stocks?.map((s) => ({ value: s.ts_code, label: `${s.stock_name || s.ts_code} (${s.ts_code})` })) || []}
+            />
+          </Form.Item>
           <Form.Item name="trade_date" label="成交日期" rules={[{ required: true }]}>
             <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
           </Form.Item>

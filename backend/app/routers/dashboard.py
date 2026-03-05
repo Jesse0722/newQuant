@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from app.database import get_db
 from app.models.pool import WatchPool, WatchStock
@@ -31,19 +31,25 @@ def get_dashboard(db: Session = Depends(get_db)):
             "plan_id": a.plan_id,
         })
 
-    active_plans_raw = db.query(TradePlan).filter(
-        TradePlan.status.in_(["pending", "active"])
-    ).order_by(TradePlan.created_at.desc()).all()
+    active_plans_raw = (
+        db.query(TradePlan)
+        .options(joinedload(TradePlan.stocks))
+        .filter(TradePlan.status.in_(["pending", "active"]))
+        .order_by(TradePlan.created_at.desc())
+        .all()
+    )
     active_plans = []
     for p in active_plans_raw:
+        first_stock = p.stocks[0] if p.stocks else None
         active_plans.append({
             "id": p.id,
-            "ts_code": p.ts_code,
-            "stock_name": p.stock_name,
+            "ts_code": first_stock.ts_code if first_stock else None,
+            "stock_name": first_stock.stock_name if first_stock else None,
+            "stock_count": len(p.stocks),
             "plan_type": p.plan_type,
             "status": p.status,
             "risk_level": p.risk_level,
-            "risk_reward_ratio": p.risk_reward_ratio,
+            "risk_reward_ratio": first_stock.risk_reward_ratio if first_stock else None,
         })
 
     return {

@@ -1,18 +1,17 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Card, Tag, Table, Button, Tabs, Space, Statistic, Row, Col, Segmented, Rate,
-  Modal, Form, Input, InputNumber, Select, DatePicker, message, Upload,
+  Card, Tag, Table, Button, Tabs, Space, Statistic, Row, Col, Segmented,
+  Modal, Form, Input, InputNumber, Select, DatePicker, message, Upload, Popconfirm,
 } from 'antd'
 import dayjs from 'dayjs'
-import { ArrowLeftOutlined, FileAddOutlined, ThunderboltOutlined, InboxOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, ThunderboltOutlined, PlusOutlined, InboxOutlined, EditOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
-import { getStockChart, getStockAlerts, getStockPlans } from '../../api/stocks'
-import { createPlan, createDetail } from '../../api/plans'
+import { getStockChart, getStockAlerts, getStockDetails, createStockDetail } from '../../api/stocks'
+import { updateDetail, deleteDetail } from '../../api/plans'
 import { extractTradeFromImage } from '../../api/ocr'
-import type { StockChartData, StockAlertItem, StockPlanItem } from '../../types'
+import type { StockChartData, StockAlertItem, TradeDetail } from '../../types'
 
-const typeMap: Record<string, string> = { trend: '趋势跟踪', short_term: '短线操作', event_driven: '事件驱动' }
 const statusColors: Record<string, string> = {
   pending: 'default', active: 'blue', completed: 'green', cancelled: 'red', processed: 'purple',
 }
@@ -22,37 +21,26 @@ const StockDetail: React.FC = () => {
   const navigate = useNavigate()
   const [chartData, setChartData] = useState<StockChartData | null>(null)
   const [alerts, setAlerts] = useState<StockAlertItem[]>([])
-  const [plans, setPlans] = useState<StockPlanItem[]>([])
+  const [details, setDetails] = useState<TradeDetail[]>([])
   const [period, setPeriod] = useState(120)
   const [subIndicator, setSubIndicator] = useState<string>('macd')
-  const [planModalOpen, setPlanModalOpen] = useState(false)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
-  const [detailPlanId, setDetailPlanId] = useState<string | null>(null)
   const [quickRecordModalOpen, setQuickRecordModalOpen] = useState(false)
+  const [editDetailModalOpen, setEditDetailModalOpen] = useState(false)
+  const [editingDetail, setEditingDetail] = useState<TradeDetail | null>(null)
   const [ocrLoading, setOcrLoading] = useState(false)
   const [ocrRawText, setOcrRawText] = useState<string>('')
   const [quickRecordForm] = Form.useForm()
-  const [planForm] = Form.useForm()
   const [detailForm] = Form.useForm()
+  const [editDetailForm] = Form.useForm()
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
 
-  const openPlanModal = () => {
-    planForm.resetFields()
-    planForm.setFieldsValue({ ts_code: tsCode, plan_type: 'trend', risk_level: 3 })
-    setPlanModalOpen(true)
+  const fetchDetails = () => {
+    if (tsCode) getStockDetails(tsCode).then((res) => setDetails(res.data))
   }
 
-  const handleCreatePlan = async () => {
-    const values = await planForm.validateFields()
-    await createPlan(values)
-    message.success('交易计划已创建')
-    setPlanModalOpen(false)
-    if (tsCode) getStockPlans(tsCode).then((res) => setPlans(res.data))
-  }
-
-  const openDetailModal = (planId: string) => {
-    setDetailPlanId(planId)
+  const openDetailModal = () => {
     detailForm.resetFields()
     setDetailModalOpen(true)
   }
@@ -100,30 +88,60 @@ const StockDetail: React.FC = () => {
     const values = await quickRecordForm.validateFields()
     const payload = { ...values }
     if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
-    const planRes = await createPlan({ ts_code: tsCode, plan_type: 'short_term', risk_level: 3 })
-    await createDetail(planRes.data.id, payload)
+    await createStockDetail(tsCode, payload)
     message.success('交易记录已添加')
     setQuickRecordModalOpen(false)
-    getStockPlans(tsCode).then((res) => setPlans(res.data))
+    fetchDetails()
   }
 
   const handleAddDetail = async () => {
-    if (!detailPlanId) return
+    if (!tsCode) return
     const values = await detailForm.validateFields()
     const payload = { ...values }
     if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
-    await createDetail(detailPlanId, payload)
+    await createStockDetail(tsCode, payload)
     message.success('交易明细已添加')
     setDetailModalOpen(false)
-    setDetailPlanId(null)
-    if (tsCode) getStockPlans(tsCode).then((res) => setPlans(res.data))
+    fetchDetails()
+  }
+
+  const openEditDetailModal = (d: TradeDetail) => {
+    setEditingDetail(d)
+    editDetailForm.setFieldsValue({
+      trade_date: d.trade_date ? dayjs(d.trade_date, 'YYYYMMDD') : undefined,
+      trade_time: d.trade_time,
+      direction: d.direction,
+      price: d.price,
+      quantity: d.quantity,
+      commission: d.commission,
+      exec_note: d.exec_note,
+    })
+    setEditDetailModalOpen(true)
+  }
+
+  const handleEditDetail = async () => {
+    if (!editingDetail) return
+    const values = await editDetailForm.validateFields()
+    const payload = { ...values }
+    if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
+    await updateDetail(editingDetail.id, payload)
+    message.success('明细已更新')
+    setEditDetailModalOpen(false)
+    setEditingDetail(null)
+    fetchDetails()
+  }
+
+  const handleDeleteDetail = async (id: string) => {
+    await deleteDetail(id)
+    message.success('已删除')
+    fetchDetails()
   }
 
   useEffect(() => {
     if (!tsCode) return
     getStockChart(tsCode, period).then((res) => setChartData(res.data))
     getStockAlerts(tsCode).then((res) => setAlerts(res.data))
-    getStockPlans(tsCode).then((res) => setPlans(res.data))
+    fetchDetails()
   }, [tsCode, period])
 
   const renderChart = useCallback(() => {
@@ -223,21 +241,27 @@ const StockDetail: React.FC = () => {
     { title: '时间', dataIndex: 'created_at', key: 'created_at', render: (v: string) => v?.slice(0, 10) },
   ]
 
-  const planColumns = [
-    { title: '类型', dataIndex: 'plan_type', key: 'plan_type', render: (t: string) => typeMap[t] || t },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={statusColors[s]}>{s}</Tag> },
-    { title: '风险等级', dataIndex: 'risk_level', key: 'risk_level', render: (v: number) => <Rate disabled value={v} count={5} style={{ fontSize: 12 }} /> },
+  const detailColumns = [
+    { title: '日期', dataIndex: 'trade_date', key: 'trade_date' },
+    { title: '时间', dataIndex: 'trade_time', key: 'trade_time', render: (v: string) => v || '-' },
     {
-      title: '实际盈亏', dataIndex: 'actual_pnl', key: 'actual_pnl',
-      render: (v: number) => v != null ? <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>{v.toFixed(2)}</span> : '-',
+      title: '方向',
+      dataIndex: 'direction',
+      key: 'direction',
+      render: (d: string) => <Tag color={d === 'buy' ? 'red' : 'green'}>{d === 'buy' ? '买入' : '卖出'}</Tag>,
     },
-    { title: '创建时间', dataIndex: 'created_at', key: 'created_at', render: (v: string) => v?.slice(0, 10) },
+    { title: '价格', dataIndex: 'price', key: 'price', render: (v: number) => v.toFixed(2) },
+    { title: '数量', dataIndex: 'quantity', key: 'quantity' },
+    { title: '金额', dataIndex: 'amount', key: 'amount', render: (v: number) => v.toFixed(2) },
     {
-      title: '操作', key: 'action',
-      render: (_: any, r: StockPlanItem) => (
-        <Space size={0} split={<span style={{ color: '#d9d9d9', margin: '0 4px' }}>|</span>}>
-          <a onClick={() => navigate(`/plans/${r.id}`)}>查看</a>
-          <a onClick={() => openDetailModal(r.id)}>添加明细</a>
+      title: '操作',
+      key: 'action',
+      render: (_: any, r: TradeDetail) => (
+        <Space>
+          <a onClick={() => openEditDetailModal(r)}><EditOutlined /> 编辑</a>
+          <Popconfirm title="确定删除？" onConfirm={() => handleDeleteDetail(r.id)}>
+            <a style={{ color: 'red' }}>删除</a>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -258,8 +282,8 @@ const StockDetail: React.FC = () => {
               <Button size="small" icon={<ThunderboltOutlined />} onClick={openQuickRecordModal}>
                 快速记录
               </Button>
-              <Button type="primary" size="small" icon={<FileAddOutlined />} onClick={openPlanModal}>
-                创建交易计划
+              <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openDetailModal}>
+                添加明细
               </Button>
             </Space>
           }
@@ -336,58 +360,15 @@ const StockDetail: React.FC = () => {
               ),
             },
             {
-              key: 'plans',
-              label: `交易计划 (${plans.length})`,
+              key: 'details',
+              label: `交易明细 (${details.length})`,
               children: (
-                <Table dataSource={plans} columns={planColumns} rowKey="id" size="small" pagination={false} />
+                <Table dataSource={details} columns={detailColumns} rowKey="id" size="small" pagination={false} />
               ),
             },
           ]}
         />
       </Card>
-
-      {/* 创建交易计划 */}
-      <Modal
-        title={`创建交易计划 - ${basic?.name || tsCode || ''}`}
-        open={planModalOpen}
-        onOk={handleCreatePlan}
-        onCancel={() => setPlanModalOpen(false)}
-        width={600}
-      >
-        <Form form={planForm} layout="vertical" initialValues={{ risk_level: 3, plan_type: 'trend' }}>
-          <Form.Item name="ts_code" hidden><Input /></Form.Item>
-          <Form.Item name="plan_type" label="计划类型" rules={[{ required: true }]}>
-            <Select options={[
-              { value: 'trend', label: '趋势跟踪' },
-              { value: 'short_term', label: '短线操作' },
-              { value: 'event_driven', label: '事件驱动' },
-            ]} />
-          </Form.Item>
-          <Form.Item name="risk_level" label="风险等级">
-            <InputNumber min={1} max={5} />
-          </Form.Item>
-          <Form.Item name="trigger_strategy" label="触发策略">
-            <Input.TextArea placeholder="如：MACD 金叉触发" rows={2} />
-          </Form.Item>
-          <Form.Item name="event_note" label="热点/事件">
-            <Input.TextArea placeholder="宏观背景、事件驱动原因" rows={2} />
-          </Form.Item>
-          <Space>
-            <Form.Item name="planned_buy_price" label="计划买入价">
-              <InputNumber style={{ width: 150 }} />
-            </Form.Item>
-            <Form.Item name="target_price" label="目标价">
-              <InputNumber style={{ width: 150 }} />
-            </Form.Item>
-            <Form.Item name="stop_loss_price" label="止损价">
-              <InputNumber style={{ width: 150 }} />
-            </Form.Item>
-          </Space>
-          <Form.Item name="note" label="备注">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-        </Form>
-      </Modal>
 
       {/* 快速记录 - 上传截图 OCR */}
       <Modal
@@ -446,14 +427,35 @@ const StockDetail: React.FC = () => {
       </Modal>
 
       {/* 添加交易明细 */}
-      <Modal
-        title="添加交易明细"
-        open={detailModalOpen}
-        onOk={handleAddDetail}
-        onCancel={() => { setDetailModalOpen(false); setDetailPlanId(null) }}
-        width={500}
-      >
+      <Modal title="添加交易明细" open={detailModalOpen} onOk={handleAddDetail} onCancel={() => setDetailModalOpen(false)} width={500}>
         <Form form={detailForm} layout="vertical">
+          <Form.Item name="trade_date" label="成交日期" rules={[{ required: true }]}>
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+          </Form.Item>
+          <Form.Item name="trade_time" label="成交时间">
+            <Input placeholder="09:35:00（可选）" />
+          </Form.Item>
+          <Form.Item name="direction" label="方向" rules={[{ required: true }]}>
+            <Select options={[{ value: 'buy', label: '买入' }, { value: 'sell', label: '卖出' }]} />
+          </Form.Item>
+          <Form.Item name="price" label="成交价格" rules={[{ required: true }]}>
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="quantity" label="成交数量（股）" rules={[{ required: true }]}>
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="commission" label="佣金">
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="exec_note" label="执行备注">
+            <Input.TextArea />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑交易明细 */}
+      <Modal title="编辑交易明细" open={editDetailModalOpen} onOk={handleEditDetail} onCancel={() => { setEditDetailModalOpen(false); setEditingDetail(null) }} width={500}>
+        <Form form={editDetailForm} layout="vertical">
           <Form.Item name="trade_date" label="成交日期" rules={[{ required: true }]}>
             <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
           </Form.Item>

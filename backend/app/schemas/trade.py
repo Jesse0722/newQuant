@@ -3,14 +3,42 @@ from typing import Optional
 from pydantic import BaseModel
 
 
-class TradePlanCreate(BaseModel):
+class TradePlanStockCreate(BaseModel):
     ts_code: str
+    planned_buy_price: Optional[float] = None
+    target_price: Optional[float] = None
+    stop_loss_price: Optional[float] = None
+    position_plan: Optional[str] = None
+    note: Optional[str] = None
+
+
+class TradePlanStockOut(BaseModel):
+    id: str
+    plan_id: str
+    ts_code: str
+    stock_name: Optional[str] = None
+    planned_buy_price: Optional[float] = None
+    target_price: Optional[float] = None
+    stop_loss_price: Optional[float] = None
+    risk_reward_ratio: Optional[float] = None
+    position_plan: Optional[str] = None
+    note: Optional[str] = None
+    details: list["TradeDetailOut"] = []
+    model_config = {"from_attributes": True}
+
+
+class TradePlanCreate(BaseModel):
+    stocks: list[TradePlanStockCreate]
     plan_type: str
     risk_level: int = 3
     trigger_strategy: Optional[str] = None
     alert_id: Optional[str] = None
     event_note: Optional[str] = None
     action_suggestion: Optional[str] = None
+    note: Optional[str] = None
+
+
+class TradePlanStockUpdate(BaseModel):
     planned_buy_price: Optional[float] = None
     target_price: Optional[float] = None
     stop_loss_price: Optional[float] = None
@@ -25,11 +53,8 @@ class TradePlanUpdate(BaseModel):
     trigger_strategy: Optional[str] = None
     event_note: Optional[str] = None
     action_suggestion: Optional[str] = None
-    planned_buy_price: Optional[float] = None
-    target_price: Optional[float] = None
-    stop_loss_price: Optional[float] = None
-    position_plan: Optional[str] = None
     note: Optional[str] = None
+    stocks: Optional[list[TradePlanStockCreate]] = None
 
 
 class ReviewSubmit(BaseModel):
@@ -59,7 +84,7 @@ class TradeDetailUpdate(BaseModel):
 
 class TradeDetailOut(BaseModel):
     id: str
-    plan_id: str
+    ts_code: str
     trade_date: str
     trade_time: Optional[str] = None
     direction: str
@@ -73,6 +98,9 @@ class TradeDetailOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+TradePlanStockOut.model_rebuild()
+
+
 class PnlSummary(BaseModel):
     total_buy_amount: float = 0
     total_sell_amount: float = 0
@@ -84,8 +112,6 @@ class PnlSummary(BaseModel):
 
 class TradePlanOut(BaseModel):
     id: str
-    ts_code: str
-    stock_name: Optional[str] = None
     plan_type: str
     risk_level: int
     status: str
@@ -93,18 +119,13 @@ class TradePlanOut(BaseModel):
     alert_id: Optional[str] = None
     event_note: Optional[str] = None
     action_suggestion: Optional[str] = None
-    planned_buy_price: Optional[float] = None
-    target_price: Optional[float] = None
-    stop_loss_price: Optional[float] = None
-    risk_reward_ratio: Optional[float] = None
-    position_plan: Optional[str] = None
     actual_pnl: Optional[float] = None
     review_summary: Optional[str] = None
     lessons_learned: Optional[str] = None
     note: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    details: list[TradeDetailOut] = []
+    stocks: list[TradePlanStockOut] = []
     pnl_summary: Optional[PnlSummary] = None
     model_config = {"from_attributes": True}
 

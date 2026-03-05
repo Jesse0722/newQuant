@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Descriptions, Button, Progress, message, Spin } from 'antd'
 import { SyncOutlined } from '@ant-design/icons'
-import { getDataSummary } from '../../api/data'
+import dayjs from 'dayjs'
+import { getDataSummary, getSyncHistory } from '../../api/data'
 import { syncFullMarket, getTaskStatus } from '../../api/sync'
-import type { DataSummary } from '../../types'
+import type { DataSummary, SyncHistoryItem } from '../../types'
 
 const DataPage: React.FC = () => {
   const [summary, setSummary] = useState<DataSummary | null>(null)
@@ -19,6 +20,7 @@ const DataPage: React.FC = () => {
     days_synced?: number
     message?: string
   } | null>(null)
+  const [lastSync, setLastSync] = useState<SyncHistoryItem | null>(null)
 
   const fetchSummary = async () => {
     setLoading(true)
@@ -30,8 +32,19 @@ const DataPage: React.FC = () => {
     }
   }
 
+  const fetchSyncHistory = async () => {
+    try {
+      const res = await getSyncHistory('full_market', 5)
+      const completed = (res.data || []).find((r) => r.status === 'completed' || r.status === 'failed')
+      setLastSync(completed || null)
+    } catch {
+      setLastSync(null)
+    }
+  }
+
   useEffect(() => {
     fetchSummary()
+    fetchSyncHistory()
   }, [])
 
   useEffect(() => {
@@ -54,6 +67,7 @@ const DataPage: React.FC = () => {
             message.error(res.data.message || '同步失败')
           }
           fetchSummary()
+          fetchSyncHistory()
         }
       } catch {
         clearInterval(poll)
@@ -111,13 +125,24 @@ const DataPage: React.FC = () => {
           </div>
         )}
 
-        {taskResult && !syncing && (
+        {(taskResult || lastSync?.result) && !syncing && (
           <div style={{ marginTop: 24, padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
-            <h4>同步结果</h4>
-            <p>成功：{taskResult.success_count?.toLocaleString() ?? 0} 条</p>
-            <p>跳过（已存在）：{taskResult.skipped_count?.toLocaleString() ?? 0} 条</p>
-            <p>失败天数：{taskResult.failed_count ?? 0} 天</p>
-            <p>同步交易日：{taskResult.days_synced ?? 0} 天</p>
+            <h4>
+              {taskResult ? '同步结果' : '上次同步'}
+              {lastSync && !taskResult && lastSync.completed_at && (
+                <span style={{ fontWeight: 'normal', color: '#666', marginLeft: 8 }}>
+                  {dayjs(lastSync.completed_at).format('YYYY-MM-DD HH:mm')}
+                </span>
+              )}
+            </h4>
+            {(taskResult || lastSync?.result) && (
+              <>
+                <p>成功：{(taskResult?.success_count ?? lastSync?.result?.success_count ?? 0).toLocaleString()} 条</p>
+                <p>跳过（已存在）：{(taskResult?.skipped_count ?? lastSync?.result?.skipped_count ?? 0).toLocaleString()} 条</p>
+                <p>失败天数：{taskResult?.failed_count ?? lastSync?.result?.failed_count ?? 0} 天</p>
+                <p>同步交易日：{taskResult?.days_synced ?? lastSync?.result?.days_synced ?? 0} 天</p>
+              </>
+            )}
           </div>
         )}
       </Card>

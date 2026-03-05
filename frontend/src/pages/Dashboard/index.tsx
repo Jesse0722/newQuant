@@ -31,7 +31,12 @@ const Dashboard: React.FC = () => {
   ]
 
   const planColumns = [
-    { title: '股票', key: 'stock', render: (_: any, r: any) => `${r.stock_name || ''} (${r.ts_code})` },
+    {
+      title: '股票',
+      key: 'stock',
+      render: (_: any, r: any) =>
+        r.stock_count > 1 ? `${r.stock_name || r.ts_code} 等${r.stock_count}只` : `${r.stock_name || ''} (${r.ts_code || '-'})`,
+    },
     {
       title: '类型',
       dataIndex: 'plan_type',

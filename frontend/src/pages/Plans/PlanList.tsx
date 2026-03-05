@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Rate, Tag, Space, Popconfirm, message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { listPlans, createPlan, deletePlan } from '../../api/plans'
 import type { TradePlan } from '../../types'
@@ -37,7 +37,23 @@ const PlanList: React.FC = () => {
 
   const handleCreate = async () => {
     const values = await form.validateFields()
-    await createPlan(values)
+    const stocks = values.stocks.map((s: any) => ({
+      ts_code: s.ts_code,
+      planned_buy_price: s.planned_buy_price,
+      target_price: s.target_price,
+      stop_loss_price: s.stop_loss_price,
+      position_plan: s.position_plan,
+      note: s.note,
+    }))
+    await createPlan({
+      stocks,
+      plan_type: values.plan_type,
+      risk_level: values.risk_level,
+      trigger_strategy: values.trigger_strategy,
+      event_note: values.event_note,
+      action_suggestion: values.action_suggestion,
+      note: values.note,
+    })
     message.success('创建成功')
     setModalOpen(false)
     form.resetFields()
@@ -50,12 +66,23 @@ const PlanList: React.FC = () => {
     fetchPlans()
   }
 
+  const stockDisplay = (r: TradePlan) => {
+    if (!r.stocks?.length) return '-'
+    if (r.stocks.length === 1) return r.stocks[0].stock_name || r.stocks[0].ts_code
+    return `${r.stocks[0].stock_name || r.stocks[0].ts_code} 等${r.stocks.length}只`
+  }
+
+  const rrDisplay = (r: TradePlan) => {
+    const first = r.stocks?.[0]
+    return first?.risk_reward_ratio?.toFixed(2) ?? '-'
+  }
+
   const columns = [
     {
       title: '股票',
       key: 'stock',
       render: (_: any, r: TradePlan) => (
-        <a onClick={() => navigate(`/plans/${r.id}`)}>{r.stock_name || r.ts_code}</a>
+        <a onClick={() => navigate(`/plans/${r.id}`)}>{stockDisplay(r)}</a>
       ),
     },
     { title: '类型', dataIndex: 'plan_type', key: 'plan_type', render: (t: string) => typeMap[t] || t },
@@ -71,7 +98,7 @@ const PlanList: React.FC = () => {
       key: 'status',
       render: (s: string) => <Tag color={statusMap[s]?.color}>{statusMap[s]?.label || s}</Tag>,
     },
-    { title: '盈亏比', dataIndex: 'risk_reward_ratio', key: 'rr', render: (v: number) => v?.toFixed(2) || '-' },
+    { title: '盈亏比', key: 'rr', render: (_: any, r: TradePlan) => rrDisplay(r) },
     {
       title: '实际盈亏',
       dataIndex: 'actual_pnl',
@@ -118,12 +145,43 @@ const PlanList: React.FC = () => {
         pagination={{ current: page, total, pageSize: 20, onChange: (p) => { setPage(p); fetchPlans(tab, p) } }}
       />
 
-      <Modal title="新建交易计划" open={modalOpen} onOk={handleCreate} onCancel={() => setModalOpen(false)} width={600}>
-        <Form form={form} layout="vertical" initialValues={{ risk_level: 3, plan_type: 'trend' }}>
-          <Form.Item name="ts_code" label="股票代码" rules={[{ required: true }]}>
-            <Input placeholder="输入6位代码，如 000001" />
-          </Form.Item>
-          <Form.Item name="plan_type" label="计划类型" rules={[{ required: true }]}>
+      <Modal title="新建交易计划" open={modalOpen} onOk={handleCreate} onCancel={() => setModalOpen(false)} width={680}>
+        <Form form={form} layout="vertical" initialValues={{ risk_level: 3, plan_type: 'trend', stocks: [{}] }}>
+          <Form.List name="stocks" rules={[{ validator: (_, v) => (v?.length ? Promise.resolve() : Promise.reject('至少添加一只股票')) }]}>
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map(({ key, name, ...rest }) => (
+                  <div key={key} style={{ marginBottom: 16, padding: 12, border: '1px solid #f0f0f0', borderRadius: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span>股票 {name + 1}</span>
+                      {fields.length > 1 && (
+                        <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f' }} />
+                      )}
+                    </div>
+                    <Form.Item {...rest} name={[name, 'ts_code']} label="股票代码" rules={[{ required: true }]}>
+                      <Input placeholder="6位代码，如 000001" />
+                    </Form.Item>
+                    <Space>
+                      <Form.Item {...rest} name={[name, 'planned_buy_price']} label="计划买入价">
+                        <InputNumber style={{ width: 120 }} />
+                      </Form.Item>
+                      <Form.Item {...rest} name={[name, 'target_price']} label="目标价">
+                        <InputNumber style={{ width: 120 }} />
+                      </Form.Item>
+                      <Form.Item {...rest} name={[name, 'stop_loss_price']} label="止损价">
+                        <InputNumber style={{ width: 120 }} />
+                      </Form.Item>
+                    </Space>
+                    <Form.Item {...rest} name={[name, 'position_plan']} label="仓位计划">
+                      <Input placeholder="如：30%" style={{ width: 200 }} />
+                    </Form.Item>
+                  </div>
+                ))}
+                <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>添加股票</Button>
+              </>
+            )}
+          </Form.List>
+          <Form.Item name="plan_type" label="计划类型" rules={[{ required: true }]} style={{ marginTop: 16 }}>
             <Select options={[
               { value: 'trend', label: '趋势跟踪' },
               { value: 'short_term', label: '短线操作' },
@@ -138,20 +196,6 @@ const PlanList: React.FC = () => {
           </Form.Item>
           <Form.Item name="event_note" label="热点/事件">
             <Input.TextArea placeholder="宏观背景、事件驱动原因" />
-          </Form.Item>
-          <Space>
-            <Form.Item name="planned_buy_price" label="计划买入价">
-              <InputNumber style={{ width: 150 }} />
-            </Form.Item>
-            <Form.Item name="target_price" label="目标价">
-              <InputNumber style={{ width: 150 }} />
-            </Form.Item>
-            <Form.Item name="stop_loss_price" label="止损价">
-              <InputNumber style={{ width: 150 }} />
-            </Form.Item>
-          </Space>
-          <Form.Item name="position_plan" label="仓位计划">
-            <Input placeholder="如：30%" />
           </Form.Item>
           <Form.Item name="action_suggestion" label="操作建议">
             <Select allowClear options={[

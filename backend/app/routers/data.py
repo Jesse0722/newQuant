@@ -1,10 +1,42 @@
+import json
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app.models.stock import StockBasic, DailyQuote
+from app.models.sync_log import SyncLog
 
 router = APIRouter(prefix="/api/data", tags=["data"])
+
+
+@router.get("/sync-history")
+def get_sync_history(task_type: str = "full_market", limit: int = 5, db: Session = Depends(get_db)):
+    """获取同步记录列表，用于页面展示上次同步结果"""
+    rows = (
+        db.query(SyncLog)
+        .filter(SyncLog.task_type == task_type)
+        .order_by(SyncLog.started_at.desc())
+        .limit(limit)
+        .all()
+    )
+    out = []
+    for r in rows:
+        item = {
+            "id": r.id,
+            "task_type": r.task_type,
+            "status": r.status,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+        }
+        if r.result:
+            try:
+                item["result"] = json.loads(r.result)
+            except Exception:
+                item["result"] = {}
+        else:
+            item["result"] = {}
+        out.append(item)
+    return out
 
 
 @router.get("/summary")

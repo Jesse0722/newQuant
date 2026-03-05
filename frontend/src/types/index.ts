@@ -113,7 +113,7 @@ export interface Alert {
 
 export interface TradeDetail {
   id: string
-  plan_id: string
+  ts_code: string
   trade_date: string
   trade_time?: string
   direction: string
@@ -124,6 +124,20 @@ export interface TradeDetail {
   stamp_tax: number
   exec_note?: string
   created_at: string
+}
+
+export interface TradePlanStock {
+  id: string
+  plan_id: string
+  ts_code: string
+  stock_name?: string
+  planned_buy_price?: number
+  target_price?: number
+  stop_loss_price?: number
+  risk_reward_ratio?: number
+  position_plan?: string
+  note?: string
+  details?: TradeDetail[]
 }
 
 export interface PnlSummary {
@@ -137,8 +151,6 @@ export interface PnlSummary {
 
 export interface TradePlan {
   id: string
-  ts_code: string
-  stock_name?: string
   plan_type: string
   risk_level: number
   status: string
@@ -146,18 +158,13 @@ export interface TradePlan {
   alert_id?: string
   event_note?: string
   action_suggestion?: string
-  planned_buy_price?: number
-  target_price?: number
-  stop_loss_price?: number
-  risk_reward_ratio?: number
-  position_plan?: string
   actual_pnl?: number
   review_summary?: string
   lessons_learned?: string
   note?: string
   created_at: string
   updated_at: string
-  details?: TradeDetail[]
+  stocks: TradePlanStock[]
   pnl_summary?: PnlSummary
 }
 
@@ -177,8 +184,9 @@ export interface DashboardData {
   }>
   active_plans: Array<{
     id: string
-    ts_code: string
+    ts_code?: string
     stock_name?: string
+    stock_count?: number
     plan_type: string
     status: string
     risk_level: number
@@ -206,6 +214,21 @@ export interface DataSummary {
   total_quotes: number
   quote_date_range: { min: string | null; max: string | null }
   last_sync_at: string | null
+}
+
+export interface SyncHistoryItem {
+  id: string
+  task_type: string
+  status: string
+  started_at: string | null
+  completed_at: string | null
+  result?: {
+    success_count?: number
+    failed_count?: number
+    skipped_count?: number
+    days_synced?: number
+    message?: string
+  }
 }
 
 export interface Pagination<T> {

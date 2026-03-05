@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models.trade import TradePlan, TradeDetail
+from app.models.trade import TradePlan, TradePlanStock, TradeDetail
 from app.models.stock import StockBasic
 from app.schemas.trade import (
     TradePlanCreate, TradePlanUpdate, TradePlanOut, TradePlanPagination,
+    TradePlanStockCreate, TradePlanStockOut,
     TradeDetailCreate, TradeDetailUpdate, TradeDetailOut,
     ReviewSubmit, PnlSummary,
 )
@@ -14,17 +15,24 @@ from app.utils import normalize_ts_code
 router = APIRouter(prefix="/api", tags=["plans"])
 
 
-def _calc_risk_reward(plan: TradePlan) -> float | None:
-    if plan.planned_buy_price and plan.target_price and plan.stop_loss_price:
-        denom = plan.planned_buy_price - plan.stop_loss_price
+def _calc_risk_reward(ps: TradePlanStock) -> float | None:
+    if ps.planned_buy_price and ps.target_price and ps.stop_loss_price:
+        denom = ps.planned_buy_price - ps.stop_loss_price
         if denom > 0:
-            return round((plan.target_price - plan.planned_buy_price) / denom, 2)
+            return round((ps.target_price - ps.planned_buy_price) / denom, 2)
     return None
 
 
-def _calc_pnl(db: Session, plan_id: str) -> PnlSummary:
-    details = db.query(TradeDetail).filter(TradeDetail.plan_id == plan_id).all()
+def _calc_pnl_for_ts_codes(db: Session, ts_codes: list[str]) -> PnlSummary:
     summary = PnlSummary()
+    if not ts_codes:
+        return summary
+    details = (
+        db.query(TradeDetail)
+        .filter(TradeDetail.ts_code.in_(ts_codes))
+        .order_by(TradeDetail.trade_date)
+        .all()
+    )
     for d in details:
         if d.direction == "buy":
             summary.total_buy_amount += d.amount
@@ -41,12 +49,49 @@ def _calc_pnl(db: Session, plan_id: str) -> PnlSummary:
 
 
 def _enrich_plan(db: Session, plan: TradePlan, include_details: bool = False) -> TradePlanOut:
-    out = TradePlanOut.model_validate(plan)
-    out.risk_reward_ratio = _calc_risk_reward(plan)
-    if include_details:
-        details = db.query(TradeDetail).filter(TradeDetail.plan_id == plan.id).order_by(TradeDetail.trade_date).all()
-        out.details = [TradeDetailOut.model_validate(d) for d in details]
-        out.pnl_summary = _calc_pnl(db, plan.id)
+    ts_codes = [ps.ts_code for ps in plan.stocks]
+    pnl = _calc_pnl_for_ts_codes(db, ts_codes)
+    out = TradePlanOut(
+        id=plan.id,
+        plan_type=plan.plan_type,
+        risk_level=plan.risk_level,
+        status=plan.status,
+        trigger_strategy=plan.trigger_strategy,
+        alert_id=plan.alert_id,
+        event_note=plan.event_note,
+        action_suggestion=plan.action_suggestion,
+        actual_pnl=plan.actual_pnl if plan.actual_pnl is not None else pnl.net_pnl,
+        review_summary=plan.review_summary,
+        lessons_learned=plan.lessons_learned,
+        note=plan.note,
+        created_at=plan.created_at,
+        updated_at=plan.updated_at,
+        stocks=[],
+        pnl_summary=pnl,
+    )
+    for ps in plan.stocks:
+        stock_out = TradePlanStockOut(
+            id=ps.id,
+            plan_id=ps.plan_id,
+            ts_code=ps.ts_code,
+            stock_name=ps.stock_name,
+            planned_buy_price=ps.planned_buy_price,
+            target_price=ps.target_price,
+            stop_loss_price=ps.stop_loss_price,
+            risk_reward_ratio=_calc_risk_reward(ps) or ps.risk_reward_ratio,
+            position_plan=ps.position_plan,
+            note=ps.note,
+            details=[],
+        )
+        if include_details:
+            details = (
+                db.query(TradeDetail)
+                .filter(TradeDetail.ts_code == ps.ts_code)
+                .order_by(TradeDetail.trade_date)
+                .all()
+            )
+            stock_out.details = [TradeDetailOut.model_validate(d) for d in details]
+        out.stocks.append(stock_out)
     return out
 
 
@@ -75,20 +120,43 @@ def list_plans(
 
 @router.post("/plans", response_model=TradePlanOut, status_code=201)
 def create_plan(body: TradePlanCreate, db: Session = Depends(get_db)):
-    try:
-        ts_code = normalize_ts_code(body.ts_code)
-    except ValueError as e:
-        raise AppError(code=4004, message=str(e))
-    basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
-    data = body.model_dump()
-    data["ts_code"] = ts_code
-    plan = TradePlan(**data)
-    plan.stock_name = basic.name if basic else None
-    plan.risk_reward_ratio = _calc_risk_reward(plan)
+    if not body.stocks:
+        raise AppError(code=4004, message="至少需要一只股票", status_code=400)
+    plan = TradePlan(
+        plan_type=body.plan_type,
+        risk_level=body.risk_level,
+        trigger_strategy=body.trigger_strategy,
+        alert_id=body.alert_id,
+        event_note=body.event_note,
+        action_suggestion=body.action_suggestion,
+        note=body.note,
+    )
     db.add(plan)
+    db.flush()
+    for s in body.stocks:
+        try:
+            ts_code = normalize_ts_code(s.ts_code)
+        except ValueError as e:
+            raise AppError(code=4004, message=str(e))
+        basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+        rr = None
+        if s.planned_buy_price and s.target_price and s.stop_loss_price and (s.planned_buy_price - s.stop_loss_price) > 0:
+            rr = round((s.target_price - s.planned_buy_price) / (s.planned_buy_price - s.stop_loss_price), 2)
+        ps = TradePlanStock(
+            plan_id=plan.id,
+            ts_code=ts_code,
+            stock_name=basic.name if basic else None,
+            planned_buy_price=s.planned_buy_price,
+            target_price=s.target_price,
+            stop_loss_price=s.stop_loss_price,
+            risk_reward_ratio=rr,
+            position_plan=s.position_plan,
+            note=s.note,
+        )
+        db.add(ps)
     db.commit()
     db.refresh(plan)
-    return _enrich_plan(db, plan)
+    return _enrich_plan(db, plan, include_details=True)
 
 
 @router.get("/plans/{plan_id}", response_model=TradePlanOut)
@@ -105,8 +173,30 @@ def update_plan(plan_id: str, body: TradePlanUpdate, db: Session = Depends(get_d
     if not plan:
         raise AppError(code=4001, message="交易计划不存在", status_code=404)
     for k, v in body.model_dump(exclude_unset=True).items():
-        setattr(plan, k, v)
-    plan.risk_reward_ratio = _calc_risk_reward(plan)
+        if k == "stocks":
+            if v is not None:
+                for ps in plan.stocks[:]:
+                    db.delete(ps)
+                for s in v:
+                    ts_code = normalize_ts_code(s.ts_code)
+                    basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+                    rr = None
+                    if s.planned_buy_price and s.target_price and s.stop_loss_price and (s.planned_buy_price - s.stop_loss_price) > 0:
+                        rr = round((s.target_price - s.planned_buy_price) / (s.planned_buy_price - s.stop_loss_price), 2)
+                    ps = TradePlanStock(
+                        plan_id=plan.id,
+                        ts_code=ts_code,
+                        stock_name=basic.name if basic else None,
+                        planned_buy_price=s.planned_buy_price,
+                        target_price=s.target_price,
+                        stop_loss_price=s.stop_loss_price,
+                        risk_reward_ratio=rr,
+                        position_plan=s.position_plan,
+                        note=s.note,
+                    )
+                    db.add(ps)
+        else:
+            setattr(plan, k, v)
     db.commit()
     db.refresh(plan)
     return _enrich_plan(db, plan, include_details=True)
@@ -128,46 +218,15 @@ def submit_review(plan_id: str, body: ReviewSubmit, db: Session = Depends(get_db
         raise AppError(code=4001, message="交易计划不存在", status_code=404)
     plan.review_summary = body.review_summary
     plan.lessons_learned = body.lessons_learned
-    pnl = _calc_pnl(db, plan.id)
+    ts_codes = [ps.ts_code for ps in plan.stocks]
+    pnl = _calc_pnl_for_ts_codes(db, ts_codes)
     plan.actual_pnl = pnl.net_pnl
     db.commit()
     db.refresh(plan)
     return _enrich_plan(db, plan, include_details=True)
 
 
-# --- 交易明细 CRUD ---
-
-@router.get("/plans/{plan_id}/details", response_model=list[TradeDetailOut])
-def list_details(plan_id: str, db: Session = Depends(get_db)):
-    plan = db.query(TradePlan).filter(TradePlan.id == plan_id).first()
-    if not plan:
-        raise AppError(code=4001, message="交易计划不存在", status_code=404)
-    details = db.query(TradeDetail).filter(TradeDetail.plan_id == plan_id).order_by(TradeDetail.trade_date).all()
-    return [TradeDetailOut.model_validate(d) for d in details]
-
-
-@router.post("/plans/{plan_id}/details", response_model=TradeDetailOut, status_code=201)
-def create_detail(plan_id: str, body: TradeDetailCreate, db: Session = Depends(get_db)):
-    plan = db.query(TradePlan).filter(TradePlan.id == plan_id).first()
-    if not plan:
-        raise AppError(code=4001, message="交易计划不存在", status_code=404)
-    amount = round(body.price * body.quantity, 2)
-    stamp_tax = round(amount * 0.0005, 2) if body.direction == "sell" else 0.0
-    detail = TradeDetail(
-        plan_id=plan_id,
-        amount=amount,
-        stamp_tax=stamp_tax,
-        **body.model_dump(),
-    )
-    db.add(detail)
-    # 更新计划实际盈亏
-    db.flush()
-    pnl = _calc_pnl(db, plan_id)
-    plan.actual_pnl = pnl.net_pnl
-    db.commit()
-    db.refresh(detail)
-    return TradeDetailOut.model_validate(detail)
-
+# --- 交易明细（按股票，保留编辑/删除）---
 
 @router.put("/details/{detail_id}", response_model=TradeDetailOut)
 def update_detail(detail_id: str, body: TradeDetailUpdate, db: Session = Depends(get_db)):
@@ -178,11 +237,6 @@ def update_detail(detail_id: str, body: TradeDetailUpdate, db: Session = Depends
         setattr(detail, k, v)
     detail.amount = round(detail.price * detail.quantity, 2)
     detail.stamp_tax = round(detail.amount * 0.0005, 2) if detail.direction == "sell" else 0.0
-    plan = db.query(TradePlan).filter(TradePlan.id == detail.plan_id).first()
-    db.flush()
-    pnl = _calc_pnl(db, detail.plan_id)
-    if plan:
-        plan.actual_pnl = pnl.net_pnl
     db.commit()
     db.refresh(detail)
     return TradeDetailOut.model_validate(detail)
@@ -193,11 +247,5 @@ def delete_detail(detail_id: str, db: Session = Depends(get_db)):
     detail = db.query(TradeDetail).filter(TradeDetail.id == detail_id).first()
     if not detail:
         raise AppError(code=4003, message="交易明细不存在", status_code=404)
-    plan_id = detail.plan_id
     db.delete(detail)
-    db.flush()
-    plan = db.query(TradePlan).filter(TradePlan.id == plan_id).first()
-    if plan:
-        pnl = _calc_pnl(db, plan_id)
-        plan.actual_pnl = pnl.net_pnl
     db.commit()

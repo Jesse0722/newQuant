@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.monitor import Alert, MonitorRule
 from app.models.stock import StockBasic
-from app.models.trade import TradePlan
+from app.models.trade import TradePlan, TradePlanStock
 from app.schemas.monitor import AlertOut, AlertUpdate, AlertPagination
 from app.services.monitor_engine import TEMPLATE_INFO
 from app.exceptions import AppError
@@ -72,15 +72,20 @@ def create_plan_from_alert(alert_id: str, db: Session = Depends(get_db)):
     if rule and rule.template_id and rule.template_id in TEMPLATE_INFO:
         trigger_desc = TEMPLATE_INFO[rule.template_id]["name"]
     plan = TradePlan(
-        ts_code=alert.ts_code,
-        stock_name=basic.name if basic else None,
         plan_type="short_term",
         trigger_strategy=trigger_desc,
         alert_id=alert.id,
     )
     db.add(plan)
+    db.flush()
+    ps = TradePlanStock(
+        plan_id=plan.id,
+        ts_code=alert.ts_code,
+        stock_name=basic.name if basic else None,
+    )
+    db.add(ps)
     alert.status = "processed"
     alert.plan_id = plan.id
     db.commit()
     db.refresh(plan)
-    return {"id": plan.id, "ts_code": plan.ts_code, "stock_name": plan.stock_name, "status": plan.status}
+    return {"id": plan.id, "ts_code": alert.ts_code, "stock_name": basic.name if basic else None, "status": plan.status}

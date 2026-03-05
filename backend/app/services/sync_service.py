@@ -1,9 +1,11 @@
+import json
 import time
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchStock
+from app.models.sync_log import SyncLog
 from app.services.tushare_adapter import tushare_adapter
 from app.tasks.background import task_registry
 
@@ -128,6 +130,16 @@ def sync_full_market(task_id: str, days: int = 60):
     skipped_count = 0
     failed_dates: list[dict] = []
     try:
+        # 持久化：创建同步记录
+        log = SyncLog(
+            id=task_id,
+            task_type="full_market",
+            target=None,
+            status="running",
+        )
+        db.add(log)
+        db.commit()
+
         task.message = "正在同步股票基础信息..."
         _sync_stock_basic_full(db)
         dates = _get_trade_dates(days)
@@ -169,6 +181,14 @@ def sync_full_market(task_id: str, days: int = 60):
         task.status = "completed"
         task.progress = 1.0
         task.message = msg
+
+        # 持久化：更新同步记录
+        log = db.query(SyncLog).filter(SyncLog.id == task_id).first()
+        if log:
+            log.status = "completed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(task.result, ensure_ascii=False)
+            db.commit()
     except Exception as e:
         task.status = "failed"
         task.message = str(e)
@@ -180,5 +200,12 @@ def sync_full_market(task_id: str, days: int = 60):
             "failed_dates": failed_dates,
             "message": str(e),
         }
+        # 持久化：更新为失败
+        log = db.query(SyncLog).filter(SyncLog.id == task_id).first()
+        if log:
+            log.status = "failed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(task.result, ensure_ascii=False)
+            db.commit()
     finally:
         db.close()

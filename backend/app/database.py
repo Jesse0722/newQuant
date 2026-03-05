@@ -15,5 +15,7 @@ def get_db():
         db.close()
 
 def init_db():
+    from scripts.migrate_trade_plan import migrate
+    migrate()
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.stock import StockBasic, DailyQuote
 from app.models.monitor import Alert
-from app.models.trade import TradePlan
+from app.models.trade import TradeDetail
+from app.schemas.trade import TradeDetailCreate, TradeDetailOut
 from app.services.indicator import calc_ma, calc_macd, calc_rsi
 from app.exceptions import AppError
 import pandas as pd
@@ -90,26 +91,35 @@ def get_stock_alerts(ts_code: str, db: Session = Depends(get_db)):
     ]
 
 
-@router.get("/{ts_code}/plans")
-def get_stock_plans(ts_code: str, db: Session = Depends(get_db)):
-    plans = (
-        db.query(TradePlan)
-        .filter(TradePlan.ts_code == ts_code)
-        .order_by(TradePlan.created_at.desc())
-        .limit(50)
+@router.get("/{ts_code}/details", response_model=list[TradeDetailOut])
+def get_stock_details(ts_code: str, db: Session = Depends(get_db)):
+    details = (
+        db.query(TradeDetail)
+        .filter(TradeDetail.ts_code == ts_code)
+        .order_by(TradeDetail.trade_date.desc(), TradeDetail.created_at.desc())
+        .limit(200)
         .all()
     )
-    return [
-        {
-            "id": p.id,
-            "plan_type": p.plan_type,
-            "status": p.status,
-            "risk_level": p.risk_level,
-            "actual_pnl": p.actual_pnl,
-            "created_at": p.created_at.isoformat(),
-        }
-        for p in plans
-    ]
+    return [TradeDetailOut.model_validate(d) for d in details]
+
+
+@router.post("/{ts_code}/details", response_model=TradeDetailOut, status_code=201)
+def create_stock_detail(ts_code: str, body: TradeDetailCreate, db: Session = Depends(get_db)):
+    basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+    if not basic:
+        raise AppError(code=5001, message="股票不存在", status_code=404)
+    amount = round(body.price * body.quantity, 2)
+    stamp_tax = round(amount * 0.0005, 2) if body.direction == "sell" else 0.0
+    detail = TradeDetail(
+        ts_code=ts_code,
+        amount=amount,
+        stamp_tax=stamp_tax,
+        **body.model_dump(),
+    )
+    db.add(detail)
+    db.commit()
+    db.refresh(detail)
+    return TradeDetailOut.model_validate(detail)
 
 
 def _basic_dict(basic: StockBasic) -> dict:
