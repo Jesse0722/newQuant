@@ -167,6 +167,8 @@ def list_stocks(
     pool_id: str,
     keyword: str = Query(None),
     monitor_status: str = Query(None),
+    limit_up_date_from: str = Query(None, description="涨停日期起 YYYYMMDD"),
+    limit_up_date_to: str = Query(None, description="涨停日期止 YYYYMMDD"),
     db: Session = Depends(get_db),
 ):
     pool = db.query(WatchPool).filter(WatchPool.id == pool_id).first()
@@ -175,6 +177,10 @@ def list_stocks(
     q = db.query(WatchStock).filter(WatchStock.pool_id == pool_id)
     if monitor_status:
         q = q.filter(WatchStock.monitor_status == monitor_status)
+    if limit_up_date_from:
+        q = q.filter(WatchStock.limit_up_date >= limit_up_date_from)
+    if limit_up_date_to:
+        q = q.filter(WatchStock.limit_up_date <= limit_up_date_to)
     stocks = q.order_by(WatchStock.pinned.desc(), WatchStock.created_at.desc()).all()
     result = []
     for s in stocks:

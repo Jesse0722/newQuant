@@ -3,6 +3,7 @@ export interface Pool {
   name: string
   description?: string
   default_monitor_rule?: Record<string, any>
+  trigger_target_pool_id?: string
   stock_count: number
   created_at: string
   updated_at: string
@@ -22,6 +23,7 @@ export interface WatchStock {
   monitor_status: string
   pinned: boolean
   note?: string
+  limit_up_date?: string
   created_at: string
 }
 

@@ -14,6 +14,7 @@ class WatchPool(Base):
     description = Column(Text)
     default_monitor_rule = Column(JSON)
     sort_order = Column(Integer, nullable=False, default=0)  # 用于拖拽排序
+    trigger_target_pool_id = Column(String(36), nullable=True)  # 买点触发后加入的池
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     stocks = relationship("WatchStock", back_populates="pool", cascade="all, delete-orphan")
@@ -29,6 +30,7 @@ class WatchStock(Base):
     monitor_status = Column(String(16), nullable=False, default="monitoring")
     pinned = Column(Boolean, nullable=False, default=False)
     note = Column(Text)
+    limit_up_date = Column(String(8), nullable=True)  # 涨停日期 YYYYMMDD
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     pool = relationship("WatchPool", back_populates="stocks")
     __table_args__ = (UniqueConstraint("pool_id", "ts_code", name="uq_pool_stock"),)

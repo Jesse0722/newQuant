@@ -23,5 +23,7 @@ def init_db():
     migrate_plan_title_remove_type()
     from scripts.migrate_pool_sort_order import migrate as migrate_pool_sort_order
     migrate_pool_sort_order()
+    from scripts.migrate_limit_up_fields import migrate as migrate_limit_up_fields
+    migrate_limit_up_fields()
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

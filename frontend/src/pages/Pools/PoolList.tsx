@@ -35,6 +35,8 @@ const PoolList: React.FC = () => {
   const [stockSearching, setStockSearching] = useState(false)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [limitUpDateFrom, setLimitUpDateFrom] = useState<string>('')
+  const [limitUpDateTo, setLimitUpDateTo] = useState<string>('')
   const [addForm] = Form.useForm()
   const [poolForm] = Form.useForm()
   const [planForm] = Form.useForm()
@@ -52,7 +54,10 @@ const PoolList: React.FC = () => {
     if (!poolId) { setStocks([]); return }
     setLoading(true)
     try {
-      const res = await listStocks(poolId)
+      const params: Record<string, string> = {}
+      if (limitUpDateFrom) params.limit_up_date_from = limitUpDateFrom.replace(/-/g, '')
+      if (limitUpDateTo) params.limit_up_date_to = limitUpDateTo.replace(/-/g, '')
+      const res = await listStocks(poolId, params)
       setStocks(res.data)
     } finally {
       setLoading(false)
@@ -70,7 +75,7 @@ const PoolList: React.FC = () => {
 
   useEffect(() => {
     if (activePoolId) fetchStocks(activePoolId)
-  }, [activePoolId])
+  }, [activePoolId, limitUpDateFrom, limitUpDateTo])
 
   useEffect(() => {
     if (createPlanModalOpen) {
@@ -104,7 +109,11 @@ const PoolList: React.FC = () => {
   const openEditPoolModal = () => {
     const pool = pools.find((p) => p.id === activePoolId)
     if (!pool) return
-    poolForm.setFieldsValue({ name: pool.name, description: pool.description })
+    poolForm.setFieldsValue({
+      name: pool.name,
+      description: pool.description,
+      trigger_target_pool_id: pool.trigger_target_pool_id || undefined,
+    })
     setEditPoolModalOpen(true)
   }
 
@@ -330,6 +339,10 @@ const PoolList: React.FC = () => {
       },
     },
     {
+      title: '涨停日期', dataIndex: 'limit_up_date', key: 'limit_up_date', width: 100,
+      render: (v: string) => v ? `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6)}` : '-',
+    },
+    {
       title: '加入价格', dataIndex: 'added_price', key: 'added_price', width: 100,
       render: (v: number, r: WatchStock) => (
         <Input
@@ -502,9 +515,33 @@ const PoolList: React.FC = () => {
             {activePool.description && (
               <p style={{ color: '#888', margin: '8px 0' }}>{activePool.description}</p>
             )}
-            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <Button size="small" icon={<UploadOutlined />} onClick={() => setImportModalOpen(true)}>CSV 导入</Button>
-              <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>添加股票</Button>
+            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {(activePool?.name?.includes('涨停') ?? false) && (
+                  <Space size="small">
+                    <span style={{ fontSize: 12, color: '#666' }}>涨停日期:</span>
+                    <Input
+                      size="small"
+                      placeholder="起 YYYYMMDD"
+                      value={limitUpDateFrom}
+                      onChange={(e) => setLimitUpDateFrom(e.target.value.replace(/-/g, '').slice(0, 8))}
+                      style={{ width: 100 }}
+                    />
+                    <span>-</span>
+                    <Input
+                      size="small"
+                      placeholder="止 YYYYMMDD"
+                      value={limitUpDateTo}
+                      onChange={(e) => setLimitUpDateTo(e.target.value.replace(/-/g, '').slice(0, 8))}
+                      style={{ width: 100 }}
+                    />
+                </Space>
+                )}
+              </div>
+              <Space>
+                <Button size="small" icon={<UploadOutlined />} onClick={() => setImportModalOpen(true)}>CSV 导入</Button>
+                <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>添加股票</Button>
+              </Space>
             </div>
             <Table dataSource={stocks} columns={columns} rowKey="id" loading={loading} size="small" pagination={false} />
           </>
@@ -545,6 +582,13 @@ const PoolList: React.FC = () => {
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea />
+          </Form.Item>
+          <Form.Item name="trigger_target_pool_id" label="买点触发后加入">
+            <Select
+              allowClear
+              placeholder="选择目标池，买点触发时自动将股票加入该池"
+              options={pools.filter((p) => p.id !== activePoolId).map((p) => ({ value: p.id, label: p.name }))}
+            />
           </Form.Item>
         </Form>
       </Modal>

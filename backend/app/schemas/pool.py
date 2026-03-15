@@ -13,6 +13,7 @@ class PoolUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     default_monitor_rule: Optional[dict] = None
+    trigger_target_pool_id: Optional[str] = None
 
 
 class PoolOut(BaseModel):
@@ -20,6 +21,7 @@ class PoolOut(BaseModel):
     name: str
     description: Optional[str] = None
     default_monitor_rule: Optional[dict] = None
+    trigger_target_pool_id: Optional[str] = None
     stock_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -53,6 +55,7 @@ class WatchStockOut(BaseModel):
     monitor_status: str
     pinned: bool = False
     note: Optional[str] = None
+    limit_up_date: Optional[str] = None
     created_at: datetime
     model_config = {"from_attributes": True}
 

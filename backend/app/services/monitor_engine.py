@@ -142,6 +142,20 @@ def scan_stock(db: Session, watch_stock: WatchStock) -> list[Alert]:
                 alerts.append(alert)
     if alerts:
         watch_stock.monitor_status = "triggered"
+        # 买点触发后自动加入目标池
+        pool = db.query(WatchPool).filter(WatchPool.id == watch_stock.pool_id).first()
+        if pool and pool.trigger_target_pool_id:
+            existing = db.query(WatchStock).filter(
+                WatchStock.pool_id == pool.trigger_target_pool_id,
+                WatchStock.ts_code == watch_stock.ts_code,
+            ).first()
+            if not existing:
+                target_stock = WatchStock(
+                    pool_id=pool.trigger_target_pool_id,
+                    ts_code=watch_stock.ts_code,
+                    source="limit_up_trigger",
+                )
+                db.add(target_stock)
     db.commit()
     return alerts
 

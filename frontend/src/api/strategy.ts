@@ -35,3 +35,16 @@ export const runAiScreen = (data: { description: string; scope?: string }) =>
 
 export const getScreenResult = (taskId: string) =>
   client.get<ScreenResult>(`/strategy/result/${taskId}`)
+
+export interface LimitUpCollectResult {
+  pool_id: string
+  pool_name: string
+  dates_processed: string[]
+  added: number
+  updated: number
+  skipped: number
+  errors: string[]
+}
+
+export const collectLimitUp = (params?: { trade_date?: string; window_days?: number }) =>
+  client.post<LimitUpCollectResult>('/strategy/limit-up/collect', null, { params })
