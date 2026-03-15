@@ -13,6 +13,25 @@ import numpy as np
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
 
 
+@router.get("/search")
+def search_stocks(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """按股票名称或代码模糊搜索 stock_basic，用于添加股票时的联想"""
+    kw = f"%{q.strip()}%"
+    rows = (
+        db.query(StockBasic)
+        .filter(
+            (StockBasic.name.like(kw)) | (StockBasic.ts_code.like(kw)) | (StockBasic.symbol.like(kw))
+        )
+        .limit(limit)
+        .all()
+    )
+    return [{"ts_code": r.ts_code, "stock_name": r.name} for r in rows]
+
+
 def _nan_to_none(series: pd.Series) -> list:
     return [None if (v is None or (isinstance(v, float) and np.isnan(v))) else round(v, 4) for v in series]
 

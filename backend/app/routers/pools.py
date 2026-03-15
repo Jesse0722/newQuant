@@ -1,6 +1,6 @@
 import csv
 import io
-from fastapi import APIRouter, Depends, UploadFile, File, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Query, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
@@ -35,7 +35,7 @@ def _enrich_stock(db: Session, stock: WatchStock) -> WatchStockOut:
 
 @router.get("", response_model=list[PoolOut])
 def list_pools(db: Session = Depends(get_db)):
-    pools = db.query(WatchPool).order_by(WatchPool.created_at.desc()).all()
+    pools = db.query(WatchPool).order_by(WatchPool.sort_order.asc(), WatchPool.created_at.desc()).all()
     result = []
     for p in pools:
         count = db.query(func.count(WatchStock.id)).filter(WatchStock.pool_id == p.id).scalar()
@@ -70,9 +70,24 @@ def list_all_stocks(
     return result
 
 
+@router.put("/reorder")
+def reorder_pools(body: dict = Body(...), db: Session = Depends(get_db)):
+    """拖拽排序：body 为 { "pool_ids": ["id1", "id2", ...] }"""
+    pool_ids = body.get("pool_ids") or []
+    if not pool_ids:
+        return {"ok": True}
+    for i, pid in enumerate(pool_ids):
+        pool = db.query(WatchPool).filter(WatchPool.id == pid).first()
+        if pool:
+            pool.sort_order = i
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("", response_model=PoolOut, status_code=201)
 def create_pool(body: PoolCreate, db: Session = Depends(get_db)):
-    pool = WatchPool(**body.model_dump())
+    max_order = db.query(func.max(WatchPool.sort_order)).scalar() or -1
+    pool = WatchPool(**body.model_dump(), sort_order=max_order + 1)
     db.add(pool)
     db.commit()
     db.refresh(pool)
@@ -84,7 +99,8 @@ def create_pool(body: PoolCreate, db: Session = Depends(get_db)):
 @router.post("/quick-create", response_model=PoolOut, status_code=201)
 def quick_create_pool(body: QuickCreatePool, db: Session = Depends(get_db)):
     """快捷创建观察池并批量添加股票"""
-    pool = WatchPool(name=body.name, description=body.description)
+    max_order = db.query(func.max(WatchPool.sort_order)).scalar() or -1
+    pool = WatchPool(name=body.name, description=body.description, sort_order=max_order + 1)
     db.add(pool)
     db.commit()
     db.refresh(pool)

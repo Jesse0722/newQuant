@@ -83,7 +83,7 @@ const Alerts: React.FC = () => {
             </Popconfirm>
           </Space>
         ) : r.plan_id ? (
-          <a onClick={() => navigate(`/plans/${r.plan_id}`)}>查看计划</a>
+          <a onClick={() => navigate(`/plans?expand=${r.plan_id}`)}>查看计划</a>
         ) : null,
     },
   ]

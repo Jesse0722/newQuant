@@ -96,7 +96,7 @@ const Dashboard: React.FC = () => {
                 pagination={false}
                 size="small"
                 onRow={(r) => ({
-                  onClick: () => r.plan_id ? navigate(`/plans/${r.plan_id}`) : navigate('/alerts'),
+                  onClick: () => r.plan_id ? navigate(`/plans?expand=${r.plan_id}`) : navigate('/alerts'),
                   style: { cursor: 'pointer' },
                 })}
               />
@@ -109,7 +109,7 @@ const Dashboard: React.FC = () => {
           <Card title="活跃计划" extra={<a onClick={() => navigate('/plans')}>查看全部</a>}>
             {data?.active_plans?.length ? (
               <Table dataSource={data.active_plans} columns={planColumns} rowKey="id" pagination={false} size="small"
-                onRow={(r) => ({ onClick: () => navigate(`/plans/${r.id}`), style: { cursor: 'pointer' } })} />
+                onRow={(r) => ({ onClick: () => navigate(`/plans?expand=${r.id}`), style: { cursor: 'pointer' } })} />
             ) : (
               <Empty description="暂无活跃计划" />
             )}

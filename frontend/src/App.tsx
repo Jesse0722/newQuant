@@ -6,7 +6,7 @@ import Dashboard from './pages/Dashboard'
 import PoolList from './pages/Pools/PoolList'
 import Alerts from './pages/Alerts'
 import PlanList from './pages/Plans/PlanList'
-import PlanDetail from './pages/Plans/PlanDetail'
+import PlanRedirect from './pages/Plans/PlanRedirect'
 import StockDetail from './pages/Stocks/StockDetail'
 import StrategyPage from './pages/Strategy/StrategyPage'
 import DataPage from './pages/Data/DataPage'
@@ -22,7 +22,7 @@ function App() {
             <Route path="/stocks/:tsCode" element={<StockDetail />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/plans" element={<PlanList />} />
-            <Route path="/plans/:id" element={<PlanDetail />} />
+            <Route path="/plans/:id" element={<PlanRedirect />} />
             <Route path="/strategy" element={<StrategyPage />} />
             <Route path="/data" element={<DataPage />} />
           </Route>

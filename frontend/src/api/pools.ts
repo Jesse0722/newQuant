@@ -2,6 +2,8 @@ import client from './client'
 import type { Pool, WatchStock } from '../types'
 
 export const listPools = () => client.get<Pool[]>('/pools')
+export const reorderPools = (poolIds: string[]) =>
+  client.put('/pools/reorder', { pool_ids: poolIds })
 
 export interface AllStockItem {
   ts_code: string

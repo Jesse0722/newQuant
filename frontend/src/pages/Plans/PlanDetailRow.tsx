@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
 import {
   Card, Descriptions, Tag, Table, Button, Modal, Form,
   Input, InputNumber, Select, AutoComplete, Space, Statistic, Row, Col, message, Popconfirm, DatePicker,
 } from 'antd'
 import dayjs from 'dayjs'
-import { ArrowLeftOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { getPlan, updatePlan, submitReview, updateDetail, deleteDetail } from '../../api/plans'
 import { createStockDetail } from '../../api/stocks'
 import { getAllStocks } from '../../api/pools'
@@ -26,11 +25,14 @@ const riskMap: Record<number, { label: string; color: string }> = {
   3: { label: '高风险', color: 'red' },
 }
 
-const PlanDetail: React.FC = () => {
-  const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
+interface PlanDetailRowProps {
+  planId: string
+  onRefresh: () => void
+}
+
+const PlanDetailRow: React.FC<PlanDetailRowProps> = ({ planId, onRefresh }) => {
   const [plan, setPlan] = useState<TradePlan | null>(null)
-  const [, setLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [detailStockTsCode, setDetailStockTsCode] = useState<string | null>(null)
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
@@ -44,12 +46,10 @@ const PlanDetail: React.FC = () => {
   const [editDetailForm] = Form.useForm()
 
   const fetchPlan = () => {
-    if (!id) return
-    setLoading(true)
-    getPlan(id).then((res) => setPlan(res.data)).finally(() => setLoading(false))
+    getPlan(planId).then((res) => setPlan(res.data)).finally(() => setLoading(false))
   }
 
-  useEffect(() => { fetchPlan() }, [id])
+  useEffect(() => { fetchPlan() }, [planId])
 
   const openAddDetailModal = () => {
     if (!plan?.stocks?.length) {
@@ -70,27 +70,31 @@ const PlanDetail: React.FC = () => {
     message.success('添加成功')
     setDetailModalOpen(false)
     fetchPlan()
+    onRefresh()
   }
 
   const handleDeleteDetail = async (detailId: string) => {
     await deleteDetail(detailId)
     message.success('已删除')
     fetchPlan()
+    onRefresh()
   }
 
   const handleStatusChange = async (status: string) => {
-    await updatePlan(id!, { status })
+    await updatePlan(planId, { status })
     message.success('状态已更新')
     fetchPlan()
+    onRefresh()
   }
 
   const handleReview = async () => {
     const values = await reviewForm.validateFields()
-    await submitReview(id!, values)
+    await submitReview(planId, values)
     message.success('复盘已提交')
     setReviewModalOpen(false)
     reviewForm.resetFields()
     fetchPlan()
+    onRefresh()
   }
 
   const openEditPlanModal = () => {
@@ -126,10 +130,11 @@ const PlanDetail: React.FC = () => {
         position_plan: s.position_plan,
         note: s.note,
       }))
-      await updatePlan(id!, { title: values.title, note: values.note, stocks })
+      await updatePlan(planId, { title: values.title, note: values.note, stocks })
       message.success('计划已更新')
       setEditPlanModalOpen(false)
       fetchPlan()
+      onRefresh()
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || '更新失败'
       message.error(msg)
@@ -160,6 +165,7 @@ const PlanDetail: React.FC = () => {
     setEditDetailModalOpen(false)
     setEditingDetail(null)
     fetchPlan()
+    onRefresh()
   }
 
   const detailColumns = [
@@ -194,113 +200,103 @@ const PlanDetail: React.FC = () => {
   const pnl = plan?.pnl_summary
   const stockOptions = allStocks.map((s) => ({ value: s.ts_code, label: `${s.stock_name || s.ts_code} (${s.ts_code})` }))
 
+  if (loading || !plan) return <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>加载中...</div>
+
   return (
-    <div>
-      <Button icon={<ArrowLeftOutlined />} style={{ marginBottom: 16 }} onClick={() => navigate('/plans')}>
-        返回列表
-      </Button>
+    <div style={{ padding: '0 24px 16px', background: '#fafafa' }}>
+      <Card
+        title={plan.title || '交易计划'}
+        size="small"
+        extra={
+          <Space>
+            <Button size="small" icon={<EditOutlined />} onClick={openEditPlanModal}>编辑计划</Button>
+            <Select value={plan.status} size="small" style={{ width: 120 }} onChange={handleStatusChange}>
+              <Select.Option value="pending">待触发</Select.Option>
+              <Select.Option value="active">执行中</Select.Option>
+              <Select.Option value="completed">已完结</Select.Option>
+              <Select.Option value="cancelled">已取消</Select.Option>
+            </Select>
+            <Button size="small" onClick={() => { reviewForm.setFieldsValue({ review_summary: plan.review_summary, lessons_learned: plan.lessons_learned }); setReviewModalOpen(true) }}>
+              复盘
+            </Button>
+          </Space>
+        }
+      >
+        <Descriptions column={3} bordered size="small">
+          <Descriptions.Item label="股票">
+            {plan.stocks?.map((s) => s.stock_name || s.ts_code).join('、') || '-'}
+          </Descriptions.Item>
+          <Descriptions.Item label="状态"><Tag color={statusMap[plan.status]?.color}>{statusMap[plan.status]?.label}</Tag></Descriptions.Item>
+          <Descriptions.Item label="备注" span={2}>{plan.note || '-'}</Descriptions.Item>
+        </Descriptions>
+      </Card>
 
-      {plan && (
-        <>
-          <Card
-            title={plan.title || '交易计划'}
-            extra={
-              <Space>
-                <Button icon={<EditOutlined />} onClick={openEditPlanModal}>编辑计划</Button>
-                <Select value={plan.status} style={{ width: 120 }} onChange={handleStatusChange}>
-                  <Select.Option value="pending">待触发</Select.Option>
-                  <Select.Option value="active">执行中</Select.Option>
-                  <Select.Option value="completed">已完结</Select.Option>
-                  <Select.Option value="cancelled">已取消</Select.Option>
-                </Select>
-                <Button onClick={() => { reviewForm.setFieldsValue({ review_summary: plan.review_summary, lessons_learned: plan.lessons_learned }); setReviewModalOpen(true) }}>
-                  复盘
-                </Button>
-              </Space>
-            }
-          >
-            <Descriptions column={3} bordered size="small">
-              <Descriptions.Item label="股票">
-                {plan.stocks?.map((s) => s.stock_name || s.ts_code).join('、') || '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="状态"><Tag color={statusMap[plan.status]?.color}>{statusMap[plan.status]?.label}</Tag></Descriptions.Item>
-              <Descriptions.Item label="备注" span={2}>{plan.note || '-'}</Descriptions.Item>
-            </Descriptions>
-          </Card>
+      <Card title="股票列表" size="small" style={{ marginTop: 12 }}>
+        <Table
+          dataSource={plan.stocks || []}
+          rowKey="id"
+          pagination={false}
+          size="small"
+          expandable={{
+            expandedRowRender: (ps: TradePlanStock) => (
+              <Table
+                dataSource={ps.details || []}
+                columns={detailColumns}
+                rowKey="id"
+                pagination={false}
+                size="small"
+              />
+            ),
+            rowExpandable: () => true,
+          }}
+          columns={[
+            { title: '股票', key: 'stock', render: (_: any, ps: TradePlanStock) => `${ps.stock_name || ps.ts_code} (${ps.ts_code})` },
+            { title: '风险', dataIndex: 'risk_level', key: 'risk_level', width: 90, render: (v: number) => { const m = riskMap[v ?? 2] || riskMap[2]; return <Tag color={m.color}>{m.label}</Tag> } },
+            { title: '触发策略', dataIndex: 'trigger_strategy', key: 'trigger_strategy', ellipsis: true, render: (v: string) => v || '-' },
+            { title: '计划买入价', dataIndex: 'planned_buy_price', key: 'planned_buy_price', width: 100, render: (v: number) => v != null ? v.toFixed(2) : '-' },
+            { title: '目标价', dataIndex: 'target_price', key: 'target_price', width: 90, render: (v: number) => v != null ? v.toFixed(2) : '-' },
+            { title: '止损价', dataIndex: 'stop_loss_price', key: 'stop_loss_price', width: 90, render: (v: number) => v != null ? v.toFixed(2) : '-' },
+            { title: '盈亏比', dataIndex: 'risk_reward_ratio', key: 'rr', width: 80, render: (v: number) => v != null ? v.toFixed(2) : '-' },
+            { title: '仓位', dataIndex: 'position_plan', key: 'position_plan', width: 80, render: (v: string | number) => v != null ? `${v}%` : '-' },
+            { title: '备注', dataIndex: 'note', key: 'note', ellipsis: true, render: (v: string) => v || '-' },
+          ]}
+        />
+      </Card>
 
-          <Card title="股票列表" style={{ marginTop: 16 }}>
-            <Table
-              dataSource={plan.stocks || []}
-              rowKey="id"
-              pagination={false}
-              size="small"
-              expandable={{
-                expandedRowRender: (ps: TradePlanStock) => (
-                  <Table
-                    dataSource={ps.details || []}
-                    columns={detailColumns}
-                    rowKey="id"
-                    pagination={false}
-                    size="small"
-                  />
-                ),
-                rowExpandable: () => true,
-              }}
-              columns={[
-                { title: '股票', key: 'stock', render: (_: any, ps: TradePlanStock) => `${ps.stock_name || ps.ts_code} (${ps.ts_code})` },
-                { title: '风险', dataIndex: 'risk_level', key: 'risk_level', width: 90, render: (v: number) => { const m = riskMap[v ?? 2] || riskMap[2]; return <Tag color={m.color}>{m.label}</Tag> } },
-                { title: '触发策略', dataIndex: 'trigger_strategy', key: 'trigger_strategy', ellipsis: true, render: (v: string) => v || '-' },
-                { title: '计划买入价', dataIndex: 'planned_buy_price', key: 'planned_buy_price', width: 100, render: (v: number) => v != null ? v.toFixed(2) : '-' },
-                { title: '目标价', dataIndex: 'target_price', key: 'target_price', width: 90, render: (v: number) => v != null ? v.toFixed(2) : '-' },
-                { title: '止损价', dataIndex: 'stop_loss_price', key: 'stop_loss_price', width: 90, render: (v: number) => v != null ? v.toFixed(2) : '-' },
-                { title: '盈亏比', dataIndex: 'risk_reward_ratio', key: 'rr', width: 80, render: (v: number) => v != null ? v.toFixed(2) : '-' },
-                { title: '仓位', dataIndex: 'position_plan', key: 'position_plan', width: 80, render: (v: string | number) => v != null ? `${v}%` : '-' },
-                { title: '备注', dataIndex: 'note', key: 'note', ellipsis: true, render: (v: string) => v || '-' },
-              ]}
-            />
-          </Card>
+      <Card title="交易明细汇总" size="small" style={{ marginTop: 12 }} extra={<Button type="primary" size="small" icon={<PlusOutlined />} onClick={openAddDetailModal}>添加明细</Button>}>
+        {pnl && (
+          <Row gutter={24}>
+            <Col span={4}><Statistic title="买入总额" value={pnl.total_buy_amount} precision={2} /></Col>
+            <Col span={4}><Statistic title="卖出总额" value={pnl.total_sell_amount} precision={2} /></Col>
+            <Col span={4}><Statistic title="佣金" value={pnl.total_commission} precision={2} /></Col>
+            <Col span={4}><Statistic title="印花税" value={pnl.total_stamp_tax} precision={2} /></Col>
+            <Col span={4}>
+              <Statistic
+                title="净盈亏"
+                value={pnl.net_pnl}
+                precision={2}
+                valueStyle={{ color: pnl.net_pnl >= 0 ? '#3f8600' : '#cf1322' }}
+              />
+            </Col>
+            <Col span={4}><Statistic title="持仓数量" value={pnl.holding_quantity} suffix="股" /></Col>
+          </Row>
+        )}
+      </Card>
 
-          <Card
-            title="交易明细汇总"
-            style={{ marginTop: 16 }}
-            extra={<Button type="primary" icon={<PlusOutlined />} onClick={openAddDetailModal}>添加明细</Button>}
-          >
-            {pnl && (
-              <Row gutter={24}>
-                <Col span={4}><Statistic title="买入总额" value={pnl.total_buy_amount} precision={2} /></Col>
-                <Col span={4}><Statistic title="卖出总额" value={pnl.total_sell_amount} precision={2} /></Col>
-                <Col span={4}><Statistic title="佣金" value={pnl.total_commission} precision={2} /></Col>
-                <Col span={4}><Statistic title="印花税" value={pnl.total_stamp_tax} precision={2} /></Col>
-                <Col span={4}>
-                  <Statistic
-                    title="净盈亏"
-                    value={pnl.net_pnl}
-                    precision={2}
-                    valueStyle={{ color: pnl.net_pnl >= 0 ? '#3f8600' : '#cf1322' }}
-                  />
-                </Col>
-                <Col span={4}><Statistic title="持仓数量" value={pnl.holding_quantity} suffix="股" /></Col>
-              </Row>
-            )}
-          </Card>
-
-          {(plan.review_summary || plan.lessons_learned) && (
-            <Card title="复盘" style={{ marginTop: 16 }}>
-              <Descriptions column={1} bordered size="small">
-                <Descriptions.Item label="复盘总结">{plan.review_summary || '-'}</Descriptions.Item>
-                <Descriptions.Item label="经验教训">{plan.lessons_learned || '-'}</Descriptions.Item>
-                <Descriptions.Item label="实际盈亏">
-                  <span style={{ color: (plan.actual_pnl ?? 0) >= 0 ? '#3f8600' : '#cf1322', fontWeight: 'bold' }}>
-                    {plan.actual_pnl?.toFixed(2) ?? '-'}
-                  </span>
-                </Descriptions.Item>
-              </Descriptions>
-            </Card>
-          )}
-        </>
+      {(plan.review_summary || plan.lessons_learned) && (
+        <Card title="复盘" size="small" style={{ marginTop: 12 }}>
+          <Descriptions column={1} bordered size="small">
+            <Descriptions.Item label="复盘总结">{plan.review_summary || '-'}</Descriptions.Item>
+            <Descriptions.Item label="经验教训">{plan.lessons_learned || '-'}</Descriptions.Item>
+            <Descriptions.Item label="实际盈亏">
+              <span style={{ color: (plan.actual_pnl ?? 0) >= 0 ? '#3f8600' : '#cf1322', fontWeight: 'bold' }}>
+                {plan.actual_pnl?.toFixed(2) ?? '-'}
+              </span>
+            </Descriptions.Item>
+          </Descriptions>
+        </Card>
       )}
 
-      {/* 编辑交易计划 */}
       <Modal title="编辑交易计划" open={editPlanModalOpen} onOk={handleEditPlan} onCancel={() => setEditPlanModalOpen(false)} width={900}>
         <Form form={planForm} layout="vertical">
           <Form.Item name="title" label="标题" rules={[{ required: true }]}>
@@ -339,7 +335,6 @@ const PlanDetail: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* 添加交易明细 */}
       <Modal title="添加交易明细" open={detailModalOpen} onOk={handleAddDetail} onCancel={() => setDetailModalOpen(false)} width={500}>
         <Form form={detailForm} layout="vertical">
           <Form.Item label="股票">
@@ -373,7 +368,6 @@ const PlanDetail: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* 编辑交易明细 */}
       <Modal title="编辑交易明细" open={editDetailModalOpen} onOk={handleEditDetail} onCancel={() => { setEditDetailModalOpen(false); setEditingDetail(null) }} width={500}>
         <Form form={editDetailForm} layout="vertical">
           <Form.Item name="trade_date" label="成交日期" rules={[{ required: true }]}>
@@ -400,7 +394,6 @@ const PlanDetail: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* 复盘 */}
       <Modal title="复盘" open={reviewModalOpen} onOk={handleReview} onCancel={() => setReviewModalOpen(false)}>
         <Form form={reviewForm} layout="vertical">
           <Form.Item name="review_summary" label="复盘总结" rules={[{ required: true }]}>
@@ -415,4 +408,4 @@ const PlanDetail: React.FC = () => {
   )
 }
 
-export default PlanDetail
+export default PlanDetailRow

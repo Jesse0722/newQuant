@@ -171,23 +171,26 @@ def update_plan(plan_id: str, body: TradePlanUpdate, db: Session = Depends(get_d
                 for ps in plan.stocks[:]:
                     db.delete(ps)
                 for s in v:
-                    ts_code = normalize_ts_code(s.ts_code)
+                    # model_dump 后 s 为 dict，使用 .get() 访问
+                    raw = s if isinstance(s, dict) else s.model_dump()
+                    ts_code = normalize_ts_code(raw.get("ts_code") or "")
                     basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
                     rr = None
-                    if s.planned_buy_price and s.target_price and s.stop_loss_price and (s.planned_buy_price - s.stop_loss_price) > 0:
-                        rr = round((s.target_price - s.planned_buy_price) / (s.planned_buy_price - s.stop_loss_price), 2)
+                    pb, tp, sl = raw.get("planned_buy_price"), raw.get("target_price"), raw.get("stop_loss_price")
+                    if pb and tp and sl and (pb - sl) > 0:
+                        rr = round((tp - pb) / (pb - sl), 2)
                     ps = TradePlanStock(
                         plan_id=plan.id,
                         ts_code=ts_code,
                         stock_name=basic.name if basic else None,
-                        risk_level=getattr(s, "risk_level", 2) or 2,
-                        trigger_strategy=getattr(s, "trigger_strategy", None),
-                        planned_buy_price=s.planned_buy_price,
-                        target_price=s.target_price,
-                        stop_loss_price=s.stop_loss_price,
+                        risk_level=raw.get("risk_level") or 2,
+                        trigger_strategy=raw.get("trigger_strategy"),
+                        planned_buy_price=pb,
+                        target_price=tp,
+                        stop_loss_price=sl,
                         risk_reward_ratio=rr,
-                        position_plan=str(s.position_plan) if s.position_plan is not None else None,
-                        note=s.note,
+                        position_plan=str(raw.get("position_plan")) if raw.get("position_plan") is not None else None,
+                        note=raw.get("note"),
                     )
                     db.add(ps)
         else:

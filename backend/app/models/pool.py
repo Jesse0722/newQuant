@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Float, Text, DateTime, JSON, ForeignKey, UniqueConstraint, Boolean
+from sqlalchemy import Column, String, Float, Text, DateTime, JSON, ForeignKey, UniqueConstraint, Boolean, Integer
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -13,6 +13,7 @@ class WatchPool(Base):
     name = Column(String(64), nullable=False)
     description = Column(Text)
     default_monitor_rule = Column(JSON)
+    sort_order = Column(Integer, nullable=False, default=0)  # 用于拖拽排序
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     stocks = relationship("WatchStock", back_populates="pool", cascade="all, delete-orphan")

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, AutoComplete, Tag, Space, Popconfirm, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { listPlans, createPlan, deletePlan } from '../../api/plans'
+import PlanDetailRow from './PlanDetailRow'
 import { getAllStocks } from '../../api/pools'
 import type { TradePlan } from '../../types'
 
@@ -15,12 +16,6 @@ const statusMap: Record<string, { label: string; color: string }> = {
   cancelled: { label: '已取消', color: 'red' },
 }
 
-const riskMap: Record<number, { label: string; color: string }> = {
-  1: { label: '低风险', color: 'green' },
-  2: { label: '中风险', color: 'orange' },
-  3: { label: '高风险', color: 'red' },
-}
-
 const PlanList: React.FC = () => {
   const [plans, setPlans] = useState<TradePlan[]>([])
   const [total, setTotal] = useState(0)
@@ -30,7 +25,15 @@ const PlanList: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false)
   const [allStocks, setAllStocks] = useState<Array<{ ts_code: string; stock_name?: string }>>([])
   const [form] = Form.useForm()
-  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const expandId = searchParams.get('expand')
+  const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([])
+
+  const toggleExpand = (id: string) => {
+    setExpandedRowKeys((prev) =>
+      prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]
+    )
+  }
 
   const fetchPlans = (status?: string, p?: number) => {
     setLoading(true)
@@ -43,6 +46,13 @@ const PlanList: React.FC = () => {
   }
 
   useEffect(() => { fetchPlans(tab, 1); setPage(1) }, [tab])
+
+  const planIds = plans.map((p) => p.id).join(',')
+  useEffect(() => {
+    if (plans.length === 0) return
+    const targetId = expandId && plans.some((p) => p.id === expandId) ? expandId : plans[0].id
+    setExpandedRowKeys([targetId])
+  }, [planIds, expandId])
 
   useEffect(() => {
     if (modalOpen) {
@@ -79,17 +89,6 @@ const PlanList: React.FC = () => {
     fetchPlans()
   }
 
-  const stockDisplay = (r: TradePlan) => {
-    if (!r.stocks?.length) return '-'
-    if (r.stocks.length === 1) return r.stocks[0].stock_name || r.stocks[0].ts_code
-    return `${r.stocks[0].stock_name || r.stocks[0].ts_code} 等${r.stocks.length}只`
-  }
-
-  const rrDisplay = (r: TradePlan) => {
-    const first = r.stocks?.[0]
-    return first?.risk_reward_ratio?.toFixed(2) ?? '-'
-  }
-
   const stockOptions = allStocks.map((s) => ({
     value: s.ts_code,
     label: `${s.stock_name || s.ts_code} (${s.ts_code})`,
@@ -102,25 +101,8 @@ const PlanList: React.FC = () => {
       key: 'title',
       ellipsis: true,
       render: (t: string, r: TradePlan) => (
-        <a onClick={() => navigate(`/plans/${r.id}`)}>{t || '-'}</a>
+        <a onClick={() => toggleExpand(r.id)}>{t || '-'}</a>
       ),
-    },
-    {
-      title: '股票',
-      key: 'stock',
-      render: (_: any, r: TradePlan) => (
-        <a onClick={() => navigate(`/plans/${r.id}`)}>{stockDisplay(r)}</a>
-      ),
-    },
-    {
-      title: '风险',
-      key: 'risk_level',
-      width: 90,
-      render: (_: any, r: TradePlan) => {
-        const lv = r.stocks?.[0]?.risk_level ?? 2
-        const m = riskMap[lv] || riskMap[2]
-        return <Tag color={m.color}>{m.label}</Tag>
-      },
     },
     {
       title: '状态',
@@ -128,21 +110,13 @@ const PlanList: React.FC = () => {
       key: 'status',
       render: (s: string) => <Tag color={statusMap[s]?.color}>{statusMap[s]?.label || s}</Tag>,
     },
-    { title: '盈亏比', key: 'rr', render: (_: any, r: TradePlan) => rrDisplay(r) },
-    {
-      title: '实际盈亏',
-      dataIndex: 'actual_pnl',
-      key: 'pnl',
-      render: (v: number) =>
-        v != null ? <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>{v.toFixed(2)}</span> : '-',
-    },
     { title: '创建时间', dataIndex: 'created_at', key: 'created_at', render: (v: string) => v?.slice(0, 10) },
     {
       title: '操作',
       key: 'action',
       render: (_: any, r: TradePlan) => (
         <Space>
-          <a onClick={() => navigate(`/plans/${r.id}`)}>详情</a>
+          <a onClick={() => toggleExpand(r.id)}>详情</a>
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(r.id)}>
             <a style={{ color: 'red' }}>删除</a>
           </Popconfirm>
@@ -173,6 +147,11 @@ const PlanList: React.FC = () => {
         rowKey="id"
         loading={loading}
         pagination={{ current: page, total, pageSize: 20, onChange: (p) => { setPage(p); fetchPlans(tab, p) } }}
+        expandable={{
+          expandedRowKeys,
+          onExpandedRowsChange: (keys) => setExpandedRowKeys(keys as string[]),
+          expandedRowRender: (r) => <PlanDetailRow planId={r.id} onRefresh={fetchPlans} />,
+        }}
       />
 
       <Modal title="新建交易计划" open={modalOpen} onOk={handleCreate} onCancel={() => setModalOpen(false)} width={900}>

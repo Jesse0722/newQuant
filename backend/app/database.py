@@ -21,5 +21,7 @@ def init_db():
     migrate_plan_stock_fields()
     from scripts.migrate_plan_title_remove_type import migrate as migrate_plan_title_remove_type
     migrate_plan_title_remove_type()
+    from scripts.migrate_pool_sort_order import migrate as migrate_pool_sort_order
+    migrate_pool_sort_order()
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

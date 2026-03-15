@@ -5,16 +5,19 @@ import {
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
-  PushpinOutlined, PushpinFilled, FileAddOutlined,
+  PushpinOutlined, PushpinFilled, FileAddOutlined, HolderOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
-  listPools, createPool, updatePool, deletePool,
-  listStocks, addStock, deleteStock, updateStock, importCSV,
+  listPools, createPool, updatePool, deletePool, reorderPools,
+  listStocks, addStock, deleteStock, updateStock, importCSV, getAllStocks,
 } from '../../api/pools'
+import { searchStocks } from '../../api/stocks'
 import { createPlan } from '../../api/plans'
 import { syncPool, getTaskStatus } from '../../api/sync'
 import type { Pool, WatchStock } from '../../types'
+
+const TRIGGER_OPTIONS = ['短线', '龙头战法', 'MACD金叉', '突破', '回调', '趋势跟踪', '事件驱动', '均线支撑', '量价配合']
 
 const PoolList: React.FC = () => {
   const [pools, setPools] = useState<Pool[]>([])
@@ -26,10 +29,16 @@ const PoolList: React.FC = () => {
   const [editPoolModalOpen, setEditPoolModalOpen] = useState(false)
   const [planModalOpen, setPlanModalOpen] = useState(false)
   const [planStock, setPlanStock] = useState<WatchStock | null>(null)
+  const [createPlanModalOpen, setCreatePlanModalOpen] = useState(false)
+  const [allStocks, setAllStocks] = useState<Array<{ ts_code: string; stock_name?: string }>>([])
+  const [stockSearchOptions, setStockSearchOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [stockSearching, setStockSearching] = useState(false)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [addForm] = Form.useForm()
   const [poolForm] = Form.useForm()
   const [planForm] = Form.useForm()
+  const [createPlanForm] = Form.useForm()
   const navigate = useNavigate()
   const initialLoaded = useRef(false)
 
@@ -62,6 +71,12 @@ const PoolList: React.FC = () => {
   useEffect(() => {
     if (activePoolId) fetchStocks(activePoolId)
   }, [activePoolId])
+
+  useEffect(() => {
+    if (createPlanModalOpen) {
+      getAllStocks().then((res) => setAllStocks(res.data || []))
+    }
+  }, [createPlanModalOpen])
 
   const handleAddPool = async () => {
     const name = `新观察池 ${pools.length + 1}`
@@ -101,12 +116,33 @@ const PoolList: React.FC = () => {
     fetchPools()
   }
 
+  const stockSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handleStockSearch = (q: string) => {
+    const v = (q || '').trim()
+    if (v.length < 2) {
+      setStockSearchOptions([])
+      return
+    }
+    if (stockSearchTimer.current) clearTimeout(stockSearchTimer.current)
+    stockSearchTimer.current = setTimeout(() => {
+      setStockSearching(true)
+      searchStocks(v)
+        .then((res) => {
+          const list = res.data || []
+          setStockSearchOptions(list.map((s) => ({ value: s.ts_code, label: `${s.stock_name || s.ts_code} (${s.ts_code})` })))
+        })
+        .catch(() => setStockSearchOptions([]))
+        .finally(() => setStockSearching(false))
+    }, 300)
+  }
+
   const handleAddStock = async () => {
     const values = await addForm.validateFields()
     await addStock(activePoolId, values)
     message.success('添加成功，数据同步中...')
     setAddModalOpen(false)
     addForm.resetFields()
+    setStockSearchOptions([])
     fetchStocks(activePoolId)
     fetchPools()
   }
@@ -167,6 +203,40 @@ const PoolList: React.FC = () => {
     fetchStocks(activePoolId)
   }
 
+  const handleTabDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(index))
+    e.dataTransfer.setData('application/json', JSON.stringify({ index }))
+  }
+
+  const handleTabDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverIndex(index)
+  }
+
+  const handleTabDragLeave = () => setDragOverIndex(null)
+
+  const handleTabDrop = async (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault()
+    setDragOverIndex(null)
+    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10)
+    if (Number.isNaN(fromIndex) || fromIndex === targetIndex) return
+    const newPools = [...pools]
+    const [removed] = newPools.splice(fromIndex, 1)
+    newPools.splice(targetIndex, 0, removed)
+    setPools(newPools)
+    try {
+      await reorderPools(newPools.map((p) => p.id))
+      message.success('排序已保存')
+    } catch {
+      setPools(pools)
+      message.error('排序保存失败')
+    }
+  }
+
+  const handleTabDragEnd = () => setDragOverIndex(null)
+
   const openCreatePlanModal = (stock: WatchStock) => {
     setPlanStock(stock)
     planForm.resetFields()
@@ -198,6 +268,33 @@ const PoolList: React.FC = () => {
     setPlanModalOpen(false)
     setPlanStock(null)
   }
+
+  const handleCreatePlanFromToolbar = async () => {
+    const values = await createPlanForm.validateFields()
+    const stocks = values.stocks.map((s: any) => ({
+      ts_code: s.ts_code,
+      risk_level: s.risk_level ?? 2,
+      trigger_strategy: s.trigger_strategy,
+      planned_buy_price: s.planned_buy_price,
+      target_price: s.target_price,
+      stop_loss_price: s.stop_loss_price,
+      position_plan: s.position_plan,
+      note: s.note,
+    }))
+    await createPlan({
+      title: values.title,
+      stocks,
+      note: values.note,
+    })
+    message.success('交易计划已创建')
+    setCreatePlanModalOpen(false)
+    createPlanForm.resetFields()
+  }
+
+  const stockOptions = allStocks.map((s) => ({
+    value: s.ts_code,
+    label: `${s.stock_name || s.ts_code} (${s.ts_code})`,
+  }))
 
   const columns = [
     {
@@ -266,20 +363,22 @@ const PoolList: React.FC = () => {
     {
       title: '备注', dataIndex: 'note', key: 'note', width: 180,
       render: (v: string, r: WatchStock) => (
-        <Input
-          size="small"
-          defaultValue={v || ''}
-          placeholder="点击编辑备注"
-          style={{ border: 'none', background: 'transparent', padding: '0 4px' }}
-          onFocus={(e) => { e.target.style.background = '#fff'; e.target.style.border = '1px solid #d9d9d9' }}
-          onBlur={(e) => {
-            e.target.style.background = 'transparent'
-            e.target.style.border = 'none'
-            const newVal = e.target.value.trim()
-            if (newVal !== (v || '')) handleFieldUpdate(r.id, 'note', newVal || null)
-          }}
-          onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
-        />
+        <Tooltip title={v || ''} placement="topLeft">
+          <Input
+            size="small"
+            defaultValue={v || ''}
+            placeholder="点击编辑备注"
+            style={{ border: 'none', background: 'transparent', padding: '0 4px' }}
+            onFocus={(e) => { e.target.style.background = '#fff'; e.target.style.border = '1px solid #d9d9d9' }}
+            onBlur={(e) => {
+              e.target.style.background = 'transparent'
+              e.target.style.border = 'none'
+              const newVal = e.target.value.trim()
+              if (newVal !== (v || '')) handleFieldUpdate(r.id, 'note', newVal || null)
+            }}
+            onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
+          />
+        </Tooltip>
       ),
     },
     {
@@ -312,6 +411,9 @@ const PoolList: React.FC = () => {
         styles={{ body: { padding: '0 24px 24px' } }}
         extra={activePool && (
           <Space>
+            <Button size="small" type="primary" icon={<FileAddOutlined />} onClick={() => setCreatePlanModalOpen(true)}>
+              创建交易计划
+            </Button>
             <Button size="small" onClick={openEditPoolModal}>编辑池</Button>
             <Button size="small" icon={<SyncOutlined spin={syncing} />} loading={syncing} onClick={handleSync}>
               同步数据
@@ -332,6 +434,67 @@ const PoolList: React.FC = () => {
           }}
           items={tabItems}
           style={{ marginBottom: 0 }}
+          renderTabBar={() => (
+            <div
+              className="ant-tabs-nav-wrap"
+              onDragEnd={handleTabDragEnd}
+              onDragLeave={handleTabDragLeave}
+            >
+              <div className="ant-tabs-nav">
+                <div className="ant-tabs-nav-list" style={{ display: 'flex', flexWrap: 'nowrap' }}>
+                  {pools.map((p, i) => (
+                    <div
+                      key={p.id}
+                      draggable
+                      onDragStart={(e) => handleTabDragStart(e, i)}
+                      onDragOver={(e) => handleTabDragOver(e, i)}
+                      onDrop={(e) => handleTabDrop(e, i)}
+                      className={`ant-tabs-tab ${activePoolId === p.id ? 'ant-tabs-tab-active' : ''} ${dragOverIndex === i ? 'ant-tabs-tab-drag-over' : ''}`}
+                      style={{
+                        cursor: 'grab',
+                        userSelect: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '8px 16px',
+                        marginRight: 2,
+                        border: '1px solid #d9d9d9',
+                        borderRadius: 2,
+                        background: dragOverIndex === i ? '#e6f7ff' : undefined,
+                      }}
+                    >
+                      <HolderOutlined style={{ marginRight: 6, color: '#999', cursor: 'grab' }} />
+                      <span
+                        onClick={() => setActivePoolId(p.id)}
+                        style={{ flex: 1, cursor: 'pointer' }}
+                      >
+                        {p.name} ({p.stock_count})
+                      </span>
+                      <span
+                        className="ant-tabs-tab-remove"
+                        onClick={(e) => { e.stopPropagation(); handleDeletePool(p.id) }}
+                        style={{ marginLeft: 8, cursor: 'pointer', fontSize: 12 }}
+                      >
+                        ×
+                      </span>
+                    </div>
+                  ))}
+                  <div
+                    className="ant-tabs-tab-add"
+                    onClick={handleAddPool}
+                    style={{
+                      padding: '8px 16px',
+                      border: '1px dashed #d9d9d9',
+                      borderRadius: 2,
+                      cursor: 'pointer',
+                      marginLeft: 2,
+                    }}
+                  >
+                    +
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         />
 
         {activePool && (
@@ -355,10 +518,15 @@ const PoolList: React.FC = () => {
       </Card>
 
       {/* 添加股票 */}
-      <Modal title="添加股票" open={addModalOpen} onOk={handleAddStock} onCancel={() => setAddModalOpen(false)}>
+      <Modal title="添加股票" open={addModalOpen} onOk={handleAddStock} onCancel={() => { setAddModalOpen(false); setStockSearchOptions([]) }}>
         <Form form={addForm} layout="vertical">
-          <Form.Item name="ts_code" label="股票代码" rules={[{ required: true, message: '请输入股票代码' }]}>
-            <Input placeholder="输入6位代码，如 000001" />
+          <Form.Item name="ts_code" label="股票" rules={[{ required: true, message: '请输入股票代码或名称' }]}>
+            <AutoComplete
+              options={stockSearchOptions}
+              placeholder="输入代码或名称搜索，如 000001 或 平安银行"
+              onSearch={handleStockSearch}
+              notFoundContent={stockSearching ? '搜索中...' : (stockSearchOptions.length === 0 ? '输入至少2个字符搜索，或直接输入6位代码' : null)}
+            />
           </Form.Item>
           <Form.Item name="added_price" label="加入价格">
             <InputNumber style={{ width: '100%' }} placeholder="可选" />
@@ -438,6 +606,135 @@ const PoolList: React.FC = () => {
         >
           <p>点击或拖拽 CSV 文件到此处</p>
         </Upload.Dragger>
+      </Modal>
+
+      {/* 工具栏创建交易计划 */}
+      <Modal title="新建交易计划" open={createPlanModalOpen} onOk={handleCreatePlanFromToolbar} onCancel={() => { setCreatePlanModalOpen(false); createPlanForm.resetFields() }} width={900}>
+        <Form form={createPlanForm} layout="vertical" initialValues={{ stocks: [{ risk_level: 2 }] }}>
+          <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
+            <Input placeholder="计划标题" />
+          </Form.Item>
+          <Form.Item name="note" label="计划备注">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item label="股票列表">
+            <Form.List name="stocks" rules={[{ validator: (_, v) => (v?.length ? Promise.resolve() : Promise.reject('至少添加一只股票')) }]}>
+              {(fields, { add, remove }) => (
+                <>
+                  <Table
+                    dataSource={fields}
+                    rowKey={(f) => String(f.key)}
+                    pagination={false}
+                    size="small"
+                    scroll={{ x: 1100 }}
+                    columns={[
+                      {
+                        title: '股票',
+                        key: 'ts_code',
+                        width: 180,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'ts_code']} noStyle rules={[{ required: true, message: '请选择' }]}>
+                            <Select
+                              showSearch
+                              placeholder="选择或搜索"
+                              size="small"
+                              style={{ width: 160 }}
+                              options={stockOptions}
+                              filterOption={(input, opt) =>
+                                (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                              }
+                            />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '触发策略',
+                        key: 'trigger_strategy',
+                        width: 130,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'trigger_strategy']} noStyle>
+                            <AutoComplete options={TRIGGER_OPTIONS.map((o) => ({ value: o }))} placeholder="输入或选择" size="small" style={{ width: 120 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '买入价',
+                        key: 'planned_buy_price',
+                        width: 85,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'planned_buy_price']} noStyle>
+                            <InputNumber size="small" style={{ width: 70 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '目标价',
+                        key: 'target_price',
+                        width: 85,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'target_price']} noStyle>
+                            <InputNumber size="small" style={{ width: 70 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '止损价',
+                        key: 'stop_loss_price',
+                        width: 85,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'stop_loss_price']} noStyle>
+                            <InputNumber size="small" style={{ width: 70 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '仓位(%)',
+                        key: 'position_plan',
+                        width: 90,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'position_plan']} noStyle>
+                            <InputNumber size="small" min={0} max={100} addonAfter="%" style={{ width: 80 }} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '风险',
+                        key: 'risk_level',
+                        width: 100,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'risk_level']} noStyle>
+                            <Select size="small" style={{ width: 90 }} options={[
+                              { value: 1, label: '低风险' },
+                              { value: 2, label: '中风险' },
+                              { value: 3, label: '高风险' },
+                            ]} />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '备注',
+                        key: 'note',
+                        width: 100,
+                        render: (_, __, i) => (
+                          <Form.Item name={[fields[i].name, 'note']} noStyle>
+                            <Input placeholder="备注" size="small" />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        title: '',
+                        key: 'action',
+                        width: 40,
+                        render: (_, __, i) => fields.length > 1 ? <a onClick={() => remove(fields[i].name)} style={{ color: '#ff4d4f' }}>删</a> : null,
+                      },
+                    ]}
+                  />
+                  <Button type="dashed" onClick={() => add({ risk_level: 2 })} block icon={<PlusOutlined />} style={{ marginTop: 8 }}>添加股票</Button>
+                </>
+              )}
+            </Form.List>
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   )
