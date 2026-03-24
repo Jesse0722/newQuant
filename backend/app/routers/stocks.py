@@ -6,6 +6,7 @@ from app.models.monitor import Alert
 from app.models.trade import TradeDetail
 from app.schemas.trade import TradeDetailCreate, TradeDetailOut
 from app.services.indicator import calc_ma, calc_macd, calc_rsi
+from app.services.buy_signal_service import get_signal_marks
 from app.exceptions import AppError
 import pandas as pd
 import numpy as np
@@ -40,6 +41,8 @@ def _nan_to_none(series: pd.Series) -> list:
 def get_stock_chart(
     ts_code: str,
     period: int = Query(120, ge=10, le=500),
+    mark_signals: bool = Query(False, description="是否返回买点标注数据"),
+    limit_up_date: str = Query(None, description="涨停日期，用于标注生命线"),
     db: Session = Depends(get_db),
 ):
     basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
@@ -72,7 +75,7 @@ def get_stock_chart(
     tail = len(df) - period if len(df) > period else 0
     sl = slice(tail, None)
 
-    return {
+    result = {
         "basic": _basic_dict(basic),
         "quotes": df.iloc[sl].to_dict("records"),
         "indicators": {
@@ -87,6 +90,11 @@ def get_stock_chart(
             "rsi": rsi[sl],
         },
     }
+
+    if mark_signals:
+        result["signal_marks"] = get_signal_marks(db, ts_code, limit_up_date)
+
+    return result
 
 
 @router.get("/{ts_code}/alerts")

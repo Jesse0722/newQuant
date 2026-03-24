@@ -18,6 +18,7 @@ export interface WatchStock {
   added_price?: number
   latest_price?: number
   pct_chg?: number
+  industry?: string
   trade_date?: string
   source: string
   monitor_status: string
@@ -228,10 +229,54 @@ export interface SyncHistoryItem {
     skipped_count?: number
     days_synced?: number
     message?: string
+    diagnostic?: string
   }
 }
 
 export interface Pagination<T> {
   items: T[]
   total: number
+}
+
+// ---------- 买点雷达 ----------
+
+export type BuySignalStatus = 'triggered' | 'approaching' | 'tracking' | 'invalidated'
+
+export interface BuySignal {
+  ts_code: string
+  name: string
+  industry?: string
+  signal_status: BuySignalStatus
+  signal_score: number
+  life_line_date: string | null
+  life_line_price: number | null
+  days_since_life_line: number | null
+  latest_close: number | null
+  latest_pct_chg: number | null
+  phase2_high: number | null
+  pullback_pct: number | null
+  met_conditions: string[]
+  unmet_conditions: string[]
+  rsi: number | null
+  macd_hist: number | null
+  volume_ratio: number | null
+}
+
+export interface BuySignalScanResult {
+  signals: BuySignal[]
+  scan_time: string
+  total: number
+  triggered_count: number
+  approaching_count: number
+}
+
+export interface SignalMark {
+  date: string
+  type: 'life_line' | 'phase2_high' | 'buy_signal'
+  label: string
+  value: number | null
+}
+
+export interface StockChartDataWithMarks extends StockChartData {
+  signal_marks?: SignalMark[]
 }

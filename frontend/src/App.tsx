@@ -9,6 +9,7 @@ import PlanList from './pages/Plans/PlanList'
 import PlanRedirect from './pages/Plans/PlanRedirect'
 import StockDetail from './pages/Stocks/StockDetail'
 import StrategyPage from './pages/Strategy/StrategyPage'
+import BuyRadarPage from './pages/BuyRadar/BuyRadarPage'
 import DataPage from './pages/Data/DataPage'
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
             <Route path="/plans" element={<PlanList />} />
             <Route path="/plans/:id" element={<PlanRedirect />} />
             <Route path="/strategy" element={<StrategyPage />} />
+            <Route path="/buy-radar" element={<BuyRadarPage />} />
             <Route path="/data" element={<DataPage />} />
           </Route>
         </Routes>
