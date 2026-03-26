@@ -1,14 +1,31 @@
-import tushare as ts
-#tushare版本 1.4.24
-token = "03c062d104650b5c32f4048a99c9a7ab63bcc01beb0d39613f6b6b8bdf00"
+"""从 backend/ 目录运行: python tests/tushare_connect_test.py
 
-pro = ts.pro_api(token)
+使用与主程序相同的 .env 与 TushareAdapter（含 TUSHARE_API_URL 自动补全 /dataapi）。
+"""
+import sys
+from pathlib import Path
 
-pro._DataApi__token = token # 保证有这个代码，不然不可以获取
-pro._DataApi__http_url = 'http://139.196.25.182'  # 保证有这个代码，不然不可以获取
+# 保证可导入 app.*
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# #  正常使用（与官方API完全一致）
-df = pro.daily(ts_code='000001.SZ', start_date='20240101', end_date='20240131')
+from app.config import TUSHARE_TOKEN, TUSHARE_API_URL  # noqa: E402
+from app.services.tushare_adapter import tushare_adapter  # noqa: E402
 
 
-print(df)
+def main() -> None:
+    print("TUSHARE_API_URL:", TUSHARE_API_URL or "(未设置，官方接口)")
+    print("TOKEN 长度:", len(TUSHARE_TOKEN))
+    if not TUSHARE_TOKEN:
+        print("未配置 TUSHARE_TOKEN，请编辑 backend/.env")
+        sys.exit(1)
+    df = tushare_adapter.get_stock_basic()
+    print("stock_basic 行数:", len(df))
+    if df is not None and not df.empty:
+        print(df.head(3))
+    else:
+        print("Empty DataFrame（若 TOKEN 在官网正确，检查代理是否需完整路径 /dataapi）")
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()
