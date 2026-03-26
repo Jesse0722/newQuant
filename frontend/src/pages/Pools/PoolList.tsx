@@ -1,14 +1,14 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import {
   Button, Modal, Form, Input, InputNumber, Space, Card,
-  Tag, Upload, message, Popconfirm, Select, Tooltip, AutoComplete,
+  Tag, Upload, message, Popconfirm, Select, AutoComplete,
   Segmented, Spin, Empty, Dropdown, Table, Badge, Row, Col, Statistic, Descriptions,
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
-  PushpinFilled, FileAddOutlined, HolderOutlined,
+  PushpinFilled, HolderOutlined,
   EllipsisOutlined, ArrowRightOutlined, ScanOutlined,
-  CheckCircleFilled, CloseCircleFilled,
+  CheckCircleFilled, CloseCircleFilled, DownOutlined,
 } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import { useNavigate } from 'react-router-dom'
@@ -755,28 +755,76 @@ const PoolList: React.FC = () => {
       <div style={{ display: 'flex', flex: 1, minHeight: 0, border: '1px solid #f0f0f0', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
         {/* Left panel: filters + stock list */}
         <div style={{ width: 340, minWidth: 280, maxWidth: 380, flexShrink: 0, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column' }}>
-          {/* Toolbar row */}
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-            <Space size="small">
+          {/* 股票筛选：独立区域 */}
+          <div
+            style={{
+              flexShrink: 0,
+              padding: '10px 12px 12px',
+              background: '#fafafa',
+              borderBottom: '1px solid #f0f0f0',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#262626' }}>股票筛选</span>
+              <Dropdown
+                trigger={['click']}
+                menu={{
+                  items: [
+                    {
+                      key: 'add',
+                      label: '添加股票',
+                      icon: <PlusOutlined />,
+                      onClick: () => setAddModalOpen(true),
+                    },
+                    {
+                      key: 'import',
+                      label: 'CSV 批量导入',
+                      icon: <UploadOutlined />,
+                      onClick: () => setImportModalOpen(true),
+                    },
+                  ],
+                }}
+              >
+                <Button size="small">
+                  操作 <DownOutlined style={{ fontSize: 10 }} />
+                </Button>
+              </Dropdown>
+            </div>
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
               {(activePool?.name?.includes('涨停') ?? false) && (
-                <>
-                  <Input size="small" placeholder="起 YYYYMMDD" value={limitUpDateFrom}
-                    onChange={e => setLimitUpDateFrom(e.target.value.replace(/-/g, '').slice(0, 8))} style={{ width: 90 }} />
-                  <Input size="small" placeholder="止 YYYYMMDD" value={limitUpDateTo}
-                    onChange={e => setLimitUpDateTo(e.target.value.replace(/-/g, '').slice(0, 8))} style={{ width: 90 }} />
-                </>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    size="small"
+                    placeholder="涨停起 YYYYMMDD"
+                    value={limitUpDateFrom}
+                    onChange={e => setLimitUpDateFrom(e.target.value.replace(/-/g, '').slice(0, 8))}
+                    style={{ width: '50%' }}
+                  />
+                  <Input
+                    size="small"
+                    placeholder="涨停止 YYYYMMDD"
+                    value={limitUpDateTo}
+                    onChange={e => setLimitUpDateTo(e.target.value.replace(/-/g, '').slice(0, 8))}
+                    style={{ width: '50%' }}
+                  />
+                </Space.Compact>
               )}
-              <Select size="small" value={`${sortBy}-${sortOrder}`} onChange={v => {
-                const [s, o] = v.split('-') as ['created_at' | 'limit_up_date', 'asc' | 'desc']
-                setSortBy(s); setSortOrder(o)
-              }} style={{ width: 130 }} options={[
-                { value: 'limit_up_date-desc', label: '涨停 新→旧' }, { value: 'limit_up_date-asc', label: '涨停 旧→新' },
-                { value: 'created_at-desc', label: '加入 新→旧' }, { value: 'created_at-asc', label: '加入 旧→新' },
-              ]} />
-            </Space>
-            <Space size={4}>
-              <Tooltip title="CSV 导入"><Button size="small" icon={<UploadOutlined />} onClick={() => setImportModalOpen(true)} /></Tooltip>
-              <Tooltip title="添加股票"><Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)} /></Tooltip>
+              <Select
+                size="small"
+                value={`${sortBy}-${sortOrder}`}
+                onChange={v => {
+                  const [s, o] = v.split('-') as ['created_at' | 'limit_up_date', 'asc' | 'desc']
+                  setSortBy(s)
+                  setSortOrder(o)
+                }}
+                style={{ width: '100%' }}
+                options={[
+                  { value: 'limit_up_date-desc', label: '排序：涨停日 新→旧' },
+                  { value: 'limit_up_date-asc', label: '排序：涨停日 旧→新' },
+                  { value: 'created_at-desc', label: '排序：加入时间 新→旧' },
+                  { value: 'created_at-asc', label: '排序：加入时间 旧→新' },
+                ]}
+              />
             </Space>
           </div>
 
