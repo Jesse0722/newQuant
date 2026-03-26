@@ -2,7 +2,8 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import {
   Button, Modal, Form, Input, InputNumber, Space, Card,
   Tag, Upload, message, Popconfirm, Select, AutoComplete,
-  Segmented, Spin, Empty, Dropdown, Table, Badge, Row, Col, Statistic, Descriptions, Alert,
+  Segmented, Spin, Empty, Dropdown, Table, Badge, Row, Col, Statistic, Descriptions,
+  DatePicker,
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
@@ -10,6 +11,7 @@ import {
   EllipsisOutlined, ArrowRightOutlined, ScanOutlined,
   CheckCircleFilled, CloseCircleFilled, DownOutlined,
 } from '@ant-design/icons'
+import dayjs from 'dayjs'
 import * as echarts from 'echarts'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -57,8 +59,8 @@ const PoolList: React.FC = () => {
   const [scanning, setScanning] = useState(false)
   const [signalFilter, setSignalFilter] = useState<SignalFilter>('all')
 
-  const [limitUpDateFrom, setLimitUpDateFrom] = useState('')
-  const [limitUpDateTo, setLimitUpDateTo] = useState('')
+  const [limitUpDateFrom, setLimitUpDateFrom] = useState<dayjs.Dayjs | null>(null)
+  const [limitUpDateTo, setLimitUpDateTo] = useState<dayjs.Dayjs | null>(null)
   const [sortBy, setSortBy] = useState<'created_at' | 'limit_up_date'>('limit_up_date')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
@@ -93,8 +95,10 @@ const PoolList: React.FC = () => {
   const chartInstance = useRef<echarts.ECharts | null>(null)
   const selectedItemRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const filtersRef = useRef({ sortBy, sortOrder, limitUpDateFrom, limitUpDateTo })
-  filtersRef.current = { sortBy, sortOrder, limitUpDateFrom, limitUpDateTo }
+  const limitUpDateFromStr = limitUpDateFrom ? limitUpDateFrom.format('YYYYMMDD') : ''
+  const limitUpDateToStr = limitUpDateTo ? limitUpDateTo.format('YYYYMMDD') : ''
+  const filtersRef = useRef({ sortBy, sortOrder, limitUpDateFromStr, limitUpDateToStr })
+  filtersRef.current = { sortBy, sortOrder, limitUpDateFromStr, limitUpDateToStr }
   const anyModalOpenRef = useRef(false)
   anyModalOpenRef.current = addModalOpen || importModalOpen || editPoolModalOpen || planModalOpen || createPlanModalOpen || addRuleModalOpen
 
@@ -110,7 +114,25 @@ const PoolList: React.FC = () => {
   }, [scanResult])
 
   const displayStocks = useMemo(() => {
-    if (!scanResult || signalFilter === 'all') return stocks
+    if (!scanResult) return stocks
+
+    const statusOrder: Record<string, number> = { triggered: 0, approaching: 1, tracking: 2, invalidated: 3 }
+
+    if (signalFilter === 'all') {
+      const sorted = [...stocks].sort((a, b) => {
+        const sa = signalMap.get(a.ts_code)
+        const sb = signalMap.get(b.ts_code)
+        const oa = sa ? statusOrder[sa.signal_status] ?? 9 : 9
+        const ob = sb ? statusOrder[sb.signal_status] ?? 9 : 9
+        if (oa !== ob) return oa - ob
+        return (sb?.signal_score ?? 0) - (sa?.signal_score ?? 0)
+      })
+      return sorted.filter(s => {
+        const sig = signalMap.get(s.ts_code)
+        return !sig || sig.signal_status !== 'invalidated'
+      })
+    }
+
     return stocks.filter(s => {
       const sig = signalMap.get(s.ts_code)
       return sig && sig.signal_status === signalFilter
@@ -135,8 +157,8 @@ const PoolList: React.FC = () => {
     const params: Record<string, string | number> = {
       page: pageNum, size: PAGE_SIZE, sort_by: f.sortBy, order: f.sortOrder,
     }
-    if (f.limitUpDateFrom) params.limit_up_date_from = f.limitUpDateFrom.replace(/-/g, '')
-    if (f.limitUpDateTo) params.limit_up_date_to = f.limitUpDateTo.replace(/-/g, '')
+    if (f.limitUpDateFromStr) params.limit_up_date_from = f.limitUpDateFromStr
+    if (f.limitUpDateToStr) params.limit_up_date_to = f.limitUpDateToStr
     return listStocks(poolId, params)
   }
 
@@ -175,15 +197,14 @@ const PoolList: React.FC = () => {
       setScanResult(res.data)
       setSignalFilter('all')
       setChartRefreshToken(t => t + 1)
-      const { triggered_count, approaching_count, total } = res.data
-      message.success(
-        `扫描完成：触发 ${triggered_count}、接近 ${approaching_count}，共分析 ${total} 只。左侧已出现「信号筛选」，列表股票带有状态标签。`
-      )
-      if (total > 0 && triggered_count === 0 && approaching_count === 0) {
-        message.info('暂无「触发/接近」标的，可在左侧筛选「跟踪」「失效」或查看右侧说明。', 5)
+      const { triggered_count, approaching_count, total, signals } = res.data
+      message.success(`扫描完成: ${triggered_count} 只触发, ${approaching_count} 只接近, 共 ${total} 只`)
+      if (signals.length > 0) {
+        const first = signals.find(s => s.signal_status !== 'invalidated') || signals[0]
+        setSelectedCode(first.ts_code)
       }
     } catch {
-      message.error('扫描失败')
+      message.error('扫描失败，请确保已同步K线数据')
     } finally {
       setScanning(false)
     }
@@ -202,7 +223,7 @@ const PoolList: React.FC = () => {
 
   useEffect(() => {
     if (activePoolId) loadInitial(activePoolId)
-  }, [activePoolId, limitUpDateFrom, limitUpDateTo, sortBy, sortOrder])
+  }, [activePoolId, limitUpDateFromStr, limitUpDateToStr, sortBy, sortOrder])
 
   useEffect(() => {
     setScanResult(null)
@@ -570,37 +591,43 @@ const PoolList: React.FC = () => {
     const isSelected = stock.ts_code === selectedCode
     const sig = signalMap.get(stock.ts_code)
     const cfg = sig ? STATUS_CFG[sig.signal_status] || STATUS_CFG.tracking : null
+    const borderColor = cfg ? cfg.color : 'transparent'
 
     return (
       <div
         key={stock.id}
         ref={isSelected ? selectedItemRef : undefined}
         onClick={() => setSelectedCode(stock.ts_code)}
+        tabIndex={0}
         style={{
           padding: '10px 14px',
           cursor: 'pointer',
-          borderLeft: cfg ? `3px solid ${isSelected ? cfg.color : 'transparent'}` : '3px solid transparent',
-          background: isSelected ? '#f0f5ff' : undefined,
+          borderLeft: `3px solid ${borderColor}`,
+          background: isSelected ? '#f0f5ff' : 'transparent',
           borderBottom: '1px solid #f0f0f0',
           transition: 'background 0.15s',
         }}
         onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = '#fafafa' }}
-        onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = '' }}
+        onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = isSelected ? '#f0f5ff' : 'transparent' }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: sig ? 4 : 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontWeight: 600, fontSize: 14 }}>{stock.stock_name || '-'}</span>
           {sig && cfg && (
             <Tag color={cfg.color} style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>{cfg.label}</Tag>
           )}
         </div>
-        <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: sig ? 4 : 2 }}>
+
+        <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>
           {stock.ts_code} {stock.industry ? `· ${stock.industry}` : ''}
           {stock.limit_up_date && <span style={{ marginLeft: 6 }}>涨停 {fmtLimitDate(stock.limit_up_date)}</span>}
         </div>
-        {sig && sig.signal_status !== 'invalidated' ? (
+
+        {sig ? (
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#595959' }}>
             <span>评分: <b style={{ color: sig.signal_score >= 70 ? '#f5222d' : sig.signal_score >= 50 ? '#fa8c16' : '#8c8c8c' }}>{sig.signal_score}</b></span>
-            {sig.pullback_pct != null && <span>回调: <b style={{ color: '#3f8600' }}>-{sig.pullback_pct}%</b></span>}
+            {sig.pullback_pct != null && sig.signal_status !== 'invalidated' && (
+              <span>回调: <b style={{ color: '#3f8600' }}>-{sig.pullback_pct}%</b></span>
+            )}
             {sig.latest_pct_chg != null && (
               <span>今涨: <b style={{ color: sig.latest_pct_chg >= 0 ? '#cf1322' : '#3f8600' }}>{sig.latest_pct_chg >= 0 ? '+' : ''}{sig.latest_pct_chg.toFixed(2)}%</b></span>
             )}
@@ -618,14 +645,10 @@ const PoolList: React.FC = () => {
             {stock.pinned && <PushpinFilled style={{ color: '#faad14', fontSize: 11 }} />}
           </div>
         )}
+
         {sig?.signal_status === 'approaching' && sig.unmet_conditions.length > 0 && (
           <div style={{ fontSize: 11, color: '#fa8c16', marginTop: 2 }}>
             差{sig.unmet_conditions.length}条件: {sig.unmet_conditions.slice(0, 2).join('、')}
-          </div>
-        )}
-        {sig?.signal_status === 'invalidated' && sig.unmet_conditions.length > 0 && sig.unmet_conditions.length <= 2 && (
-          <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2, lineHeight: 1.35 }}>
-            {sig.unmet_conditions.join('；')}
           </div>
         )}
       </div>
@@ -669,20 +692,6 @@ const PoolList: React.FC = () => {
           </Space>
         </div>
 
-        {scanResult && sig?.signal_status === 'invalidated' && (
-          <Alert
-            type="warning"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="本标的未通过买点筛选（或无法分析）"
-            description={
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-                {sig.unmet_conditions.map(c => <Tag key={c}>{c}</Tag>)}
-              </div>
-            }
-          />
-        )}
-
         {/* Metrics row (when signal available) */}
         {sig && sig.signal_status !== 'invalidated' && (
           <Row gutter={16} style={{ marginBottom: 12 }}>
@@ -718,7 +727,7 @@ const PoolList: React.FC = () => {
         </Card>
 
         {/* Buy conditions (when signal available) */}
-        {sig && sig.signal_status !== 'invalidated' && (
+        {sig && (
           <Card size="small" title="买点条件检查">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {sig.met_conditions.map(c => <Tag key={c} color="success" icon={<CheckCircleFilled />}>{c}</Tag>)}
@@ -771,47 +780,13 @@ const PoolList: React.FC = () => {
         </div>
         {activePool && (
           <Space size="small" style={{ flexShrink: 0, marginLeft: 8 }}>
-            <Badge dot={!!scanResult} offset={[-2, 2]} color="#52c41a">
-              <Button size="small" type="primary" icon={<ScanOutlined />} loading={scanning} onClick={handleScan}>
-                {scanResult ? '重新扫描' : '扫描买点'}
-              </Button>
-            </Badge>
+            <Button size="small" type="primary" icon={<ScanOutlined />} loading={scanning} onClick={handleScan}>扫描买点</Button>
             <Button size="small" icon={<SyncOutlined spin={syncing} />} loading={syncing} onClick={handleSync}>同步</Button>
             <Button size="small" onClick={openEditPoolModal}>编辑池</Button>
             <Button size="small" icon={<ReloadOutlined />} onClick={() => loadInitial(activePoolId)} />
           </Space>
         )}
       </div>
-
-      {scanResult && (
-        <Alert
-          type="success"
-          showIcon
-          message={
-            <span>
-              买点扫描已完成 ·{' '}
-              <strong style={{ fontWeight: 600 }}>
-                {(() => {
-                  try {
-                    return new Date(scanResult.scan_time).toLocaleString('zh-CN', { hour12: false })
-                  } catch {
-                    return scanResult.scan_time
-                  }
-                })()}
-              </strong>
-            </span>
-          }
-          description={
-            <span>
-              共分析 <b>{scanResult.total}</b> 只：触发{' '}
-              <b style={{ color: '#cf1322' }}>{scanResult.triggered_count}</b>、接近{' '}
-              <b style={{ color: '#d48806' }}>{scanResult.approaching_count}</b>。
-              左侧已展开「信号筛选」分类，列表中每只股票带有状态；右侧可查看指标与带标注的 K 线。
-            </span>
-          }
-          style={{ marginBottom: 8, flexShrink: 0 }}
-        />
-      )}
 
       {/* Main body: left-right split */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, border: '1px solid #f0f0f0', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
@@ -854,22 +829,17 @@ const PoolList: React.FC = () => {
             </div>
             <Space direction="vertical" size={8} style={{ width: '100%' }}>
               {(activePool?.name?.includes('涨停') ?? false) && (
-                <Space.Compact style={{ width: '100%' }}>
-                  <Input
-                    size="small"
-                    placeholder="涨停起 YYYYMMDD"
-                    value={limitUpDateFrom}
-                    onChange={e => setLimitUpDateFrom(e.target.value.replace(/-/g, '').slice(0, 8))}
-                    style={{ width: '50%' }}
-                  />
-                  <Input
-                    size="small"
-                    placeholder="涨停止 YYYYMMDD"
-                    value={limitUpDateTo}
-                    onChange={e => setLimitUpDateTo(e.target.value.replace(/-/g, '').slice(0, 8))}
-                    style={{ width: '50%' }}
-                  />
-                </Space.Compact>
+                <DatePicker.RangePicker
+                  size="small"
+                  style={{ width: '100%' }}
+                  placeholder={['涨停起始日', '涨停截止日']}
+                  value={limitUpDateFrom && limitUpDateTo ? [limitUpDateFrom, limitUpDateTo] : null}
+                  onChange={dates => {
+                    setLimitUpDateFrom(dates?.[0] ?? null)
+                    setLimitUpDateTo(dates?.[1] ?? null)
+                  }}
+                  allowClear
+                />
               )}
               <Select
                 size="small"
@@ -892,31 +862,34 @@ const PoolList: React.FC = () => {
 
           {/* Signal filter (after scan) */}
           {scanResult && (
-            <div
-              style={{
-                padding: '8px 12px 10px',
-                borderBottom: '1px solid #f0f0f0',
-                flexShrink: 0,
-                background: '#f6ffed',
-                borderLeft: '3px solid #52c41a',
-                marginLeft: 0,
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#262626', marginBottom: 6 }}>信号筛选（扫描结果）</div>
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
               <Segmented size="small" block options={[
-                { label: `全部 (${stocks.length})`, value: 'all' },
-                { label: <Badge count={scanResult.triggered_count} size="small" offset={[6, -2]}><span style={{ padding: '0 2px' }}>触发</span></Badge>, value: 'triggered' },
-                { label: <Badge count={scanResult.approaching_count} size="small" offset={[6, -2]} color="#fa8c16"><span style={{ padding: '0 2px' }}>接近</span></Badge>, value: 'approaching' },
-                { label: '跟踪', value: 'tracking' },
-                { label: '失效', value: 'invalidated' },
+                { label: `全部${scanResult ? ` (${scanResult.signals.filter(s => s.signal_status !== 'invalidated').length})` : ''}`, value: 'all' },
+                {
+                  label: <Badge count={scanResult.triggered_count || 0} size="small" offset={[8, -2]}><span style={{ padding: '0 4px' }}>已触发</span></Badge>,
+                  value: 'triggered',
+                },
+                {
+                  label: <Badge count={scanResult.approaching_count || 0} size="small" offset={[8, -2]} color="#fa8c16"><span style={{ padding: '0 4px' }}>接近</span></Badge>,
+                  value: 'approaching',
+                },
+                { label: '跟踪中', value: 'tracking' },
+                { label: '已失效', value: 'invalidated' },
               ]} value={signalFilter} onChange={v => setSignalFilter(v as SignalFilter)} />
             </div>
           )}
 
           {/* Stock count */}
-          <div style={{ padding: '6px 14px', fontSize: 12, color: '#8c8c8c', borderBottom: '1px solid #f5f5f5', flexShrink: 0 }}>
-            {displayStocks.length} 只 {scanResult ? '(已扫描)' : ''} · {selectedIndex >= 0 ? selectedIndex + 1 : '-'}/{displayStocks.length}
-            <span style={{ float: 'right', color: '#bfbfbf' }}>↑↓ 切换</span>
+          <div style={{
+            padding: '8px 14px', borderBottom: '1px solid #f0f0f0',
+            fontSize: 13, color: '#8c8c8c', flexShrink: 0,
+          }}>
+            {displayStocks.length} 只股票
+            {scanResult && (
+              <span style={{ marginLeft: 8, fontSize: 12, color: '#bfbfbf' }}>
+                · 扫描于 {(() => { try { return new Date(scanResult.scan_time).toLocaleTimeString('zh-CN', { hour12: false }) } catch { return '' } })()}
+              </span>
+            )}
           </div>
 
           {/* Stock list */}
