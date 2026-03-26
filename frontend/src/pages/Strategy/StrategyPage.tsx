@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import {
-  Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Space, Checkbox, message, Progress,
+  Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Space, Checkbox, message, Progress, DatePicker,
 } from 'antd'
-import { FilterOutlined, RobotOutlined, PlusOutlined } from '@ant-design/icons'
+import { FilterOutlined, RobotOutlined, PlusOutlined, ThunderboltOutlined, ExperimentOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import {
-  getScreenTemplates, runIndicatorScreen, runAiScreen, getScreenResult,
-  type ScreenTemplate, type ScreenCondition, type ScreenResult,
+  getScreenTemplates, getLimitUpTemplates, runIndicatorScreen, runAiScreen, runLimitUpBuyPointScreen, runBacktest, getScreenResult,
+  type ScreenTemplate, type ScreenCondition, type ScreenResult, type BacktestResult,
 } from '../../api/strategy'
 import { listPools, batchAddStocks, quickCreatePool } from '../../api/pools'
 import type { Pool } from '../../types'
@@ -16,11 +17,20 @@ const AI_DESC_MAX = 200
 
 const StrategyPage: React.FC = () => {
   const [templates, setTemplates] = useState<ScreenTemplate[]>([])
+  const [limitUpTemplates, setLimitUpTemplates] = useState<ScreenTemplate[]>([])
   const [pools, setPools] = useState<Pool[]>([])
-  const [activeTab, setActiveTab] = useState<'indicator' | 'ai'>('indicator')
+  const [activeTab, setActiveTab] = useState<'indicator' | 'ai' | 'limit_up' | 'backtest'>('indicator')
   const [scope, setScope] = useState<string>('full')
   const [conditions, setConditions] = useState<ScreenCondition[]>([])
   const [logic, setLogic] = useState<string>('and')
+  const [limitUpConditions, setLimitUpConditions] = useState<ScreenCondition[]>([])
+  const [limitUpLogic, setLimitUpLogic] = useState<string>('and')
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null)
+  const [backtestDateRange, setBacktestDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null)
+  const [backtestConditions, setBacktestConditions] = useState<ScreenCondition[]>([])
+  const [backtestLogic, setBacktestLogic] = useState<string>('and')
+  const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null)
+  const [backtestLoading, setBacktestLoading] = useState(false)
   const [aiDesc, setAiDesc] = useState('')
   const [taskId, setTaskId] = useState<string | null>(null)
   const [result, setResult] = useState<ScreenResult | null>(null)
@@ -34,6 +44,7 @@ const StrategyPage: React.FC = () => {
 
   useEffect(() => {
     getScreenTemplates().then((r) => setTemplates(r.data))
+    getLimitUpTemplates().then((r) => setLimitUpTemplates(r.data))
     listPools().then((r) => setPools(r.data))
   }, [])
 
@@ -77,6 +88,104 @@ const StrategyPage: React.FC = () => {
       setTaskId(res.data.task_id)
     } catch {
       setLoading(false)
+    }
+  }
+
+  const addLimitUpCondition = () => {
+    if (limitUpConditions.length >= MAX_CONDITIONS) {
+      message.warning(`最多 ${MAX_CONDITIONS} 个条件`)
+      return
+    }
+    const t = limitUpTemplates[0]
+    setLimitUpConditions([...limitUpConditions, { template_id: t?.id || 'ma_support', params: t?.default_params || {} }])
+  }
+
+  const removeLimitUpCondition = (i: number) => {
+    setLimitUpConditions(limitUpConditions.filter((_, idx) => idx !== i))
+  }
+
+  const updateLimitUpCondition = (i: number, field: string, value: any) => {
+    const next = [...limitUpConditions]
+    if (field === 'template_id') {
+      const t = limitUpTemplates.find((x) => x.id === value)
+      next[i] = { template_id: value, params: t?.default_params || {} }
+    } else {
+      (next[i] as any)[field] = value
+    }
+    setLimitUpConditions(next)
+  }
+
+  const runLimitUp = async () => {
+    if (limitUpConditions.length === 0) {
+      message.warning('请至少添加一个买点条件')
+      return
+    }
+    if (!dateRange || dateRange.length !== 2) {
+      message.warning('请选择日期范围')
+      return
+    }
+    setLoading(true)
+    setResult(null)
+    try {
+      const res = await runLimitUpBuyPointScreen({
+        trade_date_from: dateRange[0].format('YYYYMMDD'),
+        trade_date_to: dateRange[1].format('YYYYMMDD'),
+        conditions: limitUpConditions,
+        logic: limitUpLogic,
+      })
+      setTaskId(res.data.task_id)
+    } catch {
+      setLoading(false)
+    }
+  }
+
+  const addBacktestCondition = () => {
+    if (backtestConditions.length >= MAX_CONDITIONS) {
+      message.warning(`最多 ${MAX_CONDITIONS} 个条件`)
+      return
+    }
+    const t = limitUpTemplates[0]
+    setBacktestConditions([...backtestConditions, { template_id: t?.id || 'ma_support', params: t?.default_params || {} }])
+  }
+
+  const removeBacktestCondition = (i: number) => {
+    setBacktestConditions(backtestConditions.filter((_, idx) => idx !== i))
+  }
+
+  const updateBacktestCondition = (i: number, field: string, value: any) => {
+    const next = [...backtestConditions]
+    if (field === 'template_id') {
+      const t = limitUpTemplates.find((x) => x.id === value)
+      next[i] = { template_id: value, params: t?.default_params || {} }
+    } else {
+      (next[i] as any)[field] = value
+    }
+    setBacktestConditions(next)
+  }
+
+  const runBacktestFn = async () => {
+    if (backtestConditions.length === 0) {
+      message.warning('请至少添加一个买点条件')
+      return
+    }
+    if (!backtestDateRange || backtestDateRange.length !== 2) {
+      message.warning('请选择日期范围')
+      return
+    }
+    setBacktestLoading(true)
+    setBacktestResult(null)
+    try {
+      const res = await runBacktest({
+        trade_date_from: backtestDateRange[0].format('YYYYMMDD'),
+        trade_date_to: backtestDateRange[1].format('YYYYMMDD'),
+        conditions: backtestConditions,
+        logic: backtestLogic,
+      })
+      setBacktestResult(res.data)
+    } catch (e: any) {
+      message.error(e.response?.data?.message || '回测失败')
+    } finally {
+      setBacktestLoading(false)
     }
   }
 
@@ -184,7 +293,7 @@ const StrategyPage: React.FC = () => {
       dataIndex: 'ts_code',
       render: (v: string) => <a onClick={() => navigate(`/stocks/${v}`)}>{v}</a>,
     },
-    { title: '股票名称', dataIndex: 'stock_name', render: (v: string) => v || '-' },
+    { title: '股票名称', dataIndex: 'stock_name', render: (v: string, r: { ts_code: string }) => <a onClick={() => navigate(`/stocks/${r.ts_code}`)}>{v || '-'}</a> },
   ]
 
   return (
@@ -256,6 +365,168 @@ const StrategyPage: React.FC = () => {
             <Button type="primary" loading={loading} onClick={runIndicator}>
               执行选股
             </Button>
+          </Tabs.TabPane>
+
+          <Tabs.TabPane tab="涨停回调买点" key="limit_up">
+            <div style={{ marginBottom: 16 }}>
+              <Space wrap>
+                <span>日期范围：</span>
+                <DatePicker.RangePicker
+                  value={dateRange}
+                  onChange={(v) => setDateRange(v)}
+                  format="YYYY-MM-DD"
+                  style={{ width: 260 }}
+                />
+                <span>条件逻辑：</span>
+                <Select value={limitUpLogic} onChange={setLimitUpLogic} style={{ width: 80 }} options={[
+                  { value: 'and', label: '且' },
+                  { value: 'or', label: '或' },
+                ]} />
+              </Space>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              {limitUpConditions.map((c, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <Select
+                    value={c.template_id}
+                    onChange={(v) => updateLimitUpCondition(i, 'template_id', v)}
+                    style={{ width: 160 }}
+                    options={limitUpTemplates.map((t) => ({ value: t.id, label: t.name }))}
+                  />
+                  {c.template_id === 'ma_support' && (
+                    <InputNumber size="small" value={c.params?.n} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, n: v })} placeholder="N" style={{ width: 80 }} />
+                  )}
+                  {c.template_id === 'limit_up_price_support' && (
+                    <InputNumber size="small" value={c.params?.tolerance} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, tolerance: v })} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
+                  )}
+                  {c.template_id === 'days_since_limit_up' && (
+                    <>
+                      <InputNumber size="small" value={c.params?.min_days} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, min_days: v })} placeholder="最小" style={{ width: 70 }} />
+                      <InputNumber size="small" value={c.params?.max_days} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, max_days: v })} placeholder="最大" style={{ width: 70 }} />
+                    </>
+                  )}
+                  {c.template_id === 'fibonacci_retrace' && (
+                    <>
+                      <InputNumber size="small" value={c.params?.level} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, level: v })} placeholder="level" style={{ width: 80 }} step={0.01} />
+                      <InputNumber size="small" value={c.params?.tolerance} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, tolerance: v })} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
+                    </>
+                  )}
+                  {c.template_id === 'volume_shrink' && (
+                    <InputNumber size="small" value={c.params?.ratio} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, ratio: v })} placeholder="ratio" style={{ width: 80 }} step={0.1} />
+                  )}
+                  {c.template_id === 'price_threshold' && (
+                    <>
+                      <InputNumber size="small" value={c.params?.ratio} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, ratio: v })} placeholder="ratio" style={{ width: 80 }} step={0.01} />
+                    </>
+                  )}
+                  {c.template_id === 'rsi_oversold' && (
+                    <InputNumber size="small" value={c.params?.threshold} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, threshold: v })} placeholder="阈值" style={{ width: 70 }} />
+                  )}
+                  {c.template_id === 'breakout_high' && (
+                    <InputNumber size="small" value={c.params?.n} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, n: v })} placeholder="N" style={{ width: 80 }} />
+                  )}
+                  <Button size="small" type="link" danger onClick={() => removeLimitUpCondition(i)}>删除</Button>
+                </div>
+              ))}
+              <Button size="small" icon={<PlusOutlined />} onClick={addLimitUpCondition} disabled={limitUpConditions.length >= MAX_CONDITIONS}>
+                添加条件 ({limitUpConditions.length}/{MAX_CONDITIONS})
+              </Button>
+            </div>
+            <Button type="primary" icon={<ThunderboltOutlined />} loading={loading} onClick={runLimitUp}>
+              执行选股
+            </Button>
+          </Tabs.TabPane>
+
+          <Tabs.TabPane tab="策略回测" key="backtest">
+            <div style={{ marginBottom: 16 }}>
+              <Space wrap>
+                <span>日期范围：</span>
+                <DatePicker.RangePicker
+                  value={backtestDateRange}
+                  onChange={(v) => setBacktestDateRange(v)}
+                  format="YYYY-MM-DD"
+                  style={{ width: 260 }}
+                />
+                <span>条件逻辑：</span>
+                <Select value={backtestLogic} onChange={setBacktestLogic} style={{ width: 80 }} options={[
+                  { value: 'and', label: '且' },
+                  { value: 'or', label: '或' },
+                ]} />
+              </Space>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              {backtestConditions.map((c, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <Select
+                    value={c.template_id}
+                    onChange={(v) => updateBacktestCondition(i, 'template_id', v)}
+                    style={{ width: 160 }}
+                    options={limitUpTemplates.map((t) => ({ value: t.id, label: t.name }))}
+                  />
+                  {c.template_id === 'ma_support' && (
+                    <InputNumber size="small" value={c.params?.n} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, n: v })} placeholder="N" style={{ width: 80 }} />
+                  )}
+                  {c.template_id === 'limit_up_price_support' && (
+                    <InputNumber size="small" value={c.params?.tolerance} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, tolerance: v })} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
+                  )}
+                  {c.template_id === 'days_since_limit_up' && (
+                    <>
+                      <InputNumber size="small" value={c.params?.min_days} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, min_days: v })} placeholder="最小" style={{ width: 70 }} />
+                      <InputNumber size="small" value={c.params?.max_days} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, max_days: v })} placeholder="最大" style={{ width: 70 }} />
+                    </>
+                  )}
+                  {c.template_id === 'fibonacci_retrace' && (
+                    <>
+                      <InputNumber size="small" value={c.params?.level} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, level: v })} placeholder="level" style={{ width: 80 }} step={0.01} />
+                      <InputNumber size="small" value={c.params?.tolerance} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, tolerance: v })} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
+                    </>
+                  )}
+                  {c.template_id === 'volume_shrink' && (
+                    <InputNumber size="small" value={c.params?.ratio} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, ratio: v })} placeholder="ratio" style={{ width: 80 }} step={0.1} />
+                  )}
+                  {c.template_id === 'price_threshold' && (
+                    <InputNumber size="small" value={c.params?.ratio} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, ratio: v })} placeholder="ratio" style={{ width: 80 }} step={0.01} />
+                  )}
+                  {c.template_id === 'rsi_oversold' && (
+                    <InputNumber size="small" value={c.params?.threshold} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, threshold: v })} placeholder="阈值" style={{ width: 70 }} />
+                  )}
+                  {c.template_id === 'breakout_high' && (
+                    <InputNumber size="small" value={c.params?.n} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, n: v })} placeholder="N" style={{ width: 80 }} />
+                  )}
+                  <Button size="small" type="link" danger onClick={() => removeBacktestCondition(i)}>删除</Button>
+                </div>
+              ))}
+              <Button size="small" icon={<PlusOutlined />} onClick={addBacktestCondition} disabled={backtestConditions.length >= MAX_CONDITIONS}>
+                添加条件 ({backtestConditions.length}/{MAX_CONDITIONS})
+              </Button>
+            </div>
+            <Button type="primary" icon={<ExperimentOutlined />} loading={backtestLoading} onClick={runBacktestFn}>
+              执行回测
+            </Button>
+
+            {backtestResult && (
+              <div style={{ marginTop: 24 }}>
+                <h4>回测结果</h4>
+                <div style={{ marginBottom: 16, display: 'flex', gap: 24 }}>
+                  <span>平均次日收益：<strong style={{ color: backtestResult.avg_pct >= 0 ? '#52c41a' : '#ff4d4f' }}>{backtestResult.avg_pct}%</strong></span>
+                  <span>胜率：<strong>{backtestResult.win_rate}%</strong></span>
+                  <span>信号数：<strong>{backtestResult.total_signals}</strong></span>
+                </div>
+                {backtestResult.signals.length > 0 && (
+                  <Table
+                    dataSource={backtestResult.signals}
+                    columns={[
+                      { title: '触发日期', dataIndex: 'trigger_date', width: 110 },
+                      { title: '股票代码', dataIndex: 'ts_code', render: (v: string) => <a onClick={() => navigate(`/stocks/${v}`)}>{v}</a> },
+                      { title: '次日涨跌幅(%)', dataIndex: 'next_day_pct', render: (v: number) => <span style={{ color: v >= 0 ? '#52c41a' : '#ff4d4f' }}>{v}%</span> },
+                    ]}
+                    rowKey={(r) => `${r.trigger_date}-${r.ts_code}`}
+                    size="small"
+                    pagination={{ pageSize: 20 }}
+                  />
+                )}
+              </div>
+            )}
           </Tabs.TabPane>
 
           <Tabs.TabPane tab="AI 智能选股" key="ai">

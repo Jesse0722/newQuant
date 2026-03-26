@@ -50,6 +50,7 @@ class WatchStockOut(BaseModel):
     added_price: Optional[float] = None
     latest_price: Optional[float] = None
     pct_chg: Optional[float] = None
+    industry: Optional[str] = None
     trade_date: Optional[str] = None
     source: str
     monitor_status: str
@@ -82,3 +83,8 @@ class QuickCreatePool(BaseModel):
     name: str
     ts_codes: list[str]
     description: Optional[str] = None
+
+
+class WatchStockPagination(BaseModel):
+    items: list[WatchStockOut]
+    total: int

@@ -8,7 +8,7 @@ from app.models.pool import WatchPool, WatchStock
 from app.models.stock import StockBasic, DailyQuote
 from app.schemas.pool import (
     PoolCreate, PoolUpdate, PoolOut,
-    WatchStockCreate, WatchStockUpdate, WatchStockOut,
+    WatchStockCreate, WatchStockUpdate, WatchStockOut, WatchStockPagination,
     CSVImportResult, BatchAddStocks, BatchAddResult, QuickCreatePool,
 )
 from app.exceptions import AppError
@@ -26,6 +26,7 @@ def _enrich_stock(db: Session, stock: WatchStock) -> WatchStockOut:
     ).order_by(DailyQuote.trade_date.desc()).first()
     out = WatchStockOut.model_validate(stock)
     out.stock_name = basic.name if basic else None
+    out.industry = basic.industry if basic else None
     if latest:
         out.latest_price = latest.close
         out.pct_chg = latest.pct_chg
@@ -162,13 +163,17 @@ def delete_pool(pool_id: str, db: Session = Depends(get_db)):
     db.commit()
 
 
-@router.get("/{pool_id}/stocks", response_model=list[WatchStockOut])
+@router.get("/{pool_id}/stocks", response_model=WatchStockPagination)
 def list_stocks(
     pool_id: str,
     keyword: str = Query(None),
     monitor_status: str = Query(None),
     limit_up_date_from: str = Query(None, description="涨停日期起 YYYYMMDD"),
     limit_up_date_to: str = Query(None, description="涨停日期止 YYYYMMDD"),
+    sort_by: str = Query("created_at", description="排序字段: created_at | limit_up_date"),
+    order: str = Query("desc", description="排序方向: asc | desc"),
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     pool = db.query(WatchPool).filter(WatchPool.id == pool_id).first()
@@ -181,14 +186,25 @@ def list_stocks(
         q = q.filter(WatchStock.limit_up_date >= limit_up_date_from)
     if limit_up_date_to:
         q = q.filter(WatchStock.limit_up_date <= limit_up_date_to)
-    stocks = q.order_by(WatchStock.pinned.desc(), WatchStock.created_at.desc()).all()
+    stocks = q.all()
     result = []
     for s in stocks:
         out = _enrich_stock(db, s)
         if keyword and keyword.lower() not in (s.ts_code + (out.stock_name or "")).lower():
             continue
         result.append(out)
-    return result
+    # 排序：置顶优先，再按指定字段
+    rev = order == "desc"
+    null_val = "00000000" if rev else "99999999"
+    if sort_by == "limit_up_date":
+        result.sort(key=lambda x: (x.limit_up_date or null_val), reverse=rev)
+    else:
+        result.sort(key=lambda x: str(x.created_at or ""), reverse=rev)
+    result.sort(key=lambda x: x.pinned, reverse=True)  # 置顶优先，稳定排序
+    total = len(result)
+    offset = (page - 1) * size
+    items = result[offset : offset + size]
+    return WatchStockPagination(items=items, total=total)
 
 
 @router.post("/{pool_id}/stocks", response_model=WatchStockOut, status_code=201)

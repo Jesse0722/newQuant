@@ -1,5 +1,7 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.database import get_db
 from app.models.stock import StockBasic, DailyQuote
 from app.models.monitor import Alert
@@ -7,6 +9,7 @@ from app.models.trade import TradeDetail
 from app.schemas.trade import TradeDetailCreate, TradeDetailOut
 from app.services.indicator import calc_ma, calc_macd, calc_rsi
 from app.services.buy_signal_service import get_signal_marks
+from app.services.sync_service import sync_stock_info, sync_daily
 from app.exceptions import AppError
 import pandas as pd
 import numpy as np
@@ -37,17 +40,58 @@ def _nan_to_none(series: pd.Series) -> list:
     return [None if (v is None or (isinstance(v, float) and np.isnan(v))) else round(v, 4) for v in series]
 
 
+def _ensure_latest_kline(db: Session, ts_code: str) -> dict:
+    """
+    详情查询前自动增量补齐该股票日线到最新可用交易日。
+    失败时降级为返回本地已有数据，避免影响页面可用性。
+    """
+    today = datetime.now().strftime("%Y%m%d")
+    latest = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
+    if latest and latest >= today:
+        return {
+            "auto_sync_attempted": False,
+            "status": "up_to_date",
+            "message": "本地数据已是最新",
+            "latest_trade_date": latest,
+        }
+    try:
+        sync_stock_info(db, ts_code)
+        added = sync_daily(db, ts_code, days=250)
+        latest_after = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
+        return {
+            "auto_sync_attempted": True,
+            "status": "updated" if (added or 0) > 0 else "up_to_date",
+            "message": f"已自动补齐，新增 {added or 0} 条",
+            "latest_trade_date": latest_after or latest,
+            "added_count": int(added or 0),
+        }
+    except Exception as e:
+        db.rollback()
+        latest_after = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
+        return {
+            "auto_sync_attempted": True,
+            "status": "sync_failed",
+            "message": f"自动补齐失败：{str(e)[:120]}",
+            "latest_trade_date": latest_after or latest,
+        }
+
+
 @router.get("/{ts_code}/chart")
 def get_stock_chart(
     ts_code: str,
     period: int = Query(120, ge=10, le=500),
     mark_signals: bool = Query(False, description="是否返回买点标注数据"),
     limit_up_date: str = Query(None, description="涨停日期，用于标注生命线"),
+    auto_sync_latest: bool = Query(True, description="查询前是否自动补齐最新K线"),
     db: Session = Depends(get_db),
 ):
     basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
     if not basic:
         raise AppError(code=5001, message="股票不存在", status_code=404)
+
+    sync_meta = None
+    if auto_sync_latest:
+        sync_meta = _ensure_latest_kline(db, ts_code)
 
     quotes = (
         db.query(DailyQuote)
@@ -90,6 +134,9 @@ def get_stock_chart(
             "rsi": rsi[sl],
         },
     }
+
+    if sync_meta:
+        result["sync_meta"] = sync_meta
 
     if mark_signals:
         result["signal_marks"] = get_signal_marks(db, ts_code, limit_up_date)

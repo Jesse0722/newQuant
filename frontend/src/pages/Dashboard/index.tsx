@@ -15,8 +15,8 @@ const Dashboard: React.FC = () => {
   }, [])
 
   const alertColumns = [
-    { title: '股票代码', dataIndex: 'ts_code', key: 'ts_code' },
-    { title: '股票名称', dataIndex: 'stock_name', key: 'stock_name', render: (v: string) => v || '-' },
+    { title: '股票代码', dataIndex: 'ts_code', key: 'ts_code', render: (v: string, r: any) => <a onClick={(e) => { e.stopPropagation(); navigate(`/stocks/${v}`) }}>{v}</a> },
+    { title: '股票名称', dataIndex: 'stock_name', key: 'stock_name', render: (v: string, r: any) => <a onClick={(e) => { e.stopPropagation(); navigate(`/stocks/${r.ts_code}`) }}>{v || '-'}</a> },
     { title: '触发日期', dataIndex: 'trigger_date', key: 'trigger_date' },
     {
       title: '状态',
@@ -42,7 +42,13 @@ const Dashboard: React.FC = () => {
       title: '股票',
       key: 'stock',
       render: (_: any, r: any) =>
-        r.stock_count > 1 ? `${r.stock_name || r.ts_code} 等${r.stock_count}只` : `${r.stock_name || ''} (${r.ts_code || '-'})`,
+        r.stock_count > 1 ? (
+          `${r.stock_name || r.ts_code} 等${r.stock_count}只`
+        ) : (
+          <a onClick={(e) => { e.stopPropagation(); r.ts_code && navigate(`/stocks/${r.ts_code}`) }}>
+            {r.stock_name || ''} ({r.ts_code || '-'})
+          </a>
+        ),
     },
     {
       title: '状态',

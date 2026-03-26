@@ -51,6 +51,13 @@ export interface QuoteItem {
 export interface StockChartData {
   basic: StockBasicInfo
   quotes: QuoteItem[]
+  sync_meta?: {
+    auto_sync_attempted: boolean
+    status: 'updated' | 'up_to_date' | 'sync_failed'
+    message: string
+    latest_trade_date?: string | null
+    added_count?: number
+  }
   indicators: {
     ma5: (number | null)[]
     ma10: (number | null)[]
@@ -221,6 +228,7 @@ export interface SyncHistoryItem {
   id: string
   task_type: string
   status: string
+  target?: string | null
   started_at: string | null
   completed_at: string | null
   result?: {
@@ -230,7 +238,26 @@ export interface SyncHistoryItem {
     days_synced?: number
     message?: string
     diagnostic?: string
+    added?: number
+    updated?: number
   }
+}
+
+export interface SyncOverview {
+  days: number
+  total: {
+    tasks: number
+    success: number
+    failed: number
+    skipped: number
+  }
+  by_task_type: Array<{
+    task_type: string
+    tasks: number
+    success: number
+    failed: number
+    skipped: number
+  }>
 }
 
 export interface Pagination<T> {

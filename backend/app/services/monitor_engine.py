@@ -14,6 +14,9 @@ TEMPLATE_INFO = {
     "volume_shrink": {"name": "缩量回调", "description": "价格下跌且成交量萎缩", "default_params": {"ratio": 0.7}},
     "breakout_high": {"name": "突破新高", "description": "收盘价创 N 日新高", "default_params": {"n": 60}},
     "price_threshold": {"name": "价格阈值", "description": "跌破基准价 × 比例", "default_params": {"base_price": 0, "ratio": 0.95}},
+    "limit_up_price_support": {"name": "涨停板价支撑", "description": "收盘价回踩涨停板价附近（±tolerance）", "default_params": {"tolerance": 0.03}},
+    "days_since_limit_up": {"name": "涨停后时间窗口", "description": "涨停后 N~M 个交易日内", "default_params": {"min_days": 3, "max_days": 15}},
+    "fibonacci_retrace": {"name": "黄金分割回调", "description": "涨停后最高点回调至 0.382/0.5 附近", "default_params": {"level": 0.382, "tolerance": 0.03}},
 }
 
 
@@ -28,7 +31,31 @@ def _get_df(db: Session, ts_code: str, limit: int = 250) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
-def evaluate_template(df: pd.DataFrame, template_id: str, params: dict) -> bool:
+def _get_limit_up_price(df: pd.DataFrame, limit_up_date: str | None) -> float | None:
+    """从 K 线中取涨停日收盘价（涨停价）"""
+    if not limit_up_date:
+        return None
+    row = df[df["trade_date"] == limit_up_date]
+    if row.empty:
+        return None
+    close = row["close"].iloc[0]
+    return float(close) if close is not None and not pd.isna(close) else None
+
+
+def _get_days_since_limit_up(df: pd.DataFrame, limit_up_date: str | None) -> int | None:
+    """涨停日到最新交易日之间的交易日数量（不含涨停日）"""
+    if not limit_up_date:
+        return None
+    after = df[df["trade_date"] > limit_up_date]
+    return len(after) if not after.empty else None
+
+
+def evaluate_template(
+    df: pd.DataFrame,
+    template_id: str,
+    params: dict,
+    watch_stock: WatchStock | None = None,
+) -> bool:
     if len(df) < 5:
         return False
     try:
@@ -72,18 +99,56 @@ def evaluate_template(df: pd.DataFrame, template_id: str, params: dict) -> bool:
         elif template_id == "price_threshold":
             base_price = params.get("base_price", 0)
             ratio = params.get("ratio", 0.95)
+            if not base_price and watch_stock and watch_stock.limit_up_date:
+                base_price = _get_limit_up_price(df, watch_stock.limit_up_date)
             if not base_price:
                 return False
             return df["close"].iloc[-1] < base_price * ratio
+
+        elif template_id == "limit_up_price_support":
+            if not watch_stock or not watch_stock.limit_up_date:
+                return False
+            limit_price = _get_limit_up_price(df, watch_stock.limit_up_date)
+            if not limit_price:
+                return False
+            tolerance = params.get("tolerance", 0.03)
+            close = df["close"].iloc[-1]
+            return limit_price * (1 - tolerance) <= close <= limit_price * (1 + tolerance)
+
+        elif template_id == "days_since_limit_up":
+            if not watch_stock or not watch_stock.limit_up_date:
+                return False
+            days = _get_days_since_limit_up(df, watch_stock.limit_up_date)
+            if days is None:
+                return False
+            min_days = params.get("min_days", 3)
+            max_days = params.get("max_days", 15)
+            return min_days <= days <= max_days
+
+        elif template_id == "fibonacci_retrace":
+            if not watch_stock or not watch_stock.limit_up_date:
+                return False
+            after = df[df["trade_date"] > watch_stock.limit_up_date]
+            if after.empty:
+                return False
+            high_max = after["high"].max()
+            if pd.isna(high_max) or high_max <= 0:
+                return False
+            close = df["close"].iloc[-1]
+            retrace = (high_max - close) / high_max
+            level = params.get("level", 0.382)
+            tolerance = params.get("tolerance", 0.03)
+            target = level
+            return abs(retrace - target) <= tolerance
 
     except Exception:
         return False
     return False
 
 
-def evaluate_rule(df: pd.DataFrame, rule: MonitorRule) -> bool:
+def evaluate_rule(df: pd.DataFrame, rule: MonitorRule, watch_stock: WatchStock | None = None) -> bool:
     if rule.template_id and rule.template_id in TEMPLATE_INFO:
-        return evaluate_template(df, rule.template_id, rule.params or {})
+        return evaluate_template(df, rule.template_id, rule.params or {}, watch_stock)
 
     conditions = rule.params or {}
     if isinstance(conditions, dict) and "conditions" in conditions:
@@ -92,7 +157,7 @@ def evaluate_rule(df: pd.DataFrame, rule: MonitorRule) -> bool:
             tid = cond.get("template_id")
             p = cond.get("params", {})
             if tid:
-                results.append(evaluate_template(df, tid, p))
+                results.append(evaluate_template(df, tid, p, watch_stock))
         logic = rule.logic or "and"
         if logic == "and":
             return all(results) if results else False
@@ -116,7 +181,7 @@ def scan_stock(db: Session, watch_stock: WatchStock) -> list[Alert]:
 
     alerts = []
     for rule in rules:
-        if evaluate_rule(df, rule):
+        if evaluate_rule(df, rule, watch_stock):
             last_date = df["trade_date"].iloc[-1]
             existing = db.query(Alert).filter(
                 Alert.stock_id == watch_stock.id,

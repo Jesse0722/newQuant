@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Descriptions, Button, Progress, message, Spin, InputNumber, Space } from 'antd'
+import { Card, Descriptions, Button, Progress, message, Spin, InputNumber, Space, Row, Col, Statistic, Table, Tag } from 'antd'
 import { SyncOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { getDataSummary, getSyncHistory } from '../../api/data'
+import { getDataSummary, getSyncHistory, checkTushare, getSyncOverview } from '../../api/data'
 import { syncFullMarket, getTaskStatus } from '../../api/sync'
 import { collectLimitUp } from '../../api/strategy'
-import type { DataSummary, SyncHistoryItem } from '../../types'
+import type { DataSummary, SyncHistoryItem, SyncOverview } from '../../types'
 
 const DataPage: React.FC = () => {
   const [summary, setSummary] = useState<DataSummary | null>(null)
@@ -20,8 +20,11 @@ const DataPage: React.FC = () => {
     skipped_count?: number
     days_synced?: number
     message?: string
+    diagnostic?: string
   } | null>(null)
   const [lastSync, setLastSync] = useState<SyncHistoryItem | null>(null)
+  const [syncHistory, setSyncHistory] = useState<SyncHistoryItem[]>([])
+  const [syncOverview, setSyncOverview] = useState<SyncOverview | null>(null)
   const [limitUpCollecting, setLimitUpCollecting] = useState(false)
   const [limitUpResult, setLimitUpResult] = useState<{
     added: number
@@ -29,7 +32,23 @@ const DataPage: React.FC = () => {
     skipped: number
     dates_processed: string[]
   } | null>(null)
+  const [fullMarketDays, setFullMarketDays] = useState(5)
   const [limitUpWindowDays, setLimitUpWindowDays] = useState(1)
+  const [tushareCheck, setTushareCheck] = useState<{
+    token_configured: boolean
+    proxy_configured: boolean
+    api_test: string
+    rows_returned?: number
+  } | null>(null)
+
+  const handleCheckTushare = async () => {
+    try {
+      const res = await checkTushare()
+      setTushareCheck(res.data)
+    } catch (e: any) {
+      message.error(e.response?.data?.message || '检查失败')
+    }
+  }
 
   const fetchSummary = async () => {
     setLoading(true)
@@ -43,11 +62,18 @@ const DataPage: React.FC = () => {
 
   const fetchSyncHistory = async () => {
     try {
-      const res = await getSyncHistory('full_market', 5)
-      const completed = (res.data || []).find((r) => r.status === 'completed' || r.status === 'failed')
+      const [historyRes, overviewRes] = await Promise.all([
+        getSyncHistory('all', 30),
+        getSyncOverview(7),
+      ])
+      setSyncHistory(historyRes.data || [])
+      setSyncOverview(overviewRes.data || null)
+      const completed = (historyRes.data || []).find((r) => r.task_type === 'full_market' && (r.status === 'completed' || r.status === 'failed'))
       setLastSync(completed || null)
     } catch {
       setLastSync(null)
+      setSyncHistory([])
+      setSyncOverview(null)
     }
   }
 
@@ -91,7 +117,7 @@ const DataPage: React.FC = () => {
     setSyncing(true)
     setTaskResult(null)
     try {
-      const res = await syncFullMarket(60)
+      const res = await syncFullMarket(fullMarketDays)
       setTaskId(res.data.task_id)
     } catch (e: any) {
       setSyncing(false)
@@ -126,17 +152,66 @@ const DataPage: React.FC = () => {
       <Card
         title="数据管理"
         extra={
-          <Button
-            type="primary"
-            icon={<SyncOutlined spin={syncing} />}
-            loading={syncing}
-            onClick={handleFullMarketSync}
-            disabled={syncing}
-          >
-            全市场 60 日同步
-          </Button>
+          <Space>
+            <Button size="small" onClick={handleCheckTushare}>
+              检查 Tushare 连接
+            </Button>
+            <Space>
+              <span>同步最近</span>
+              <InputNumber
+                min={1}
+                max={250}
+                value={fullMarketDays}
+                onChange={(v) => setFullMarketDays(v ?? 5)}
+                style={{ width: 80 }}
+              />
+              <span>个交易日</span>
+            </Space>
+            <Button
+              type="primary"
+              icon={<SyncOutlined spin={syncing} />}
+              loading={syncing}
+              onClick={handleFullMarketSync}
+              disabled={syncing}
+            >
+              全市场同步
+            </Button>
+          </Space>
         }
       >
+        {syncOverview && (
+          <Card size="small" title="最近任务总览（可视化）" style={{ marginBottom: 16 }}>
+            <Row gutter={12}>
+              <Col span={6}><Statistic title="任务数" value={syncOverview.total.tasks} /></Col>
+              <Col span={6}><Statistic title="成功条目" value={syncOverview.total.success} valueStyle={{ color: '#3f8600' }} /></Col>
+              <Col span={6}><Statistic title="失败条目" value={syncOverview.total.failed} valueStyle={{ color: '#cf1322' }} /></Col>
+              <Col span={6}><Statistic title="跳过条目" value={syncOverview.total.skipped} valueStyle={{ color: '#595959' }} /></Col>
+            </Row>
+            <div style={{ marginTop: 14 }}>
+              {(syncOverview.by_task_type || []).map((item) => {
+                const total = item.success + item.failed + item.skipped
+                const successPct = total > 0 ? Math.round((item.success / total) * 100) : 0
+                const failedPct = total > 0 ? Math.round((item.failed / total) * 100) : 0
+                const skippedPct = Math.max(0, 100 - successPct - failedPct)
+                return (
+                  <div key={item.task_type} style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 13 }}>{item.task_type}（{item.tasks} 次）</span>
+                      <span style={{ fontSize: 12, color: '#8c8c8c' }}>成功 {item.success} / 失败 {item.failed} / 跳过 {item.skipped}</span>
+                    </div>
+                    <Progress
+                      percent={100}
+                      success={{ percent: successPct, strokeColor: '#52c41a' }}
+                      strokeColor={failedPct > 0 ? '#ff7875' : '#d9d9d9'}
+                      format={() => `${successPct}% / ${failedPct}% / ${skippedPct}%`}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+        )}
+
         <Spin spinning={loading}>
         <Descriptions column={1} bordered size="small" style={{ maxWidth: 480 }}>
           <Descriptions.Item label="股票数量">{summary?.stock_count ?? '-'}</Descriptions.Item>
@@ -145,6 +220,18 @@ const DataPage: React.FC = () => {
           <Descriptions.Item label="最新数据日期">{summary?.last_sync_at ?? '-'}</Descriptions.Item>
         </Descriptions>
         </Spin>
+
+        {tushareCheck && (
+          <div style={{ marginTop: 16, padding: 12, background: tushareCheck.api_test === 'ok' ? '#f6ffed' : '#fff2f0', border: '1px solid', borderColor: tushareCheck.api_test === 'ok' ? '#b7eb8f' : '#ffccc7', borderRadius: 8 }}>
+            <p><strong>Tushare 诊断</strong></p>
+            <p>Token 已配置：{tushareCheck.token_configured ? '是' : '否'}</p>
+            <p>代理已配置：{tushareCheck.proxy_configured ? '是' : '否'}</p>
+            <p>接口测试：{tushareCheck.api_test}</p>
+            {tushareCheck.rows_returned != null && tushareCheck.rows_returned > 0 && (
+              <p>返回行数：{tushareCheck.rows_returned}</p>
+            )}
+          </div>
+        )}
 
         {syncing && (
           <div style={{ marginTop: 24 }}>
@@ -169,6 +256,11 @@ const DataPage: React.FC = () => {
                 <p>跳过（已存在）：{(taskResult?.skipped_count ?? lastSync?.result?.skipped_count ?? 0).toLocaleString()} 条</p>
                 <p>失败天数：{taskResult?.failed_count ?? lastSync?.result?.failed_count ?? 0} 天</p>
                 <p>同步交易日：{taskResult?.days_synced ?? lastSync?.result?.days_synced ?? 0} 天</p>
+                {(taskResult?.diagnostic ?? lastSync?.result?.diagnostic) && (
+                  <p style={{ color: '#cf1322', marginTop: 8 }}>
+                    诊断：{taskResult?.diagnostic ?? lastSync?.result?.diagnostic}
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -177,7 +269,7 @@ const DataPage: React.FC = () => {
 
       <Card title="涨停筛选" style={{ marginTop: 24 }}>
         <p style={{ color: '#666', marginBottom: 16 }}>
-          将近期涨停股加入「涨停股票观察池」，打涨停日期标签。需先执行全市场同步。
+          直接调用 Tushare 接口获取涨停股，加入观察池并自动下载 60 日 K 线。无需全量同步。
         </p>
         <Space>
           <span>处理最近</span>
@@ -207,6 +299,58 @@ const DataPage: React.FC = () => {
             <p>处理日期：{limitUpResult.dates_processed?.join(', ') || '-'}</p>
           </div>
         )}
+      </Card>
+
+      <Card title="同步任务历史明细" style={{ marginTop: 24 }}>
+        <Table
+          rowKey="id"
+          size="small"
+          pagination={{ pageSize: 10 }}
+          dataSource={syncHistory}
+          columns={[
+            {
+              title: '任务类型',
+              dataIndex: 'task_type',
+              key: 'task_type',
+              render: (v: string) => <Tag>{v}</Tag>,
+            },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              key: 'status',
+              render: (v: string) => {
+                const color = v === 'completed' ? 'green' : v === 'failed' ? 'red' : 'blue'
+                return <Tag color={color}>{v}</Tag>
+              },
+            },
+            {
+              title: '成功',
+              key: 'success_count',
+              render: (_: any, r: SyncHistoryItem) => (r.result?.success_count ?? 0).toLocaleString(),
+            },
+            {
+              title: '失败',
+              key: 'failed_count',
+              render: (_: any, r: SyncHistoryItem) => (r.result?.failed_count ?? 0).toLocaleString(),
+            },
+            {
+              title: '跳过',
+              key: 'skipped_count',
+              render: (_: any, r: SyncHistoryItem) => (r.result?.skipped_count ?? 0).toLocaleString(),
+            },
+            {
+              title: '任务说明',
+              key: 'message',
+              render: (_: any, r: SyncHistoryItem) => r.result?.message || '-',
+            },
+            {
+              title: '完成时间',
+              dataIndex: 'completed_at',
+              key: 'completed_at',
+              render: (v: string | null) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '-'),
+            },
+          ]}
+        />
       </Card>
     </div>
   )

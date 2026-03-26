@@ -1,3 +1,6 @@
+import json
+import uuid
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
@@ -14,6 +17,7 @@ from app.services.limit_up_service import (
 )
 from app.services.buy_signal_service import scan_pool_buy_signals
 from app.services.sync_service import sync_single_stock, _sync_stock_basic_full
+from app.models.sync_log import SyncLog
 from app.tasks.background import submit_task, get_task_status
 from app.exceptions import AppError
 
@@ -95,6 +99,17 @@ def collect_limit_up(
     db: Session = Depends(get_db),
 ):
     """涨停筛选：直接调用 Tushare 获取涨停股，加入观察池并自动同步 60 日 K 线。无需全量同步。"""
+    log_id = str(uuid.uuid4())
+    db.add(
+        SyncLog(
+            id=log_id,
+            task_type="limit_up_collect",
+            target=None,
+            status="running",
+        )
+    )
+    db.commit()
+
     _sync_stock_basic_full(db)  # 确保 stock_basic 新鲜，用于 ST 排除和涨停阈值判断
     pool = get_or_create_limit_up_pool(db)
     dates = [trade_date] if trade_date else _get_trade_dates(window_days)
@@ -111,7 +126,7 @@ def collect_limit_up(
     for code in added_codes:
         submit_task("sync", sync_single_stock, code, 60)  # 自动同步 60 日 K 线
 
-    return {
+    resp = {
         "pool_id": pool.id,
         "pool_name": pool.name,
         "dates_processed": dates,
@@ -120,6 +135,26 @@ def collect_limit_up(
         "skipped": total_skipped,
         "errors": errors[:20],
     }
+    log = db.query(SyncLog).filter(SyncLog.id == log_id).first()
+    if log:
+        log.status = "completed"
+        log.completed_at = datetime.utcnow()
+        log.result = json.dumps(
+            {
+                "success_count": total_added + total_updated,
+                "failed_count": len(errors),
+                "skipped_count": total_skipped,
+                "days_synced": len(dates),
+                "message": f"涨停筛选完成：新增 {total_added}，更新 {total_updated}，跳过 {total_skipped}",
+                "added": total_added,
+                "updated": total_updated,
+                "errors": errors[:20],
+            },
+            ensure_ascii=False,
+        )
+        db.commit()
+
+    return resp
 
 
 @router.get("/result/{task_id}", response_model=ScreenResult)

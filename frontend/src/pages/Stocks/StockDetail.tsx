@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Card, Tag, Table, Button, Tabs, Space, Statistic, Row, Col, Segmented,
   Modal, Form, Input, InputNumber, Select, DatePicker, message, Upload, Popconfirm,
@@ -16,9 +16,19 @@ const statusColors: Record<string, string> = {
   pending: 'default', active: 'blue', completed: 'green', cancelled: 'red', processed: 'purple',
 }
 
+interface PoolNavStock {
+  ts_code: string
+  stock_name?: string
+  industry?: string
+  latest_price?: number
+  pct_chg?: number
+  limit_up_date?: string
+}
+
 const StockDetail: React.FC = () => {
   const { tsCode } = useParams<{ tsCode: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const [chartData, setChartData] = useState<StockChartData | null>(null)
   const [alerts, setAlerts] = useState<StockAlertItem[]>([])
   const [details, setDetails] = useState<TradeDetail[]>([])
@@ -35,6 +45,17 @@ const StockDetail: React.FC = () => {
   const [editDetailForm] = Form.useForm()
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
+  const poolNavStocks: PoolNavStock[] = Array.isArray((location.state as any)?.stockList)
+    ? (location.state as any).stockList
+    : []
+  const poolName: string | undefined = (location.state as any)?.poolName
+  const currentNavIndex = poolNavStocks.findIndex((s) => s.ts_code === tsCode)
+
+  const jumpToStock = (idx: number) => {
+    if (idx < 0 || idx >= poolNavStocks.length) return
+    const target = poolNavStocks[idx]
+    navigate(`/stocks/${target.ts_code}`, { state: location.state })
+  }
 
   const fetchDetails = () => {
     if (tsCode) getStockDetails(tsCode).then((res) => setDetails(res.data))
@@ -231,8 +252,26 @@ const StockDetail: React.FC = () => {
     }
   }, [])
 
+  useEffect(() => {
+    if (poolNavStocks.length === 0 || currentNavIndex < 0) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea') return
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault()
+        jumpToStock(Math.min(currentNavIndex + 1, poolNavStocks.length - 1))
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault()
+        jumpToStock(Math.max(currentNavIndex - 1, 0))
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [poolNavStocks, currentNavIndex])
+
   const basic = chartData?.basic
   const latestQuote = chartData?.quotes?.length ? chartData.quotes[chartData.quotes.length - 1] : null
+  const syncMeta = chartData?.sync_meta
 
   const alertColumns = [
     { title: '触发日期', dataIndex: 'trigger_date', key: 'trigger_date' },
@@ -268,10 +307,69 @@ const StockDetail: React.FC = () => {
   ]
 
   return (
-    <div>
+    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+      {poolNavStocks.length > 0 && (
+        <Card
+          title={poolName ? `${poolName}（${poolNavStocks.length}）` : `池内股票（${poolNavStocks.length}）`}
+          size="small"
+          style={{ width: 300, flexShrink: 0, maxHeight: 'calc(100vh - 130px)', overflow: 'hidden' }}
+          extra={<span style={{ fontSize: 12, color: '#999' }}>↑ ↓ 快速切换</span>}
+        >
+          <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 210px)' }}>
+            {poolNavStocks.map((s, idx) => {
+              const active = s.ts_code === tsCode
+              return (
+                <div
+                  key={s.ts_code}
+                  onClick={() => jumpToStock(idx)}
+                  style={{
+                    padding: '8px 10px',
+                    borderBottom: '1px solid #f0f0f0',
+                    cursor: 'pointer',
+                    background: active ? '#f0f5ff' : '#fff',
+                    borderLeft: active ? '3px solid #1677ff' : '3px solid transparent',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <span style={{ fontWeight: 600 }}>{s.stock_name || s.ts_code}</span>
+                    <span style={{ color: '#8c8c8c', fontSize: 12 }}>{s.ts_code}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#666' }}>
+                    {s.industry || '-'}
+                    {s.latest_price != null && (
+                      <span style={{ marginLeft: 8 }}>
+                        {s.latest_price.toFixed(2)}
+                      </span>
+                    )}
+                    {s.pct_chg != null && (
+                      <span style={{ marginLeft: 8, color: s.pct_chg >= 0 ? '#cf1322' : '#3f8600' }}>
+                        {s.pct_chg >= 0 ? '+' : ''}{s.pct_chg.toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+
+      <div style={{ flex: 1, minWidth: 0 }}>
       <Button icon={<ArrowLeftOutlined />} style={{ marginBottom: 16 }} onClick={() => navigate('/pools')}>
         返回观察池
       </Button>
+
+      {syncMeta && (
+        <div style={{ marginBottom: 12 }}>
+          <Tag color={syncMeta.status === 'sync_failed' ? 'red' : syncMeta.status === 'updated' ? 'green' : 'blue'}>
+            {syncMeta.status === 'sync_failed' ? '数据补齐失败' : syncMeta.status === 'updated' ? '数据已自动更新' : '数据已是最新'}
+          </Tag>
+          <span style={{ color: '#666', fontSize: 12 }}>
+            {syncMeta.message}
+            {syncMeta.latest_trade_date ? `（最新交易日：${syncMeta.latest_trade_date}）` : ''}
+          </span>
+        </div>
+      )}
 
       {basic && (
         <Card
@@ -479,6 +577,7 @@ const StockDetail: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+      </div>
     </div>
   )
 }

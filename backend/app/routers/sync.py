@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from app.services.sync_service import sync_pool, sync_single_stock, sync_full_market
 from app.tasks.background import submit_task, get_task_status
 from app.exceptions import AppError
@@ -19,8 +19,8 @@ def sync_stock_route(ts_code: str, days: int = 250):
 
 
 @router.post("/full-market")
-def sync_full_market_route(days: int = 60):
-    """全市场 60 日 K 线增量同步"""
+def sync_full_market_route(days: int = Query(60, ge=1, le=250, description="同步最近 N 个交易日")):
+    """全市场 K 线增量同步"""
     task_id = submit_task("sync_full_market", sync_full_market, days)
     return {"task_id": task_id}
 

@@ -66,6 +66,11 @@ cd frontend && npm run dev
 
 **注意**：代码更新后需**重启后端**，否则新接口（如全市场同步）可能返回 404。
 
+**Tushare 连接排查**：数据管理页点击「检查 Tushare 连接」可诊断 token、代理、接口是否正常。若 stock_basic 返回空，请确认：
+- `backend/.env` 中 `TUSHARE_TOKEN` 已正确填写（从 tushare.pro 获取）
+- 使用代理时，`TUSHARE_API_URL` 需与代理地址一致
+- 修改 .env 后需重启后端
+
 ---
 
 ## 项目配置

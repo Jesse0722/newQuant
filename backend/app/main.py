@@ -2,12 +2,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db
+from app.tasks.scheduler import start_scheduler, stop_scheduler
 from app.exceptions import AppError, app_error_handler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    start_scheduler()
     yield
+    stop_scheduler()
 
 app = FastAPI(title="量化交易系统", version="1.0.0", lifespan=lifespan)
 

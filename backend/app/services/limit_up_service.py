@@ -54,6 +54,7 @@ def fetch_limit_up_stocks_in_range(
     db: Session,
     trade_date_from: str,
     trade_date_to: str,
+    exclude_one_word_limit: bool = True,
 ) -> dict[str, str]:
     """
     按日期范围拉取涨停股，不写入数据库。
@@ -92,10 +93,11 @@ def fetch_limit_up_stocks_in_range(
                 pct = row.get("pct_chg")
                 if pct is None or pd.isna(pct) or pct < threshold:
                     continue
-                # 排除一字板（开盘价=收盘价=最高价=最低价）
-                high, low = row.get("high"), row.get("low")
-                if high is not None and low is not None and high == low:
-                    continue
+                # 可配置是否排除一字板（高低价相等）
+                if exclude_one_word_limit:
+                    high, low = row.get("high"), row.get("low")
+                    if high is not None and low is not None and high == low:
+                        continue
                 existing = result.get(ts_code)
                 if not existing or trade_date > existing:
                     result[ts_code] = trade_date
@@ -134,6 +136,7 @@ def collect_limit_up_stocks(
     db: Session,
     trade_date: str,
     pool_id: str,
+    exclude_one_word_limit: bool = True,
 ) -> dict:
     """
     按指定交易日筛选涨停股，加入/更新到指定池。
@@ -168,11 +171,12 @@ def collect_limit_up_stocks(
             if pct is None or pd.isna(pct) or pct < threshold:
                 continue
 
-            # 排除一字板
-            high, low = row.get("high"), row.get("low")
-            if high is not None and low is not None and high == low:
-                result["skipped"] += 1
-                continue
+            # 可配置是否排除一字板
+            if exclude_one_word_limit:
+                high, low = row.get("high"), row.get("low")
+                if high is not None and low is not None and high == low:
+                    result["skipped"] += 1
+                    continue
 
             existing = (
                 db.query(WatchStock)

@@ -53,8 +53,8 @@ const Alerts: React.FC = () => {
   }
 
   const columns = [
-    { title: '股票代码', dataIndex: 'ts_code', key: 'ts_code' },
-    { title: '股票名称', dataIndex: 'stock_name', key: 'stock_name', render: (v: string) => v || '-' },
+    { title: '股票代码', dataIndex: 'ts_code', key: 'ts_code', render: (v: string, r: Alert) => <a onClick={(e) => { e.stopPropagation(); navigate(`/stocks/${v}`) }}>{v}</a> },
+    { title: '股票名称', dataIndex: 'stock_name', key: 'stock_name', render: (v: string, r: Alert) => <a onClick={(e) => { e.stopPropagation(); navigate(`/stocks/${r.ts_code}`) }}>{v || '-'}</a> },
     { title: '触发策略', dataIndex: 'template_name', key: 'template_name', render: (v: string) => v || '自定义' },
     { title: '触发日期', dataIndex: 'trigger_date', key: 'trigger_date' },
     {
