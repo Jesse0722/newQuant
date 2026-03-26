@@ -1,9 +1,6 @@
-import os
 import tushare as ts
 import pandas as pd
-from app.config import TUSHARE_TOKEN
-
-TUSHARE_API_URL = os.getenv("TUSHARE_API_URL", "")
+from app.config import TUSHARE_TOKEN, TUSHARE_API_URL
 
 
 class TushareAdapter:

@@ -1,12 +1,11 @@
 import json
-import os
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app.models.stock import StockBasic, DailyQuote
 from app.models.sync_log import SyncLog
-from app.config import TUSHARE_TOKEN
+from app.config import TUSHARE_TOKEN, TUSHARE_API_URL
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
@@ -14,13 +13,12 @@ router = APIRouter(prefix="/api/data", tags=["data"])
 @router.get("/tushare-check")
 def check_tushare():
     """诊断 Tushare 连接：检查 token 配置并尝试 stock_basic 接口"""
-    token_ok = bool(TUSHARE_TOKEN and len(TUSHARE_TOKEN.strip()) > 10)
-    api_url = os.getenv("TUSHARE_API_URL", "")
+    token_ok = bool(TUSHARE_TOKEN and len(TUSHARE_TOKEN) > 10)
     result = {
         "token_configured": token_ok,
         "token_length": len(TUSHARE_TOKEN) if TUSHARE_TOKEN else 0,
-        "proxy_configured": bool(api_url),
-        "proxy_url": api_url[:50] + "..." if api_url and len(api_url) > 50 else (api_url or "(未配置)"),
+        "proxy_configured": bool(TUSHARE_API_URL),
+        "proxy_url": TUSHARE_API_URL[:50] + "..." if TUSHARE_API_URL and len(TUSHARE_API_URL) > 50 else (TUSHARE_API_URL or "(未配置)"),
         "api_test": None,
     }
     if not token_ok:
