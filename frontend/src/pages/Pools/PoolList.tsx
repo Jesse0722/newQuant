@@ -1,15 +1,15 @@
-import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   Button, Modal, Form, Input, InputNumber, Space, Card,
   Tag, Upload, message, Popconfirm, Select, AutoComplete,
-  Segmented, Spin, Empty, Dropdown, Table, Badge, Row, Col, Statistic, Descriptions,
+  Segmented, Spin, Empty, Dropdown, Table,
   DatePicker,
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
   PushpinFilled, HolderOutlined,
-  EllipsisOutlined, ArrowRightOutlined, ScanOutlined,
-  CheckCircleFilled, CloseCircleFilled, DownOutlined,
+  EllipsisOutlined, ArrowRightOutlined,
+  DownOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import * as echarts from 'echarts'
@@ -19,26 +19,17 @@ import {
   listStocks, addStock, deleteStock, updateStock, importCSV, getAllStocks,
 } from '../../api/pools'
 import { searchStocks } from '../../api/stocks'
-import { scanBuySignals, getStockChartWithMarks } from '../../api/strategy'
+import { getStockChartWithMarks } from '../../api/strategy'
 import { createPlan } from '../../api/plans'
 import { syncPool, getTaskStatus } from '../../api/sync'
 import { getPoolRules, createPoolRule, deleteRule, listTemplates } from '../../api/monitor'
 import type {
   Pool, WatchStock, MonitorRule, MonitorTemplate,
-  BuySignal, BuySignalScanResult, BuySignalStatus, StockChartDataWithMarks,
+  StockChartDataWithMarks,
 } from '../../types'
 
 const PAGE_SIZE = 50
 const TRIGGER_OPTIONS = ['短线', '龙头战法', 'MACD金叉', '突破', '回调', '趋势跟踪', '事件驱动', '均线支撑', '量价配合']
-
-const STATUS_CFG: Record<string, { color: string; label: string }> = {
-  triggered: { color: '#f5222d', label: '已触发' },
-  approaching: { color: '#fa8c16', label: '接近' },
-  tracking: { color: '#1890ff', label: '跟踪中' },
-  invalidated: { color: '#bfbfbf', label: '已失效' },
-}
-
-type SignalFilter = 'all' | BuySignalStatus
 
 const PoolList: React.FC = () => {
   const [pools, setPools] = useState<Pool[]>([])
@@ -54,10 +45,6 @@ const PoolList: React.FC = () => {
   const [subIndicator, setSubIndicator] = useState<'macd' | 'rsi'>('macd')
   const [chartData, setChartData] = useState<StockChartDataWithMarks | null>(null)
   const [chartLoading, setChartLoading] = useState(false)
-
-  const [scanResult, setScanResult] = useState<BuySignalScanResult | null>(null)
-  const [scanning, setScanning] = useState(false)
-  const [signalFilter, setSignalFilter] = useState<SignalFilter>('all')
 
   const [limitUpDateFrom, setLimitUpDateFrom] = useState<dayjs.Dayjs | null>(null)
   const [limitUpDateTo, setLimitUpDateTo] = useState<dayjs.Dayjs | null>(null)
@@ -85,8 +72,6 @@ const PoolList: React.FC = () => {
   const [poolRules, setPoolRules] = useState<MonitorRule[]>([])
   const [monitorTemplates, setMonitorTemplates] = useState<MonitorTemplate[]>([])
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
-  /** 扫描完成后递增，用于触发右侧 K 线重新请求（避免缓存/状态未联动感） */
-  const [chartRefreshToken, setChartRefreshToken] = useState(0)
 
   const navigate = useNavigate()
   const initialLoaded = useRef(false)
@@ -106,42 +91,8 @@ const PoolList: React.FC = () => {
 
   const activePool = pools.find(p => p.id === activePoolId)
 
-  const signalMap = useMemo(() => {
-    if (!scanResult) return new Map<string, BuySignal>()
-    const m = new Map<string, BuySignal>()
-    for (const s of scanResult.signals) m.set(s.ts_code, s)
-    return m
-  }, [scanResult])
-
-  const displayStocks = useMemo(() => {
-    if (!scanResult) return stocks
-
-    const statusOrder: Record<string, number> = { triggered: 0, approaching: 1, tracking: 2, invalidated: 3 }
-
-    if (signalFilter === 'all') {
-      const sorted = [...stocks].sort((a, b) => {
-        const sa = signalMap.get(a.ts_code)
-        const sb = signalMap.get(b.ts_code)
-        const oa = sa ? statusOrder[sa.signal_status] ?? 9 : 9
-        const ob = sb ? statusOrder[sb.signal_status] ?? 9 : 9
-        if (oa !== ob) return oa - ob
-        return (sb?.signal_score ?? 0) - (sa?.signal_score ?? 0)
-      })
-      return sorted.filter(s => {
-        const sig = signalMap.get(s.ts_code)
-        return !sig || sig.signal_status !== 'invalidated'
-      })
-    }
-
-    return stocks.filter(s => {
-      const sig = signalMap.get(s.ts_code)
-      return sig && sig.signal_status === signalFilter
-    })
-  }, [stocks, scanResult, signalFilter, signalMap])
-
-  const selectedStock = displayStocks.find(s => s.ts_code === selectedCode) || null
-  const selectedSignal = signalMap.get(selectedCode) || null
-  const selectedIndex = displayStocks.findIndex(s => s.ts_code === selectedCode)
+  const selectedStock = stocks.find(s => s.ts_code === selectedCode) || null
+  const selectedIndex = stocks.findIndex(s => s.ts_code === selectedCode)
   const hasMore = stocks.length > 0 && stocks.length < total
 
   /* ===== Data Fetching ===== */
@@ -189,27 +140,6 @@ const PoolList: React.FC = () => {
     }
   }, [loadingMore, loading, stocks.length, total, activePoolId])
 
-  const handleScan = async () => {
-    if (!activePoolId) return
-    setScanning(true)
-    try {
-      const res = await scanBuySignals(activePoolId)
-      setScanResult(res.data)
-      setSignalFilter('all')
-      setChartRefreshToken(t => t + 1)
-      const { triggered_count, approaching_count, total, signals } = res.data
-      message.success(`扫描完成: ${triggered_count} 只触发, ${approaching_count} 只接近, 共 ${total} 只`)
-      if (signals.length > 0) {
-        const first = signals.find(s => s.signal_status !== 'invalidated') || signals[0]
-        setSelectedCode(first.ts_code)
-      }
-    } catch {
-      message.error('扫描失败，请确保已同步K线数据')
-    } finally {
-      setScanning(false)
-    }
-  }
-
   /* ===== Effects ===== */
 
   useEffect(() => {
@@ -226,15 +156,9 @@ const PoolList: React.FC = () => {
   }, [activePoolId, limitUpDateFromStr, limitUpDateToStr, sortBy, sortOrder])
 
   useEffect(() => {
-    setScanResult(null)
-    setSignalFilter('all')
-    setChartRefreshToken(t => t + 1)
-  }, [activePoolId])
-
-  useEffect(() => {
-    const exists = displayStocks.some(s => s.ts_code === selectedCode)
-    if (!exists && displayStocks.length > 0) setSelectedCode(displayStocks[0].ts_code)
-  }, [displayStocks])
+    const exists = stocks.some(s => s.ts_code === selectedCode)
+    if (!exists && stocks.length > 0) setSelectedCode(stocks[0].ts_code)
+  }, [stocks, selectedCode])
 
   useEffect(() => { setChartData(null) }, [selectedCode])
 
@@ -246,7 +170,7 @@ const PoolList: React.FC = () => {
       .then(res => setChartData(res.data))
       .catch(() => setChartData(null))
       .finally(() => setChartLoading(false))
-  }, [selectedCode, chartPeriod, chartRefreshToken])
+  }, [selectedCode, chartPeriod])
 
   // Chart rendering with signal marks
   useEffect(() => {
@@ -370,14 +294,14 @@ const PoolList: React.FC = () => {
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
       if (anyModalOpenRef.current) return
-      const idx = displayStocks.findIndex(s => s.ts_code === selectedCode)
+      const idx = stocks.findIndex(s => s.ts_code === selectedCode)
       if (e.key === 'ArrowDown' || e.key === 'j') {
         e.preventDefault()
-        if (idx < displayStocks.length - 1) setSelectedCode(displayStocks[idx + 1].ts_code)
+        if (idx < stocks.length - 1) setSelectedCode(stocks[idx + 1].ts_code)
         else if (hasMore) loadMore()
       } else if (e.key === 'ArrowUp' || e.key === 'k') {
         e.preventDefault()
-        if (idx > 0) setSelectedCode(displayStocks[idx - 1].ts_code)
+        if (idx > 0) setSelectedCode(stocks[idx - 1].ts_code)
       } else if (e.key === 'Enter') {
         e.preventDefault()
         if (selectedCode) navigate(`/stocks/${selectedCode}`)
@@ -385,15 +309,15 @@ const PoolList: React.FC = () => {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [displayStocks, selectedCode, hasMore, loadMore, navigate])
+  }, [stocks, selectedCode, hasMore, loadMore, navigate])
 
   useEffect(() => {
     selectedItemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [selectedCode])
 
   useEffect(() => {
-    if (selectedIndex >= displayStocks.length - 5 && hasMore && !loadingMore) loadMore()
-  }, [selectedIndex, displayStocks.length, hasMore, loadingMore, loadMore])
+    if (selectedIndex >= stocks.length - 5 && hasMore && !loadingMore) loadMore()
+  }, [selectedIndex, stocks.length, hasMore, loadingMore, loadMore])
 
   useEffect(() => {
     if (createPlanModalOpen) getAllStocks().then(res => setAllStocks(res.data || []))
@@ -589,9 +513,7 @@ const PoolList: React.FC = () => {
 
   const renderStockItem = (stock: WatchStock) => {
     const isSelected = stock.ts_code === selectedCode
-    const sig = signalMap.get(stock.ts_code)
-    const cfg = sig ? STATUS_CFG[sig.signal_status] || STATUS_CFG.tracking : null
-    const borderColor = cfg ? cfg.color : 'transparent'
+    const borderColor = isSelected ? '#1677ff' : 'transparent'
 
     return (
       <div
@@ -612,9 +534,7 @@ const PoolList: React.FC = () => {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontWeight: 600, fontSize: 14 }}>{stock.stock_name || '-'}</span>
-          {sig && cfg && (
-            <Tag color={cfg.color} style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>{cfg.label}</Tag>
-          )}
+          {stock.pinned && <PushpinFilled style={{ color: '#faad14', fontSize: 12 }} />}
         </div>
 
         <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>
@@ -622,35 +542,16 @@ const PoolList: React.FC = () => {
           {stock.limit_up_date && <span style={{ marginLeft: 6 }}>涨停 {fmtLimitDate(stock.limit_up_date)}</span>}
         </div>
 
-        {sig ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#595959' }}>
-            <span>评分: <b style={{ color: sig.signal_score >= 70 ? '#f5222d' : sig.signal_score >= 50 ? '#fa8c16' : '#8c8c8c' }}>{sig.signal_score}</b></span>
-            {sig.pullback_pct != null && sig.signal_status !== 'invalidated' && (
-              <span>回调: <b style={{ color: '#3f8600' }}>-{sig.pullback_pct}%</b></span>
-            )}
-            {sig.latest_pct_chg != null && (
-              <span>今涨: <b style={{ color: sig.latest_pct_chg >= 0 ? '#cf1322' : '#3f8600' }}>{sig.latest_pct_chg >= 0 ? '+' : ''}{sig.latest_pct_chg.toFixed(2)}%</b></span>
-            )}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#595959' }}>
-            <span style={{ fontFamily: "'Menlo', monospace", fontWeight: 600 }}>
-              {stock.latest_price != null ? stock.latest_price.toFixed(2) : '-'}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#595959' }}>
+          <span style={{ fontFamily: "'Menlo', monospace", fontWeight: 600 }}>
+            {stock.latest_price != null ? stock.latest_price.toFixed(2) : '-'}
+          </span>
+          {stock.pct_chg != null && (
+            <span style={{ fontWeight: 600, color: stock.pct_chg > 0 ? '#cf1322' : stock.pct_chg < 0 ? '#3f8600' : '#666' }}>
+              {stock.pct_chg > 0 ? '+' : ''}{stock.pct_chg.toFixed(2)}%
             </span>
-            {stock.pct_chg != null && (
-              <span style={{ fontWeight: 600, color: stock.pct_chg > 0 ? '#cf1322' : stock.pct_chg < 0 ? '#3f8600' : '#666' }}>
-                {stock.pct_chg > 0 ? '+' : ''}{stock.pct_chg.toFixed(2)}%
-              </span>
-            )}
-            {stock.pinned && <PushpinFilled style={{ color: '#faad14', fontSize: 11 }} />}
-          </div>
-        )}
-
-        {sig?.signal_status === 'approaching' && sig.unmet_conditions.length > 0 && (
-          <div style={{ fontSize: 11, color: '#fa8c16', marginTop: 2 }}>
-            差{sig.unmet_conditions.length}条件: {sig.unmet_conditions.slice(0, 2).join('、')}
-          </div>
-        )}
+          )}
+        </div>
       </div>
     )
   }
@@ -664,9 +565,6 @@ const PoolList: React.FC = () => {
       </div>
     }
 
-    const sig = selectedSignal
-    const statusCfg = sig ? STATUS_CFG[sig.signal_status] || STATUS_CFG.tracking : null
-
     return (
       <div style={{ overflowY: 'auto', height: '100%', padding: '0 0 16px' }}>
         {/* Info header */}
@@ -675,7 +573,6 @@ const PoolList: React.FC = () => {
             <span style={{ fontSize: 18, fontWeight: 700 }}>{selectedStock.stock_name || selectedStock.ts_code}</span>
             <span style={{ fontSize: 14, color: '#8c8c8c' }}>{selectedStock.ts_code}</span>
             {selectedStock.industry && <Tag>{selectedStock.industry}</Tag>}
-            {sig && statusCfg && <Tag color={statusCfg.color}>{statusCfg.label}</Tag>}
           </div>
           <Space size="small">
             <Dropdown trigger={['click']} menu={{
@@ -692,24 +589,6 @@ const PoolList: React.FC = () => {
           </Space>
         </div>
 
-        {/* Metrics row (when signal available) */}
-        {sig && sig.signal_status !== 'invalidated' && (
-          <Row gutter={16} style={{ marginBottom: 12 }}>
-            <Col span={4}><Statistic title="最新价" value={sig.latest_close ?? '-'} precision={2} valueStyle={{ fontSize: 16 }} /></Col>
-            <Col span={4}>
-              <Statistic title="今涨幅" value={sig.latest_pct_chg ?? 0} precision={2} suffix="%"
-                valueStyle={{ fontSize: 16, color: (sig.latest_pct_chg ?? 0) >= 0 ? '#cf1322' : '#3f8600' }} />
-            </Col>
-            <Col span={4}>
-              <Statistic title="信号评分" value={sig.signal_score} suffix="/ 100"
-                valueStyle={{ fontSize: 16, color: sig.signal_score >= 70 ? '#f5222d' : '#595959' }} />
-            </Col>
-            <Col span={4}><Statistic title="回调幅度" value={sig.pullback_pct ?? '-'} precision={1} suffix="%" valueStyle={{ fontSize: 16 }} /></Col>
-            <Col span={4}><Statistic title="距生命线" value={sig.days_since_life_line ?? '-'} suffix="天" valueStyle={{ fontSize: 16 }} /></Col>
-            <Col span={4}><Statistic title="RSI" value={sig.rsi ?? '-'} precision={1} valueStyle={{ fontSize: 16 }} /></Col>
-          </Row>
-        )}
-
         {/* K-line chart */}
         <Card size="small" style={{ marginBottom: 12 }} extra={
           <Space>
@@ -725,28 +604,6 @@ const PoolList: React.FC = () => {
             <div ref={chartDivRef} style={{ width: '100%', height: 440, opacity: chartLoading ? 0.4 : 1, transition: 'opacity 0.2s' }} />
           )}
         </Card>
-
-        {/* Buy conditions (when signal available) */}
-        {sig && (
-          <Card size="small" title="买点条件检查">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {sig.met_conditions.map(c => <Tag key={c} color="success" icon={<CheckCircleFilled />}>{c}</Tag>)}
-              {sig.unmet_conditions.map(c => <Tag key={c} color="default" icon={<CloseCircleFilled />}>{c}</Tag>)}
-            </div>
-            {sig.life_line_date && (
-              <Descriptions size="small" column={3} style={{ marginTop: 12 }} bordered>
-                <Descriptions.Item label="生命线日期">
-                  {sig.life_line_date.slice(0, 4)}-{sig.life_line_date.slice(4, 6)}-{sig.life_line_date.slice(6)}
-                </Descriptions.Item>
-                <Descriptions.Item label="生命线价格">{sig.life_line_price?.toFixed(2) ?? '-'}</Descriptions.Item>
-                <Descriptions.Item label="阶段高点">{sig.phase2_high?.toFixed(2) ?? '-'}</Descriptions.Item>
-                <Descriptions.Item label="量比">{sig.volume_ratio?.toFixed(2) ?? '-'}</Descriptions.Item>
-                <Descriptions.Item label="MACD柱">{sig.macd_hist?.toFixed(4) ?? '-'}</Descriptions.Item>
-                <Descriptions.Item label="RSI">{sig.rsi?.toFixed(1) ?? '-'}</Descriptions.Item>
-              </Descriptions>
-            )}
-          </Card>
-        )}
       </div>
     )
   }
@@ -780,7 +637,6 @@ const PoolList: React.FC = () => {
         </div>
         {activePool && (
           <Space size="small" style={{ flexShrink: 0, marginLeft: 8 }}>
-            <Button size="small" type="primary" icon={<ScanOutlined />} loading={scanning} onClick={handleScan}>扫描买点</Button>
             <Button size="small" icon={<SyncOutlined spin={syncing} />} loading={syncing} onClick={handleSync}>同步</Button>
             <Button size="small" onClick={openEditPoolModal}>编辑池</Button>
             <Button size="small" icon={<ReloadOutlined />} onClick={() => loadInitial(activePoolId)} />
@@ -860,48 +716,25 @@ const PoolList: React.FC = () => {
             </Space>
           </div>
 
-          {/* Signal filter (after scan) */}
-          {scanResult && (
-            <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
-              <Segmented size="small" block options={[
-                { label: `全部${scanResult ? ` (${scanResult.signals.filter(s => s.signal_status !== 'invalidated').length})` : ''}`, value: 'all' },
-                {
-                  label: <Badge count={scanResult.triggered_count || 0} size="small" offset={[8, -2]}><span style={{ padding: '0 4px' }}>已触发</span></Badge>,
-                  value: 'triggered',
-                },
-                {
-                  label: <Badge count={scanResult.approaching_count || 0} size="small" offset={[8, -2]} color="#fa8c16"><span style={{ padding: '0 4px' }}>接近</span></Badge>,
-                  value: 'approaching',
-                },
-                { label: '跟踪中', value: 'tracking' },
-                { label: '已失效', value: 'invalidated' },
-              ]} value={signalFilter} onChange={v => setSignalFilter(v as SignalFilter)} />
-            </div>
-          )}
-
           {/* Stock count */}
           <div style={{
             padding: '8px 14px', borderBottom: '1px solid #f0f0f0',
             fontSize: 13, color: '#8c8c8c', flexShrink: 0,
           }}>
-            {displayStocks.length} 只股票
-            {scanResult && (
-              <span style={{ marginLeft: 8, fontSize: 12, color: '#bfbfbf' }}>
-                · 扫描于 {(() => { try { return new Date(scanResult.scan_time).toLocaleTimeString('zh-CN', { hour12: false }) } catch { return '' } })()}
-              </span>
-            )}
+            {stocks.length} 只股票
+            <span style={{ float: 'right', color: '#bfbfbf', fontSize: 12 }}>↑↓ 切换</span>
           </div>
 
           {/* Stock list */}
           <div ref={listRef} onScroll={onListScroll} style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
               <div style={{ padding: 48, textAlign: 'center' }}><Spin /></div>
-            ) : displayStocks.length === 0 ? (
+            ) : stocks.length === 0 ? (
               <Empty description={activePool ? '暂无匹配股票' : '请选择或创建观察池'} style={{ padding: 48 }} />
             ) : (
               <>
-                {displayStocks.map(s => renderStockItem(s))}
-                {hasMore && signalFilter === 'all' && (
+                {stocks.map(s => renderStockItem(s))}
+                {hasMore && (
                   <div style={{ textAlign: 'center', padding: 10 }}>
                     {loadingMore ? <Spin size="small" /> : <Button type="link" size="small" onClick={loadMore}>加载更多 ({stocks.length}/{total})</Button>}
                   </div>
