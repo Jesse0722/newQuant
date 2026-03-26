@@ -28,7 +28,10 @@ def run_4pm_collect_limit_up_job() -> dict:
         )
         db.commit()
 
-        _sync_stock_basic_full(db)
+        try:
+            _sync_stock_basic_full(db)
+        except Exception:
+            pass
         pool = get_or_create_limit_up_pool(db)
         trade_date = datetime.now().strftime("%Y%m%d")
         result = collect_limit_up_stocks(

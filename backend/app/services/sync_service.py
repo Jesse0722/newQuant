@@ -206,7 +206,10 @@ def sync_single_stock(task_id: str, ts_code: str, days: int = 250):
         db.add(log)
         db.commit()
 
-        sync_stock_info(db, ts_code)
+        try:
+            sync_stock_info(db, ts_code)
+        except Exception:
+            pass
         added = sync_daily(db, ts_code, days)
         task_registry[task_id].progress = 1.0
         task_registry[task_id].message = f"{ts_code} 同步完成"
@@ -265,7 +268,10 @@ def sync_full_market(task_id: str, days: int = 60):
         db.commit()
 
         task.message = "正在同步股票基础信息..."
-        _, basic_ok = _sync_stock_basic_full(db)
+        try:
+            _, basic_ok = _sync_stock_basic_full(db)
+        except Exception:
+            basic_ok = False
         dates = _get_trade_dates(days)
         total_days = len(dates)
         first_empty_reason = None

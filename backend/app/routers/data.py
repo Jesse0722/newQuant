@@ -19,7 +19,7 @@ def check_tushare():
         "token_length": len(TUSHARE_TOKEN) if TUSHARE_TOKEN else 0,
         "proxy_configured": bool(TUSHARE_API_URL),
         "proxy_url": TUSHARE_API_URL[:80] + "..." if TUSHARE_API_URL and len(TUSHARE_API_URL) > 80 else (TUSHARE_API_URL or "(未配置，走官方 api.waditu.com/dataapi)"),
-        "hint": "若 Token 在官网正确但仍报 token 错误，请确认代理地址含 /dataapi（见 .env.example）；仅填 IP 时会自动补全。",
+        "hint": "使用 daily 接口做连通性测试；部分代理可能不支持 stock_basic 等接口。",
         "api_test": None,
     }
     if not token_ok:
@@ -27,7 +27,7 @@ def check_tushare():
         return result
     try:
         from app.services.tushare_adapter import tushare_adapter
-        df = tushare_adapter.get_stock_basic()
+        df = tushare_adapter.get_daily("000001.SZ", start_date="20240101", end_date="20240105")
         result["api_test"] = "ok"
         result["rows_returned"] = len(df) if df is not None and not df.empty else 0
         if result["rows_returned"] == 0:

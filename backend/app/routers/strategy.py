@@ -15,7 +15,7 @@ from app.services.limit_up_service import (
     collect_limit_up_stocks,
     _get_trade_dates,
 )
-from app.services.buy_signal_service import scan_pool_buy_signals
+from app.services.buy_signal_service import scan_pool_buy_signals, list_buy_strategies
 from app.services.sync_service import sync_single_stock, _sync_stock_basic_full
 from app.models.sync_log import SyncLog
 from app.tasks.background import submit_task, get_task_status
@@ -24,6 +24,7 @@ from app.exceptions import AppError
 
 class ScanBuySignalsRequest(BaseModel):
     pool_id: Optional[str] = Field(None, description="观察池 ID，不传则自动使用涨停池")
+    strategy_id: str = Field("two_phase", description="策略 ID，默认二阶段买点")
 
 router = APIRouter(prefix="/api/strategy", tags=["strategy"])
 
@@ -86,10 +87,16 @@ def run_backtest(body: BacktestRequest, db: Session = Depends(get_db)):
     return BacktestResult(**result)
 
 
+@router.get("/buy-strategies")
+def get_buy_strategies():
+    """获取可用的买点扫描策略列表"""
+    return list_buy_strategies()
+
+
 @router.post("/scan-buy-signals")
 def scan_buy_signals(body: ScanBuySignalsRequest, db: Session = Depends(get_db)):
-    """扫描涨停池买点信号（二阶段买点识别）"""
-    return scan_pool_buy_signals(db, body.pool_id)
+    """扫描观察池买点信号，支持多策略选择"""
+    return scan_pool_buy_signals(db, body.pool_id, body.strategy_id)
 
 
 @router.post("/limit-up/collect")
@@ -110,7 +117,10 @@ def collect_limit_up(
     )
     db.commit()
 
-    _sync_stock_basic_full(db)  # 确保 stock_basic 新鲜，用于 ST 排除和涨停阈值判断
+    try:
+        _sync_stock_basic_full(db)
+    except Exception:
+        pass  # 部分代理不支持 stock_basic，跳过；已有本地数据仍可用于 ST/阈值判断
     pool = get_or_create_limit_up_pool(db)
     dates = [trade_date] if trade_date else _get_trade_dates(window_days)
     total_added, total_updated, total_skipped = 0, 0, 0

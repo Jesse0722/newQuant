@@ -1,8 +1,9 @@
 """
-二阶段买点识别服务：移植自 TwoPhaseTradingStrategy
+买点识别服务
 
-阶段一：验证生命线质量（涨停日是否为放量涨停、非一字板、非高位）
-阶段二：跟踪生命线后走势，识别"冲高回落企稳反转"买点
+策略注册表：
+- two_phase: 二阶段买点识别（冲高回落企稳反转）
+- next_day_shrink / ma5_pullback / three_yin / half_volume / ma_golden_cross: 涨停回调五大战法
 """
 import numpy as np
 import pandas as pd
@@ -13,6 +14,7 @@ from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchPool, WatchStock
 from app.services.limit_up_service import LIMIT_UP_POOL_NAME, _get_limit_up_threshold
 from app.services.indicator import calc_ma, calc_macd, calc_rsi, calc_vol_ma
+from app.services.limit_up_tactics import TACTIC_REGISTRY, common_pre_filter
 
 # ---------- 策略参数 ----------
 
@@ -417,23 +419,43 @@ def _scan_stub_invalidated(
     }
 
 
+# ---------- 策略注册表 ----------
+
+STRATEGY_REGISTRY: dict[str, dict] = {
+    "two_phase": {
+        "name": "二阶段买点识别",
+        "description": "涨停后冲高回落企稳反转，9项条件综合评分",
+    },
+    **{
+        k: {"name": v["name"], "description": v["description"]}
+        for k, v in TACTIC_REGISTRY.items()
+    },
+}
+
+
+def list_buy_strategies() -> list[dict]:
+    return [{"id": k, "name": v["name"], "description": v["description"]} for k, v in STRATEGY_REGISTRY.items()]
+
+
 # ---------- 主入口：扫描池内所有股票 ----------
 
-def scan_pool_buy_signals(db: Session, pool_id: str | None = None) -> dict:
+def scan_pool_buy_signals(db: Session, pool_id: str | None = None, strategy_id: str = "two_phase") -> dict:
     """
-    对指定池（默认涨停池）内所有股票运行二阶段买点分析。
-    返回 { signals: [...], scan_time, total, triggered_count, approaching_count }
+    对指定池内所有股票运行买点分析。
+    strategy_id 决定使用哪个策略：two_phase 或五大战法之一。
+    返回 { signals, scan_time, total, triggered_count, approaching_count, strategy_id, strategy_name }
     """
+    if strategy_id in TACTIC_REGISTRY:
+        return _scan_tactic(db, pool_id, strategy_id)
+    return _scan_two_phase(db, pool_id)
+
+
+def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
+    """原有的二阶段买点扫描"""
     if not pool_id:
         pool = db.query(WatchPool).filter(WatchPool.name == LIMIT_UP_POOL_NAME).first()
         if not pool:
-            return {
-                "signals": [],
-                "scan_time": datetime.now().isoformat(),
-                "total": 0,
-                "triggered_count": 0,
-                "approaching_count": 0,
-            }
+            return _empty_result("two_phase")
         pool_id = pool.id
 
     stocks = db.query(WatchStock).filter(WatchStock.pool_id == pool_id).all()
@@ -446,9 +468,7 @@ def scan_pool_buy_signals(db: Session, pool_id: str | None = None) -> dict:
         if not ws.limit_up_date:
             signals.append(
                 _scan_stub_invalidated(
-                    db,
-                    ts_code,
-                    basic_cache,
+                    db, ts_code, basic_cache,
                     "无涨停日记录，无法套用二阶段买点策略（涨停池股票或手动补充涨停日）",
                 )
             )
@@ -458,9 +478,7 @@ def scan_pool_buy_signals(db: Session, pool_id: str | None = None) -> dict:
         if df.empty or len(df) < 10:
             signals.append(
                 _scan_stub_invalidated(
-                    db,
-                    ts_code,
-                    basic_cache,
+                    db, ts_code, basic_cache,
                     "本地 K 线数据不足（请先点击「同步」拉取日线）",
                     limit_up_date=ws.limit_up_date,
                 )
@@ -468,12 +486,9 @@ def scan_pool_buy_signals(db: Session, pool_id: str | None = None) -> dict:
             continue
 
         df = _calc_indicators(df)
-
-        # 阶段一：验证生命线
         life_info = _validate_life_line(df, ws.limit_up_date, ts_code)
 
         if not life_info:
-            # 生命线不合格（一字板 / 量能不足等），但仍返回以便前端知晓
             signals.append({
                 "ts_code": ts_code,
                 "name": _get_stock_name(db, ts_code, basic_cache),
@@ -495,9 +510,7 @@ def scan_pool_buy_signals(db: Session, pool_id: str | None = None) -> dict:
             })
             continue
 
-        # 阶段二：分析买点
         analysis = _analyze_stock(df, life_info, params)
-
         signals.append({
             "ts_code": ts_code,
             "name": _get_stock_name(db, ts_code, basic_cache),
@@ -507,19 +520,119 @@ def scan_pool_buy_signals(db: Session, pool_id: str | None = None) -> dict:
             **analysis,
         })
 
-    # 排序：triggered > approaching > tracking > invalidated，同级按 score 降序
+    return _finalize(signals, "two_phase")
+
+
+def _scan_tactic(db: Session, pool_id: str | None, strategy_id: str) -> dict:
+    """五大战法通用扫描器"""
+    tactic = TACTIC_REGISTRY[strategy_id]
+    analyze_fn = tactic["analyze_fn"]
+
+    if not pool_id:
+        pool = db.query(WatchPool).filter(WatchPool.name == LIMIT_UP_POOL_NAME).first()
+        if not pool:
+            return _empty_result(strategy_id)
+        pool_id = pool.id
+
+    stocks = db.query(WatchStock).filter(WatchStock.pool_id == pool_id).all()
+    basic_cache: dict[str, StockBasic | None] = {}
+    signals: list[dict] = []
+
+    for ws in stocks:
+        ts_code = ws.ts_code
+        if not ws.limit_up_date:
+            signals.append(
+                _scan_stub_invalidated(db, ts_code, basic_cache, "无涨停日记录")
+            )
+            continue
+
+        df = _build_df(db, ts_code)
+        if df.empty or len(df) < 10:
+            signals.append(
+                _scan_stub_invalidated(
+                    db, ts_code, basic_cache,
+                    "K线数据不足（请先同步日线）",
+                    limit_up_date=ws.limit_up_date,
+                )
+            )
+            continue
+
+        df = _calc_indicators(df)
+
+        mask = df["trade_date"] == ws.limit_up_date
+        if not mask.any():
+            signals.append(
+                _scan_stub_invalidated(
+                    db, ts_code, basic_cache,
+                    "K线中找不到涨停日数据",
+                    limit_up_date=ws.limit_up_date,
+                )
+            )
+            continue
+
+        limit_up_idx = int(df.index[mask][0])
+
+        ok, reason = common_pre_filter(df, limit_up_idx)
+        if not ok:
+            signals.append({
+                "ts_code": ts_code,
+                "name": _get_stock_name(db, ts_code, basic_cache),
+                "industry": _get_stock_industry(db, ts_code, basic_cache),
+                "signal_status": "invalidated",
+                "signal_score": 0,
+                "life_line_date": ws.limit_up_date,
+                "life_line_price": float(df.iloc[limit_up_idx]["close"]),
+                "days_since_life_line": len(df) - 1 - limit_up_idx,
+                "latest_close": float(df.iloc[-1]["close"]),
+                "latest_pct_chg": float(df.iloc[-1]["pct_chg"]) if not pd.isna(df.iloc[-1].get("pct_chg")) else 0.0,
+                "phase2_high": None,
+                "pullback_pct": None,
+                "met_conditions": [],
+                "unmet_conditions": [reason],
+                "rsi": None,
+                "macd_hist": None,
+                "volume_ratio": None,
+            })
+            continue
+
+        analysis = analyze_fn(df, limit_up_idx)
+        signals.append({
+            "ts_code": ts_code,
+            "name": _get_stock_name(db, ts_code, basic_cache),
+            "industry": _get_stock_industry(db, ts_code, basic_cache),
+            "life_line_date": ws.limit_up_date,
+            "life_line_price": float(df.iloc[limit_up_idx]["close"]),
+            **analysis,
+        })
+
+    return _finalize(signals, strategy_id)
+
+
+def _empty_result(strategy_id: str) -> dict:
+    name = STRATEGY_REGISTRY.get(strategy_id, {}).get("name", strategy_id)
+    return {
+        "signals": [],
+        "scan_time": datetime.now().isoformat(),
+        "total": 0,
+        "triggered_count": 0,
+        "approaching_count": 0,
+        "strategy_id": strategy_id,
+        "strategy_name": name,
+    }
+
+
+def _finalize(signals: list[dict], strategy_id: str) -> dict:
     status_order = {"triggered": 0, "approaching": 1, "tracking": 2, "invalidated": 3}
     signals.sort(key=lambda s: (status_order.get(s["signal_status"], 9), -s.get("signal_score", 0)))
-
-    triggered = sum(1 for s in signals if s["signal_status"] == "triggered")
-    approaching = sum(1 for s in signals if s["signal_status"] == "approaching")
-
+    name = STRATEGY_REGISTRY.get(strategy_id, {}).get("name", strategy_id)
     return {
         "signals": signals,
         "scan_time": datetime.now().isoformat(),
         "total": len(signals),
-        "triggered_count": triggered,
-        "approaching_count": approaching,
+        "triggered_count": sum(1 for s in signals if s["signal_status"] == "triggered"),
+        "approaching_count": sum(1 for s in signals if s["signal_status"] == "approaching"),
+        "strategy_id": strategy_id,
+        "strategy_name": name,
     }
 
 

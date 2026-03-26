@@ -81,10 +81,16 @@ export const collectLimitUp = (params?: { trade_date?: string; window_days?: num
 
 // ---------- 买点雷达 ----------
 
-import type { BuySignalScanResult, StockChartDataWithMarks } from '../types'
+import type { BuySignalScanResult, StockChartDataWithMarks, BuyStrategy } from '../types'
 
-export const scanBuySignals = (poolId?: string) =>
-  client.post<BuySignalScanResult>('/strategy/scan-buy-signals', { pool_id: poolId || null })
+export const getBuyStrategies = () =>
+  client.get<BuyStrategy[]>('/strategy/buy-strategies')
+
+export const scanBuySignals = (poolId?: string, strategyId: string = 'two_phase') =>
+  client.post<BuySignalScanResult>('/strategy/scan-buy-signals', {
+    pool_id: poolId || null,
+    strategy_id: strategyId,
+  })
 
 export const getStockChartWithMarks = (tsCode: string, period: number, limitUpDate?: string) =>
   client.get<StockChartDataWithMarks>(`/stocks/${tsCode}/chart`, {

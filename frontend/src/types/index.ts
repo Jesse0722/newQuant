@@ -295,6 +295,14 @@ export interface BuySignalScanResult {
   total: number
   triggered_count: number
   approaching_count: number
+  strategy_id?: string
+  strategy_name?: string
+}
+
+export interface BuyStrategy {
+  id: string
+  name: string
+  description: string
 }
 
 export interface SignalMark {

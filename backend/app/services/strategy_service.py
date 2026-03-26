@@ -262,7 +262,10 @@ def run_limit_up_buy_point_screen(
     db = SessionLocal()
     try:
         task.message = "正在同步股票基础信息..."
-        _sync_stock_basic_full(db)
+        try:
+            _sync_stock_basic_full(db)
+        except Exception:
+            pass
 
         task.message = "正在拉取日期范围内的涨停股..."
         limit_up_map = fetch_limit_up_stocks_in_range(db, trade_date_from, trade_date_to)
@@ -286,7 +289,10 @@ def run_limit_up_buy_point_screen(
 
             df = _get_df(db, ts_code)
             if df.empty or len(df) < 5:
-                sync_stock_info(db, ts_code)
+                try:
+                    sync_stock_info(db, ts_code)
+                except Exception:
+                    pass
                 sync_daily(db, ts_code, 60)
                 df = _get_df(db, ts_code)
             if df.empty or len(df) < 5:
