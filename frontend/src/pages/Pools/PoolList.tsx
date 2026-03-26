@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import {
   Button, Modal, Form, Input, InputNumber, Space, Card,
   Tag, Upload, message, Popconfirm, Select, AutoComplete,
-  Segmented, Spin, Empty, Dropdown, Table, Badge, Row, Col, Statistic, Descriptions,
+  Segmented, Spin, Empty, Dropdown, Table, Badge, Row, Col, Statistic, Descriptions, Alert,
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
@@ -83,6 +83,8 @@ const PoolList: React.FC = () => {
   const [poolRules, setPoolRules] = useState<MonitorRule[]>([])
   const [monitorTemplates, setMonitorTemplates] = useState<MonitorTemplate[]>([])
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  /** 扫描完成后递增，用于触发右侧 K 线重新请求（避免缓存/状态未联动感） */
+  const [chartRefreshToken, setChartRefreshToken] = useState(0)
 
   const navigate = useNavigate()
   const initialLoaded = useRef(false)
@@ -172,9 +174,14 @@ const PoolList: React.FC = () => {
       const res = await scanBuySignals(activePoolId)
       setScanResult(res.data)
       setSignalFilter('all')
+      setChartRefreshToken(t => t + 1)
+      const { triggered_count, approaching_count, total } = res.data
       message.success(
-        `扫描完成: ${res.data.triggered_count} 只触发, ${res.data.approaching_count} 只接近, 共 ${res.data.total} 只`
+        `扫描完成：触发 ${triggered_count}、接近 ${approaching_count}，共分析 ${total} 只。左侧已出现「信号筛选」，列表股票带有状态标签。`
       )
+      if (total > 0 && triggered_count === 0 && approaching_count === 0) {
+        message.info('暂无「触发/接近」标的，可在左侧筛选「跟踪」「失效」或查看右侧说明。', 5)
+      }
     } catch {
       message.error('扫描失败')
     } finally {
@@ -194,12 +201,14 @@ const PoolList: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    if (activePoolId) {
-      loadInitial(activePoolId)
-      setScanResult(null)
-      setSignalFilter('all')
-    }
+    if (activePoolId) loadInitial(activePoolId)
   }, [activePoolId, limitUpDateFrom, limitUpDateTo, sortBy, sortOrder])
+
+  useEffect(() => {
+    setScanResult(null)
+    setSignalFilter('all')
+    setChartRefreshToken(t => t + 1)
+  }, [activePoolId])
 
   useEffect(() => {
     const exists = displayStocks.some(s => s.ts_code === selectedCode)
@@ -216,7 +225,7 @@ const PoolList: React.FC = () => {
       .then(res => setChartData(res.data))
       .catch(() => setChartData(null))
       .finally(() => setChartLoading(false))
-  }, [selectedCode, chartPeriod])
+  }, [selectedCode, chartPeriod, chartRefreshToken])
 
   // Chart rendering with signal marks
   useEffect(() => {
@@ -614,6 +623,11 @@ const PoolList: React.FC = () => {
             差{sig.unmet_conditions.length}条件: {sig.unmet_conditions.slice(0, 2).join('、')}
           </div>
         )}
+        {sig?.signal_status === 'invalidated' && sig.unmet_conditions.length > 0 && sig.unmet_conditions.length <= 2 && (
+          <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2, lineHeight: 1.35 }}>
+            {sig.unmet_conditions.join('；')}
+          </div>
+        )}
       </div>
     )
   }
@@ -654,6 +668,20 @@ const PoolList: React.FC = () => {
             <Button size="small" onClick={() => navigate(`/stocks/${selectedStock.ts_code}`)}>完整详情 <ArrowRightOutlined /></Button>
           </Space>
         </div>
+
+        {scanResult && sig?.signal_status === 'invalidated' && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="本标的未通过买点筛选（或无法分析）"
+            description={
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                {sig.unmet_conditions.map(c => <Tag key={c}>{c}</Tag>)}
+              </div>
+            }
+          />
+        )}
 
         {/* Metrics row (when signal available) */}
         {sig && sig.signal_status !== 'invalidated' && (
@@ -743,13 +771,47 @@ const PoolList: React.FC = () => {
         </div>
         {activePool && (
           <Space size="small" style={{ flexShrink: 0, marginLeft: 8 }}>
-            <Button size="small" type="primary" icon={<ScanOutlined />} loading={scanning} onClick={handleScan}>扫描买点</Button>
+            <Badge dot={!!scanResult} offset={[-2, 2]} color="#52c41a">
+              <Button size="small" type="primary" icon={<ScanOutlined />} loading={scanning} onClick={handleScan}>
+                {scanResult ? '重新扫描' : '扫描买点'}
+              </Button>
+            </Badge>
             <Button size="small" icon={<SyncOutlined spin={syncing} />} loading={syncing} onClick={handleSync}>同步</Button>
             <Button size="small" onClick={openEditPoolModal}>编辑池</Button>
             <Button size="small" icon={<ReloadOutlined />} onClick={() => loadInitial(activePoolId)} />
           </Space>
         )}
       </div>
+
+      {scanResult && (
+        <Alert
+          type="success"
+          showIcon
+          message={
+            <span>
+              买点扫描已完成 ·{' '}
+              <strong style={{ fontWeight: 600 }}>
+                {(() => {
+                  try {
+                    return new Date(scanResult.scan_time).toLocaleString('zh-CN', { hour12: false })
+                  } catch {
+                    return scanResult.scan_time
+                  }
+                })()}
+              </strong>
+            </span>
+          }
+          description={
+            <span>
+              共分析 <b>{scanResult.total}</b> 只：触发{' '}
+              <b style={{ color: '#cf1322' }}>{scanResult.triggered_count}</b>、接近{' '}
+              <b style={{ color: '#d48806' }}>{scanResult.approaching_count}</b>。
+              左侧已展开「信号筛选」分类，列表中每只股票带有状态；右侧可查看指标与带标注的 K 线。
+            </span>
+          }
+          style={{ marginBottom: 8, flexShrink: 0 }}
+        />
+      )}
 
       {/* Main body: left-right split */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, border: '1px solid #f0f0f0', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
@@ -830,7 +892,17 @@ const PoolList: React.FC = () => {
 
           {/* Signal filter (after scan) */}
           {scanResult && (
-            <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
+            <div
+              style={{
+                padding: '8px 12px 10px',
+                borderBottom: '1px solid #f0f0f0',
+                flexShrink: 0,
+                background: '#f6ffed',
+                borderLeft: '3px solid #52c41a',
+                marginLeft: 0,
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#262626', marginBottom: 6 }}>信号筛选（扫描结果）</div>
               <Segmented size="small" block options={[
                 { label: `全部 (${stocks.length})`, value: 'all' },
                 { label: <Badge count={scanResult.triggered_count} size="small" offset={[6, -2]}><span style={{ padding: '0 2px' }}>触发</span></Badge>, value: 'triggered' },

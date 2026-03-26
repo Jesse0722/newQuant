@@ -385,6 +385,38 @@ def get_signal_marks(db: Session, ts_code: str, limit_up_date: str | None = None
     return marks
 
 
+def _scan_stub_invalidated(
+    db: Session,
+    ts_code: str,
+    basic_cache: dict[str, StockBasic | None],
+    reason: str,
+    *,
+    limit_up_date: str | None = None,
+    latest_close: float | None = None,
+    latest_pct_chg: float | None = None,
+) -> dict:
+    """无数据分析或缺少涨停日时仍返回一条记录，避免前端扫描后列表无任何反馈。"""
+    return {
+        "ts_code": ts_code,
+        "name": _get_stock_name(db, ts_code, basic_cache),
+        "industry": _get_stock_industry(db, ts_code, basic_cache),
+        "signal_status": "invalidated",
+        "signal_score": 0,
+        "life_line_date": limit_up_date,
+        "life_line_price": None,
+        "days_since_life_line": None,
+        "latest_close": latest_close,
+        "latest_pct_chg": latest_pct_chg,
+        "phase2_high": None,
+        "pullback_pct": None,
+        "met_conditions": [],
+        "unmet_conditions": [reason],
+        "rsi": None,
+        "macd_hist": None,
+        "volume_ratio": None,
+    }
+
+
 # ---------- 主入口：扫描池内所有股票 ----------
 
 def scan_pool_buy_signals(db: Session, pool_id: str | None = None) -> dict:
@@ -410,12 +442,29 @@ def scan_pool_buy_signals(db: Session, pool_id: str | None = None) -> dict:
     params = DEFAULT_PARAMS.copy()
 
     for ws in stocks:
+        ts_code = ws.ts_code
         if not ws.limit_up_date:
+            signals.append(
+                _scan_stub_invalidated(
+                    db,
+                    ts_code,
+                    basic_cache,
+                    "无涨停日记录，无法套用二阶段买点策略（涨停池股票或手动补充涨停日）",
+                )
+            )
             continue
 
-        ts_code = ws.ts_code
         df = _build_df(db, ts_code)
         if df.empty or len(df) < 10:
+            signals.append(
+                _scan_stub_invalidated(
+                    db,
+                    ts_code,
+                    basic_cache,
+                    "本地 K 线数据不足（请先点击「同步」拉取日线）",
+                    limit_up_date=ws.limit_up_date,
+                )
+            )
             continue
 
         df = _calc_indicators(df)
