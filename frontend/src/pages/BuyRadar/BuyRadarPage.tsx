@@ -1,19 +1,35 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Button, Segmented, Spin, message, Badge, Space } from 'antd'
-import { RadarChartOutlined, ScanOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Button, Segmented, Spin, message, Badge, Space, Select } from 'antd'
+import { ScanOutlined } from '@ant-design/icons'
 import { scanBuySignals } from '../../api/strategy'
+import { listPools } from '../../api/pools'
 import SignalList from './SignalList'
 import SignalDetail from './SignalDetail'
-import type { BuySignal, BuySignalStatus, BuySignalScanResult } from '../../types'
+import type { BuySignal, BuySignalStatus, BuySignalScanResult, Pool } from '../../types'
 
 type FilterStatus = 'all' | BuySignalStatus
 
 const BuyRadarPage: React.FC = () => {
+  const [pools, setPools] = useState<Pool[]>([])
+  const [activePoolId, setActivePoolId] = useState('')
   const [scanResult, setScanResult] = useState<BuySignalScanResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<FilterStatus>('all')
   const [selectedSignal, setSelectedSignal] = useState<BuySignal | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    listPools()
+      .then((res) => {
+        const list = res.data || []
+        setPools(list)
+        setActivePoolId((prev) => {
+          if (prev && list.some((p) => p.id === prev)) return prev
+          return list[0]?.id ?? ''
+        })
+      })
+      .catch(() => message.error('加载股票池失败'))
+  }, [])
 
   const filteredSignals = scanResult
     ? filter === 'all'
@@ -21,10 +37,21 @@ const BuyRadarPage: React.FC = () => {
       : scanResult.signals.filter((s) => s.signal_status === filter)
     : []
 
+  const handlePoolChange = (poolId: string) => {
+    setActivePoolId(poolId)
+    setScanResult(null)
+    setFilter('all')
+    setSelectedSignal(null)
+  }
+
   const handleScan = async () => {
+    if (!activePoolId) {
+      message.warning('暂无可用股票池，请先在观察池页面创建')
+      return
+    }
     setLoading(true)
     try {
-      const res = await scanBuySignals()
+      const res = await scanBuySignals(activePoolId)
       setScanResult(res.data)
       message.success(
         `扫描完成: ${res.data.triggered_count} 只触发, ${res.data.approaching_count} 只接近, 共 ${res.data.total} 只`
@@ -34,7 +61,7 @@ const BuyRadarPage: React.FC = () => {
         setSelectedSignal(first)
       }
     } catch {
-      message.error('扫描失败，请确保已执行涨停筛选并同步K线')
+      message.error('扫描失败，请确保已同步K线')
     } finally {
       setLoading(false)
     }
@@ -77,13 +104,23 @@ const BuyRadarPage: React.FC = () => {
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         padding: '12px 0', borderBottom: '1px solid #f0f0f0', marginBottom: 0, flexShrink: 0,
       }}>
-        <Space size="middle">
+        <Space size="middle" wrap>
+          <span style={{ fontSize: 13, color: '#595959' }}>股票池</span>
+          <Select
+            style={{ minWidth: 220 }}
+            placeholder="选择股票池"
+            value={activePoolId || undefined}
+            options={pools.map((p) => ({ value: p.id, label: `${p.name} (${p.stock_count})` }))}
+            onChange={handlePoolChange}
+            disabled={pools.length === 0}
+          />
           <Button
             type="primary"
             icon={<ScanOutlined />}
             loading={loading}
             onClick={handleScan}
             size="large"
+            disabled={!activePoolId}
           >
             扫描买点
           </Button>
