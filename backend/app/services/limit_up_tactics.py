@@ -344,6 +344,108 @@ def analyze_ma_golden_cross(df: pd.DataFrame, limit_up_idx: int) -> dict:
 
 
 # ================================================================
+# 战法 6: 搓揉线买入法
+# ================================================================
+
+RUBBING_LINE_LABELS = {
+    "day2_upper_shadow": "Day2冲高留长上影线",
+    "day2_vol_moderate": "Day2量能适中（≤涨停日量能）",
+    "day3_lower_shadow": "Day3留长下影线",
+    "day3_vol_shrink": "Day3缩量（<Day2量能）",
+    "not_break_low": "全程未破涨停板最低价",
+    "breakout_high": "突破上影最高价（正式起涨信号）",
+}
+
+
+def _long_upper_shadow(row) -> bool:
+    """K线是否有长上影线：上影 > max(1.5倍实体, 振幅30%)"""
+    body = abs(float(row["close"]) - float(row["open"]))
+    rng = float(row["high"]) - float(row["low"])
+    upper = float(row["high"]) - max(float(row["close"]), float(row["open"]))
+    if rng <= 0:
+        return False
+    return upper > max(body * 1.5, rng * 0.3)
+
+
+def _long_lower_shadow(row) -> bool:
+    """K线是否有长下影线：下影 > max(1.5倍实体, 振幅30%)"""
+    body = abs(float(row["close"]) - float(row["open"]))
+    rng = float(row["high"]) - float(row["low"])
+    lower = min(float(row["close"]), float(row["open"])) - float(row["low"])
+    if rng <= 0:
+        return False
+    return lower > max(body * 1.5, rng * 0.3)
+
+
+def analyze_rubbing_line(df: pd.DataFrame, limit_up_idx: int) -> dict:
+    """
+    搓揉线买入法：
+    Day1 放量涨停 → Day2 冲高留长上影线(量能适中) → Day3 缩量留长下影线
+    → 某日最高价突破 Day2 最高价 = 正式起涨信号
+    全程不破涨停板最低价。
+    """
+    latest_idx = len(df) - 1
+    lu = df.iloc[limit_up_idx]
+    c: dict[str, bool] = {}
+    day2_idx = limit_up_idx + 1
+    day3_idx = limit_up_idx + 2
+
+    if day3_idx > latest_idx:
+        for k in RUBBING_LINE_LABELS:
+            c[k] = False
+        c["not_break_low"] = True
+        return _build_signal(c, RUBBING_LINE_LABELS, _metrics(df, limit_up_idx))
+
+    day2 = df.iloc[day2_idx]
+    day3 = df.iloc[day3_idx]
+
+    # ---- Day2: 冲高留长上影线 ----
+    c["day2_upper_shadow"] = _long_upper_shadow(day2)
+
+    # ---- Day2: 量能适中（≤涨停日量能，允许10%容差） ----
+    c["day2_vol_moderate"] = float(day2["vol"]) <= float(lu["vol"]) * 1.1
+
+    # ---- Day3: 留长下影线 ----
+    c["day3_lower_shadow"] = _long_lower_shadow(day3)
+
+    # ---- Day3: 缩量（<Day2量能） ----
+    c["day3_vol_shrink"] = float(day3["vol"]) < float(day2["vol"])
+
+    # ---- 全程未破涨停板最低价 ----
+    post = df.iloc[limit_up_idx + 1 : latest_idx + 1]
+    c["not_break_low"] = float(post["low"].min()) >= float(lu["low"]) * 0.98
+
+    # ---- 突破上影最高价（Day3之后某日 high > Day2 high）----
+    day2_high = float(day2["high"])
+    if latest_idx > day3_idx:
+        post_day3 = df.iloc[day3_idx + 1 : latest_idx + 1]
+        c["breakout_high"] = float(post_day3["high"].max()) > day2_high if len(post_day3) > 0 else False
+    else:
+        c["breakout_high"] = False
+
+    m = _metrics(df, limit_up_idx)
+
+    # 搓揉线特有：两组搓揉线更强（检查Day4-Day5是否也形成搓揉线）
+    double_rubbing = False
+    day4_idx = limit_up_idx + 3
+    day5_idx = limit_up_idx + 4
+    if day5_idx <= latest_idx:
+        day4 = df.iloc[day4_idx]
+        day5 = df.iloc[day5_idx]
+        if _long_upper_shadow(day4) and _long_lower_shadow(day5):
+            double_rubbing = True
+
+    sig = _build_signal(c, RUBBING_LINE_LABELS, m)
+
+    if double_rubbing and sig["signal_score"] > 0:
+        sig["signal_score"] = min(100, sig["signal_score"] + 10)
+        if "两组搓揉线（更强信号）" not in sig["met_conditions"]:
+            sig["met_conditions"].append("两组搓揉线（更强信号）")
+
+    return sig
+
+
+# ================================================================
 # 战法注册表
 # ================================================================
 
@@ -377,5 +479,11 @@ TACTIC_REGISTRY: dict[str, dict] = {
         "description": "回调缩量后MA5金叉MA10买入",
         "analyze_fn": analyze_ma_golden_cross,
         "labels": MA_CROSS_LABELS,
+    },
+    "rubbing_line": {
+        "name": "搓揉线买入",
+        "description": "涨停后Day2长上影+Day3长下影，突破上影高点起涨买入",
+        "analyze_fn": analyze_rubbing_line,
+        "labels": RUBBING_LINE_LABELS,
     },
 }
