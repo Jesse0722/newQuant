@@ -19,6 +19,16 @@ function seriesDataText(data: unknown): string {
   return String(data)
 }
 
+function fmtIntLike(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(Number(n))) return '—'
+  return Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })
+}
+
+function fmtAmountLike(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(Number(n))) return '—'
+  return Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })
+}
+
 function resolvePctChg(quotes: QuoteItem[], dataIndex: number): number | null {
   const q = quotes[dataIndex]
   if (q?.pct_chg != null && !Number.isNaN(Number(q.pct_chg))) {
@@ -57,9 +67,13 @@ export function makeKlineAxisTooltipFormatter(quotes: QuoteItem[]) {
       const name = p.seriesName
       if (name === 'K线' && Array.isArray(p.data) && p.data.length >= 4) {
         const [open, close, low, high] = p.data as number[]
+        const q = quotes[idx]
         lines.push(`${marker}<span style="font-weight:500">${name}</span>`)
         lines.push(
           `开盘: ${fmtPrice(open)}　收盘: ${fmtPrice(close)}　最低: ${fmtPrice(low)}　最高: ${fmtPrice(high)}`
+        )
+        lines.push(
+          `成交量: ${fmtIntLike(q?.vol)}　成交额: ${fmtAmountLike(q?.amount)}`
         )
         const pct = resolvePctChg(quotes, idx)
         if (pct != null) {
@@ -70,6 +84,16 @@ export function makeKlineAxisTooltipFormatter(quotes: QuoteItem[]) {
         } else {
           lines.push('涨幅: —')
         }
+        const tr = q?.turnover_rate
+        if (tr != null && !Number.isNaN(Number(tr))) {
+          lines.push(`换手率: ${Number(tr).toFixed(2)}%`)
+        } else {
+          lines.push('换手率: —')
+        }
+        continue
+      }
+      if (name === '成交量') {
+        // 已在 K 线主信息中展示成交量，避免重复
         continue
       }
       lines.push(`${marker}${name}: ${seriesDataText(p.data)}`)

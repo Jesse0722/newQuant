@@ -25,3 +25,4 @@ class DailyQuote(Base):
     pct_chg = Column(Float)
     vol = Column(Float)
     amount = Column(Float)
+    turnover_rate = Column(Float, nullable=True)

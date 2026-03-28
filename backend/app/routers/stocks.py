@@ -10,6 +10,7 @@ from app.schemas.trade import TradeDetailCreate, TradeDetailOut
 from app.services.indicator import calc_ma, calc_macd, calc_rsi
 from app.services.buy_signal_service import get_signal_marks
 from app.services.sync_service import sync_stock_info, sync_daily
+from app.services.tushare_adapter import tushare_adapter
 from app.exceptions import AppError
 import pandas as pd
 import numpy as np
@@ -109,6 +110,22 @@ def get_stock_chart(
         "open": q.open, "high": q.high, "low": q.low, "close": q.close,
         "vol": q.vol, "amount": q.amount, "pct_chg": q.pct_chg,
     } for q in quotes])
+
+    # 尝试补充换手率（daily_basic）；部分代理不支持时自动降级，不影响 K 线展示。
+    df["turnover_rate"] = np.nan
+    try:
+        start_date = str(df["date"].iloc[0])
+        end_date = str(df["date"].iloc[-1])
+        basic_df = tushare_adapter.get_daily_basic(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        if not basic_df.empty and "trade_date" in basic_df.columns and "turnover_rate" in basic_df.columns:
+            turnover_map = {
+                str(row["trade_date"]): row["turnover_rate"]
+                for _, row in basic_df.iterrows()
+                if row.get("trade_date") is not None
+            }
+            df["turnover_rate"] = df["date"].map(turnover_map)
+    except Exception:
+        pass
 
     ma5 = _nan_to_none(calc_ma(df, 5))
     ma10 = _nan_to_none(calc_ma(df, 10))

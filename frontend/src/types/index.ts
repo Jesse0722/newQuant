@@ -48,6 +48,7 @@ export interface QuoteItem {
   vol: number
   amount: number
   pct_chg: number
+  turnover_rate?: number | null
 }
 
 export interface StockChartData {

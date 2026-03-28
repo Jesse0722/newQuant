@@ -2,8 +2,8 @@
 买点识别服务
 
 策略注册表：
-- two_phase: 二阶段买点识别（冲高回落企稳反转）
-- next_day_shrink / ma5_pullback / three_yin / half_volume / ma_golden_cross: 涨停回调五大战法
+- two_phase: 二阶段买点识别（冲高回落企稳反转，统一加权评分）
+- next_day_shrink / ma5_pullback / three_yin / half_volume / ma_golden_cross / rubbing_line: 涨停回调六大战法
 """
 import numpy as np
 import pandas as pd
@@ -14,38 +14,32 @@ from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchPool, WatchStock
 from app.services.limit_up_service import LIMIT_UP_POOL_NAME, _get_limit_up_threshold
 from app.services.indicator import calc_ma, calc_macd, calc_rsi, calc_vol_ma
-from app.services.limit_up_tactics import TACTIC_REGISTRY, common_pre_filter
+from app.services.limit_up_tactics import TACTIC_REGISTRY, common_pre_filter, _build_signal
 
 # ---------- 策略参数 ----------
 
 DEFAULT_PARAMS = {
-    "life_line_volume_ratio": 2.0,
+    "life_line_volume_ratio": 1.5,
+    "life_line_volume_ratio_with_turnover": 1.2,
     "life_line_min_volume": 10000,
     "phase2_max_days": 60,
-    "phase2_rally_min_pct": 5,
-    "phase2_dip_min_pct": 3,
-    "buy_volume_ratio_min": 1.2,
-    "buy_volume_ratio_max": 3.0,
-    "buy_price_increase_pct": 3.0,
-    "buy_rsi_min": 50,
-    "buy_rsi_max": 70,
     "buy_min_days_since_life": 5,
 }
 
-# 买点条件名称（用于前端展示已满足/未满足）
-CONDITION_LABELS = {
-    "volume_ratio": "量能温和放量",
-    "pct_change": "当日涨幅≥3%",
-    "macd_golden": "MACD金叉/柱转正",
-    "above_ma5": "站上MA5",
-    "above_ma10": "站上MA10",
-    "rsi_range": "RSI在50~70",
-    "not_break_low": "未破生命线低价",
-    "pullback_stabilize": "冲高回落企稳",
-    "volume_trend": "成交量趋势向好",
+# 二阶段策略条件定义（统一加权评分）
+TWO_PHASE_CONDS = {
+    "yang_candle":        {"label": "收阳线",              "weight": 1.0, "core": True},
+    "volume_ratio":       {"label": "量能温和放量",         "weight": 1.0, "core": True},
+    "pct_change":         {"label": "当日涨幅≥1%",         "weight": 0.5, "core": False},
+    "macd_golden":        {"label": "MACD金叉/柱转正",     "weight": 1.0, "core": True},
+    "above_ma5":          {"label": "站上MA5",             "weight": 1.0, "core": True},
+    "above_ma10":         {"label": "站上MA10",            "weight": 0.5, "core": False},
+    "rsi_range":          {"label": "RSI在45~70",          "weight": 0.5, "core": False},
+    "not_break_low":      {"label": "未破生命线低价",       "weight": 1.5, "core": True},
+    "pullback_stabilize": {"label": "冲高回落企稳",         "weight": 1.5, "core": True},
+    "volume_trend":       {"label": "成交量趋势向好",       "weight": 0.5, "core": False},
+    "turnover_range":     {"label": "换手率适中(2~12%)",    "weight": 0.5, "core": False},
 }
-
-TOTAL_CONDITIONS = len(CONDITION_LABELS)
 
 
 # ---------- 技术指标计算 ----------
@@ -71,6 +65,7 @@ def _build_df(db: Session, ts_code: str, limit: int = 250) -> pd.DataFrame:
             "pct_chg": r.pct_chg,
             "vol": r.vol,
             "amount": r.amount,
+            "turnover_rate": r.turnover_rate,
         }
         for r in rows
     ]
@@ -115,30 +110,34 @@ def _validate_life_line(df: pd.DataFrame, limit_up_date: str, ts_code: str) -> d
     idx = df.index[mask][0]
     row = df.loc[idx]
 
-    # 非一字板
     if row["high"] == row["low"]:
         return None
 
-    # 量比 >= 2（相对前5日均量）
+    # 量比计算
     if idx >= 5:
         avg_vol = df.loc[idx - 5 : idx - 1, "vol"].mean()
-        if avg_vol > 0:
-            vol_ratio = row["vol"] / avg_vol
-        else:
-            vol_ratio = 1.0
+        vol_ratio = row["vol"] / avg_vol if avg_vol > 0 else 1.0
     else:
         vol_ratio = row.get("volume_ratio", 1.0)
 
-    if vol_ratio < DEFAULT_PARAMS["life_line_volume_ratio"]:
+    # 量比阈值：有换手率时可降低至1.2，否则1.5
+    tr = row.get("turnover_rate")
+    has_valid_tr = tr is not None and not pd.isna(tr) and tr >= 3.0
+    min_vol_ratio = (
+        DEFAULT_PARAMS["life_line_volume_ratio_with_turnover"]
+        if has_valid_tr else
+        DEFAULT_PARAMS["life_line_volume_ratio"]
+    )
+    if vol_ratio < min_vol_ratio:
         return None
 
-    # 最小成交量
     if row["vol"] < DEFAULT_PARAMS["life_line_min_volume"]:
         return None
 
-    # 价格位置：不在60日高位70%以上
-    if idx >= 60:
-        window = df.loc[idx - 60 : idx - 1, "close"]
+    # 价格位置：兼容短数据
+    lookback = min(idx, 60)
+    if lookback >= 10:
+        window = df.loc[idx - lookback : idx - 1, "close"]
         pmin, pmax = window.min(), window.max()
         if pmax != pmin:
             position = (row["close"] - pmin) / (pmax - pmin)
@@ -165,19 +164,17 @@ def _check_conditions(df: pd.DataFrame, idx: int, life_info: dict, params: dict)
     results: dict[str, bool] = {}
     life_idx = life_info["df_idx"]
     life_low = life_info["low"]
+    life_close = life_info["close"]
 
-    # 1. 量能温和放量
+    results["yang_candle"] = row["close"] > row["open"]
+
     vr = row.get("volume_ratio", 0)
-    results["volume_ratio"] = (
-        not pd.isna(vr)
-        and params["buy_volume_ratio_min"] <= vr <= params["buy_volume_ratio_max"]
-    )
+    results["volume_ratio"] = not pd.isna(vr) and 1.2 <= vr <= 3.0
 
-    # 2. 当日涨幅
     pct = row.get("pct_chg", 0)
-    results["pct_change"] = not pd.isna(pct) and pct >= params["buy_price_increase_pct"]
+    results["pct_change"] = not pd.isna(pct) and pct >= 1.0
 
-    # 3. MACD 金叉或柱状图转正（3天内）
+    # MACD 金叉或柱状图转正（3天内）
     macd_ok = False
     for lookback in range(min(3, idx)):
         ci = idx - lookback
@@ -201,45 +198,39 @@ def _check_conditions(df: pd.DataFrame, idx: int, life_info: dict, params: dict)
             macd_ok = True
     results["macd_golden"] = macd_ok
 
-    # 4 & 5. 站上 MA5 / MA10
     ma5 = row.get("ma5", 0)
     results["above_ma5"] = not pd.isna(ma5) and row["close"] >= ma5
 
     ma10 = row.get("ma10", 0)
     results["above_ma10"] = not pd.isna(ma10) and row["close"] >= ma10
 
-    # 6. RSI 区间
     rsi = row.get("rsi14", 50)
-    results["rsi_range"] = not pd.isna(rsi) and params["buy_rsi_min"] <= rsi <= params["buy_rsi_max"]
+    results["rsi_range"] = not pd.isna(rsi) and 45 <= rsi <= 70
 
-    # 7. 未破生命线最低价
     results["not_break_low"] = row["low"] >= life_low * 0.995
 
-    # 8. 冲高回落企稳
+    # 冲高回落企稳：明确三阶段
     pullback_ok = False
     days_since = idx - life_idx
     if days_since > params["buy_min_days_since_life"]:
         post_window = df.iloc[life_idx + 1 : idx + 1]
         if len(post_window) > 0:
             max_close = post_window["close"].max()
-            # 需要从高点回落
-            if row["close"] < max_close * 0.97:
-                # 检查企稳：近5日价格稳定且当前高于近期低点
-                if idx >= 5:
-                    recent = df.iloc[idx - 4 : idx + 1]["close"]
-                    recent_low = recent.min()
-                    if row["close"] >= recent_low * 1.01:
+            has_rally = max_close > life_close * 1.03
+            has_dip = row["close"] < max_close * 0.97
+            if has_rally and has_dip:
+                # 企稳：近3日最低价逐日抬升 或 近5日标准差<均价2%
+                if idx >= 3:
+                    lows_3 = [df.iloc[idx - 2]["low"], df.iloc[idx - 1]["low"], row["low"]]
+                    rising_lows = lows_3[1] >= lows_3[0] and lows_3[2] >= lows_3[1]
+                    if rising_lows:
                         pullback_ok = True
-            elif days_since > 10:
-                # 长时间横盘也算企稳
-                if idx >= 5:
+                if not pullback_ok and idx >= 5:
                     recent = df.iloc[idx - 4 : idx + 1]["close"]
-                    recent_low = recent.min()
-                    if row["close"] >= recent_low * 1.01:
+                    if recent.mean() > 0 and recent.std() / recent.mean() < 0.02:
                         pullback_ok = True
     results["pullback_stabilize"] = pullback_ok
 
-    # 9. 成交量趋势
     vol_trend_ok = True
     if idx >= 3:
         vols = [df.iloc[idx - i]["vol"] for i in range(min(4, idx + 1))]
@@ -247,15 +238,18 @@ def _check_conditions(df: pd.DataFrame, idx: int, life_info: dict, params: dict)
             vol_trend_ok = vols[0] >= vols[1] * 0.7 or vols[0] >= np.mean(vols[1:]) * 0.9
     results["volume_trend"] = vol_trend_ok
 
+    tr = row.get("turnover_rate")
+    if tr is not None and not pd.isna(tr):
+        results["turnover_range"] = 2.0 <= tr <= 12.0
+    else:
+        results["turnover_range"] = False
+
     return results
 
 
-def _analyze_stock(
-    df: pd.DataFrame, life_info: dict, params: dict
-) -> dict:
+def _analyze_stock(df: pd.DataFrame, life_info: dict, params: dict) -> dict:
     """
-    对一只股票进行阶段二分析。
-    返回信号字典：status, score, conditions, snapshot 等。
+    对一只股票进行阶段二分析，使用统一加权评分。
     """
     life_idx = life_info["df_idx"]
     life_low = life_info["low"]
@@ -264,50 +258,47 @@ def _analyze_stock(
 
     last_idx = len(df) - 1
     if last_idx <= life_idx:
-        return {"signal_status": "invalidated", "reason": "无生命线后数据"}
+        return {
+            "signal_status": "invalidated", "signal_score": 0,
+            "days_since_life_line": 0, "phase2_high": None, "pullback_pct": None,
+            "latest_close": None, "latest_pct_chg": None,
+            "rsi": None, "macd_hist": None, "volume_ratio": None,
+            "met_conditions": [], "unmet_conditions": ["无生命线后数据"],
+        }
 
     days_since = last_idx - life_idx
 
-    # 超时失效
     if days_since > max_days:
-        return {"signal_status": "invalidated", "reason": f"超过{max_days}天跟踪窗口"}
+        return {
+            "signal_status": "invalidated", "signal_score": 0,
+            "days_since_life_line": days_since, "phase2_high": None, "pullback_pct": None,
+            "latest_close": float(df.iloc[last_idx]["close"]),
+            "latest_pct_chg": float(df.iloc[last_idx]["pct_chg"]) if not pd.isna(df.iloc[last_idx].get("pct_chg")) else 0.0,
+            "rsi": None, "macd_hist": None, "volume_ratio": None,
+            "met_conditions": [], "unmet_conditions": [f"超过{max_days}天跟踪窗口"],
+        }
 
-    # 破位失效：检查最新价是否跌破生命线最低价
     latest = df.iloc[last_idx]
     if latest["low"] < life_low * 0.98:
-        return {"signal_status": "invalidated", "reason": "跌破生命线最低价"}
+        return {
+            "signal_status": "invalidated", "signal_score": 0,
+            "days_since_life_line": days_since, "phase2_high": None, "pullback_pct": None,
+            "latest_close": float(latest["close"]),
+            "latest_pct_chg": float(latest["pct_chg"]) if not pd.isna(latest.get("pct_chg")) else 0.0,
+            "rsi": None, "macd_hist": None, "volume_ratio": None,
+            "met_conditions": [], "unmet_conditions": ["跌破生命线最低价"],
+        }
 
-    # 阶段二高点
     post_window = df.iloc[life_idx + 1 : last_idx + 1]
     phase2_high = float(post_window["close"].max()) if len(post_window) > 0 else life_close
     pullback_pct = round((phase2_high - latest["close"]) / phase2_high * 100, 2) if phase2_high > 0 else 0
 
-    # 检查最新一天的买点条件
     conditions = _check_conditions(df, last_idx, life_info, params)
-    met = [k for k, v in conditions.items() if v]
-    unmet = [k for k, v in conditions.items() if not v]
-    met_count = len(met)
 
-    # 判断状态
-    if met_count == TOTAL_CONDITIONS:
-        status = "triggered"
-    elif met_count >= TOTAL_CONDITIONS - 2:
-        status = "approaching"
-    else:
-        status = "tracking"
-
-    # 评分（0~100）
-    base_score = int(met_count / TOTAL_CONDITIONS * 80)
+    # 用统一加权评分构建信号
     rsi = latest.get("rsi14", 50)
-    rsi_bonus = 10 if (not pd.isna(rsi) and 50 <= rsi <= 65) else 0
     vr = latest.get("volume_ratio", 1.0)
-    vr_bonus = 5 if (not pd.isna(vr) and 1.5 <= vr <= 2.5) else 0
-    macd_bonus = 5 if (not pd.isna(latest.get("macd_hist", 0)) and latest["macd_hist"] > 0) else 0
-    score = min(100, base_score + rsi_bonus + vr_bonus + macd_bonus)
-
-    return {
-        "signal_status": status,
-        "signal_score": score,
+    metrics = {
         "days_since_life_line": days_since,
         "phase2_high": phase2_high,
         "pullback_pct": pullback_pct,
@@ -316,18 +307,14 @@ def _analyze_stock(
         "rsi": round(float(rsi), 1) if not pd.isna(rsi) else None,
         "macd_hist": round(float(latest.get("macd_hist", 0)), 4) if not pd.isna(latest.get("macd_hist")) else None,
         "volume_ratio": round(float(vr), 2) if not pd.isna(vr) else None,
-        "met_conditions": [CONDITION_LABELS[k] for k in met],
-        "unmet_conditions": [CONDITION_LABELS[k] for k in unmet],
     }
+
+    return _build_signal(conditions, TWO_PHASE_CONDS, metrics)
 
 
 # ---------- 信号标注（K线图用） ----------
 
 def get_signal_marks(db: Session, ts_code: str, limit_up_date: str | None = None) -> list[dict]:
-    """
-    返回 K 线图上需要标注的信号点（生命线、阶段高点、买点）。
-    若未传 limit_up_date，尝试从涨停池查询。
-    """
     if not limit_up_date:
         pool = db.query(WatchPool).filter(WatchPool.name == LIMIT_UP_POOL_NAME).first()
         if pool:
@@ -374,7 +361,6 @@ def get_signal_marks(db: Session, ts_code: str, limit_up_date: str | None = None
                 "value": float(post["close"].max()),
             })
 
-    # 检查是否有买点触发
     analysis = _analyze_stock(df, life_info, DEFAULT_PARAMS)
     if analysis["signal_status"] == "triggered":
         marks.append({
@@ -397,7 +383,6 @@ def _scan_stub_invalidated(
     latest_close: float | None = None,
     latest_pct_chg: float | None = None,
 ) -> dict:
-    """无数据分析或缺少涨停日时仍返回一条记录，避免前端扫描后列表无任何反馈。"""
     return {
         "ts_code": ts_code,
         "name": _get_stock_name(db, ts_code, basic_cache),
@@ -424,7 +409,7 @@ def _scan_stub_invalidated(
 STRATEGY_REGISTRY: dict[str, dict] = {
     "two_phase": {
         "name": "二阶段买点识别",
-        "description": "涨停后冲高回落企稳反转，9项条件综合评分",
+        "description": "涨停后冲高回落企稳反转，统一加权评分",
     },
     **{
         k: {"name": v["name"], "description": v["description"]}
@@ -440,18 +425,12 @@ def list_buy_strategies() -> list[dict]:
 # ---------- 主入口：扫描池内所有股票 ----------
 
 def scan_pool_buy_signals(db: Session, pool_id: str | None = None, strategy_id: str = "two_phase") -> dict:
-    """
-    对指定池内所有股票运行买点分析。
-    strategy_id 决定使用哪个策略：two_phase 或五大战法之一。
-    返回 { signals, scan_time, total, triggered_count, approaching_count, strategy_id, strategy_name }
-    """
     if strategy_id in TACTIC_REGISTRY:
         return _scan_tactic(db, pool_id, strategy_id)
     return _scan_two_phase(db, pool_id)
 
 
 def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
-    """原有的二阶段买点扫描"""
     if not pool_id:
         pool = db.query(WatchPool).filter(WatchPool.name == LIMIT_UP_POOL_NAME).first()
         if not pool:
@@ -469,7 +448,7 @@ def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
             signals.append(
                 _scan_stub_invalidated(
                     db, ts_code, basic_cache,
-                    "无涨停日记录，无法套用二阶段买点策略（涨停池股票或手动补充涨停日）",
+                    "无涨停日记录，无法套用二阶段买点策略",
                 )
             )
             continue
@@ -479,7 +458,7 @@ def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
             signals.append(
                 _scan_stub_invalidated(
                     db, ts_code, basic_cache,
-                    "本地 K 线数据不足（请先点击「同步」拉取日线）",
+                    "本地 K 线数据不足（请先同步日线）",
                     limit_up_date=ws.limit_up_date,
                 )
             )
@@ -489,6 +468,7 @@ def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
         life_info = _validate_life_line(df, ws.limit_up_date, ts_code)
 
         if not life_info:
+            all_labels = [d["label"] for d in TWO_PHASE_CONDS.values()]
             signals.append({
                 "ts_code": ts_code,
                 "name": _get_stock_name(db, ts_code, basic_cache),
@@ -503,7 +483,7 @@ def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
                 "phase2_high": None,
                 "pullback_pct": None,
                 "met_conditions": [],
-                "unmet_conditions": list(CONDITION_LABELS.values()),
+                "unmet_conditions": all_labels,
                 "rsi": None,
                 "macd_hist": None,
                 "volume_ratio": None,
@@ -524,9 +504,10 @@ def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
 
 
 def _scan_tactic(db: Session, pool_id: str | None, strategy_id: str) -> dict:
-    """五大战法通用扫描器"""
+    """六大战法通用扫描器"""
     tactic = TACTIC_REGISTRY[strategy_id]
     analyze_fn = tactic["analyze_fn"]
+    tactic_max_days = tactic.get("max_days", 20)
 
     if not pool_id:
         pool = db.query(WatchPool).filter(WatchPool.name == LIMIT_UP_POOL_NAME).first()
@@ -572,7 +553,7 @@ def _scan_tactic(db: Session, pool_id: str | None, strategy_id: str) -> dict:
 
         limit_up_idx = int(df.index[mask][0])
 
-        ok, reason = common_pre_filter(df, limit_up_idx)
+        ok, reason = common_pre_filter(df, limit_up_idx, max_days=tactic_max_days)
         if not ok:
             signals.append({
                 "ts_code": ts_code,

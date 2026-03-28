@@ -31,6 +31,14 @@ class TushareAdapter:
             params["end_date"] = end_date
         return self.pro.daily(**params)
 
+    def get_daily_basic(self, ts_code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        params = {"ts_code": ts_code, "fields": "ts_code,trade_date,turnover_rate"}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return self.pro.daily_basic(**params)
+
     def get_daily_by_date(self, trade_date: str) -> pd.DataFrame:
         """按交易日期获取全市场日线行情。trade_date 格式 YYYYMMDD"""
         return self.pro.daily(trade_date=trade_date)

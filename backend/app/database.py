@@ -27,5 +27,7 @@ def init_db():
     migrate_limit_up_fields()
     from scripts.migrate_watch_stock_ai_fields import migrate as migrate_watch_stock_ai_fields
     migrate_watch_stock_ai_fields()
+    from scripts.migrate_daily_quote_turnover import migrate as migrate_daily_quote_turnover
+    migrate_daily_quote_turnover()
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

@@ -115,7 +115,36 @@ def sync_daily(db: Session, ts_code: str, days: int = 250):
             db.add(DailyQuote(**row.to_dict()))
             added_count += 1
     _commit_with_retry(db)
+
+    _backfill_turnover_rate(db, ts_code, start_date, end_date)
+
     return added_count
+
+
+def _backfill_turnover_rate(db: Session, ts_code: str, start_date: str, end_date: str):
+    """补充换手率到已存在的 DailyQuote 行；代理不支持时静默跳过。"""
+    try:
+        basic_df = tushare_adapter.get_daily_basic(
+            ts_code=ts_code, start_date=start_date, end_date=end_date
+        )
+        if basic_df.empty:
+            return
+        for _, row in basic_df.iterrows():
+            tr = row.get("turnover_rate")
+            if tr is None or (isinstance(tr, float) and tr != tr):
+                continue
+            td = str(row.get("trade_date", ""))
+            if not td:
+                continue
+            quote = db.query(DailyQuote).filter(
+                DailyQuote.ts_code == ts_code,
+                DailyQuote.trade_date == td,
+            ).first()
+            if quote and quote.turnover_rate is None:
+                quote.turnover_rate = float(tr)
+        _commit_with_retry(db)
+    except Exception:
+        pass
 
 
 def sync_pool(task_id: str, pool_id: str, days: int = 250):
