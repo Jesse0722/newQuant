@@ -2,26 +2,24 @@ import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   Button, Modal, Form, Input, InputNumber, Space, Card,
   Tag, Upload, message, Popconfirm, Select, AutoComplete,
-  Segmented, Spin, Empty, Dropdown, Table,
+  Segmented, Spin, Empty, Dropdown,
   DatePicker, Tooltip,
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
   PushpinFilled, HolderOutlined,
-  EllipsisOutlined, ArrowRightOutlined,
+  EllipsisOutlined,
   DownOutlined, StarFilled, StarOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import * as echarts from 'echarts'
-import { useNavigate } from 'react-router-dom'
 import {
   listPools, createPool, updatePool, deletePool, reorderPools,
-  listStocks, addStock, deleteStock, updateStock, importCSV, getAllStocks,
+  listStocks, addStock, deleteStock, updateStock, importCSV,
   getCoreWatchCodes, toggleCoreWatch,
 } from '../../api/pools'
 import { searchStocks } from '../../api/stocks'
 import { getStockChartWithMarks } from '../../api/strategy'
-import { createPlan } from '../../api/plans'
 import { syncPool, getTaskStatus } from '../../api/sync'
 import { getPoolRules, createPoolRule, deleteRule, listTemplates } from '../../api/monitor'
 import type {
@@ -31,7 +29,6 @@ import type {
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const PAGE_SIZE = 50
-const TRIGGER_OPTIONS = ['短线', '龙头战法', 'MACD金叉', '突破', '回调', '趋势跟踪', '事件驱动', '均线支撑', '量价配合']
 
 const PoolList: React.FC = () => {
   const [pools, setPools] = useState<Pool[]>([])
@@ -56,18 +53,15 @@ const PoolList: React.FC = () => {
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [editPoolModalOpen, setEditPoolModalOpen] = useState(false)
-  const [planModalOpen, setPlanModalOpen] = useState(false)
-  const [planStock, setPlanStock] = useState<WatchStock | null>(null)
-  const [createPlanModalOpen, setCreatePlanModalOpen] = useState(false)
+  const [noteModalOpen, setNoteModalOpen] = useState(false)
+  const [noteEditingStockId, setNoteEditingStockId] = useState<string | null>(null)
   const [addRuleModalOpen, setAddRuleModalOpen] = useState(false)
 
   const [addForm] = Form.useForm()
   const [poolForm] = Form.useForm()
-  const [planForm] = Form.useForm()
-  const [createPlanForm] = Form.useForm()
+  const [noteForm] = Form.useForm()
   const [ruleForm] = Form.useForm()
 
-  const [allStocks, setAllStocks] = useState<Array<{ ts_code: string; stock_name?: string }>>([])
   const [stockSearchOptions, setStockSearchOptions] = useState<Array<{ value: string; label: string }>>([])
   const [stockSearching, setStockSearching] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -77,7 +71,6 @@ const PoolList: React.FC = () => {
   const [coreWatchCodes, setCoreWatchCodes] = useState<Set<string>>(new Set())
   const [coreWatchBusyTsCode, setCoreWatchBusyTsCode] = useState<string | null>(null)
 
-  const navigate = useNavigate()
   const initialLoaded = useRef(false)
   const listRef = useRef<HTMLDivElement>(null)
   const chartDivRef = useRef<HTMLDivElement>(null)
@@ -89,7 +82,7 @@ const PoolList: React.FC = () => {
   const filtersRef = useRef({ sortBy, sortOrder, limitUpDateFromStr, limitUpDateToStr })
   filtersRef.current = { sortBy, sortOrder, limitUpDateFromStr, limitUpDateToStr }
   const anyModalOpenRef = useRef(false)
-  anyModalOpenRef.current = addModalOpen || importModalOpen || editPoolModalOpen || planModalOpen || createPlanModalOpen || addRuleModalOpen
+  anyModalOpenRef.current = addModalOpen || importModalOpen || editPoolModalOpen || noteModalOpen || addRuleModalOpen
 
   /* ===== Computed ===== */
 
@@ -340,14 +333,11 @@ const PoolList: React.FC = () => {
       } else if (e.key === 'ArrowUp' || e.key === 'k') {
         e.preventDefault()
         if (idx > 0) setSelectedCode(stocks[idx - 1].ts_code)
-      } else if (e.key === 'Enter') {
-        e.preventDefault()
-        if (selectedCode) navigate(`/stocks/${selectedCode}`)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [stocks, selectedCode, hasMore, loadMore, navigate])
+  }, [stocks, selectedCode, hasMore, loadMore])
 
   useEffect(() => {
     selectedItemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -356,10 +346,6 @@ const PoolList: React.FC = () => {
   useEffect(() => {
     if (selectedIndex >= stocks.length - 5 && hasMore && !loadingMore) loadMore()
   }, [selectedIndex, stocks.length, hasMore, loadingMore, loadMore])
-
-  useEffect(() => {
-    if (createPlanModalOpen) getAllStocks().then(res => setAllStocks(res.data || []))
-  }, [createPlanModalOpen])
 
   /* ===== Handlers ===== */
 
@@ -490,40 +476,25 @@ const PoolList: React.FC = () => {
     setStocks(prev => prev.map(s => s.id === stock.id ? { ...s, pinned: !s.pinned } : s))
   }
 
-  const openCreatePlanModal = (stock: WatchStock) => {
-    setPlanStock(stock)
-    planForm.resetFields()
-    planForm.setFieldsValue({
-      title: `${stock.stock_name || stock.ts_code} - 计划`,
-      stocks: [{ ts_code: stock.ts_code, risk_level: 2, planned_buy_price: stock.added_price }],
-    })
-    setPlanModalOpen(true)
+  const openNoteModal = () => {
+    if (!selectedStock) return
+    setNoteEditingStockId(selectedStock.id)
+    noteForm.setFieldsValue({ note: selectedStock.note || '' })
+    setNoteModalOpen(true)
   }
 
-  const handleCreatePlan = async () => {
-    const values = await planForm.validateFields()
-    const ss = values.stocks.map((s: any) => ({
-      ts_code: s.ts_code, risk_level: s.risk_level ?? 2, trigger_strategy: s.trigger_strategy,
-      planned_buy_price: s.planned_buy_price, target_price: s.target_price,
-      stop_loss_price: s.stop_loss_price, position_plan: s.position_plan, note: s.note,
-    }))
-    await createPlan({ title: values.title, stocks: ss, note: values.note })
-    message.success('交易计划已创建')
-    setPlanModalOpen(false)
-    setPlanStock(null)
-  }
-
-  const handleCreatePlanFromToolbar = async () => {
-    const values = await createPlanForm.validateFields()
-    const ss = values.stocks.map((s: any) => ({
-      ts_code: s.ts_code, risk_level: s.risk_level ?? 2, trigger_strategy: s.trigger_strategy,
-      planned_buy_price: s.planned_buy_price, target_price: s.target_price,
-      stop_loss_price: s.stop_loss_price, position_plan: s.position_plan, note: s.note,
-    }))
-    await createPlan({ title: values.title, stocks: ss, note: values.note })
-    message.success('交易计划已创建')
-    setCreatePlanModalOpen(false)
-    createPlanForm.resetFields()
+  const handleSaveNote = async () => {
+    const sid = noteEditingStockId
+    if (!sid || !activePoolId) return
+    const stock = stocks.find(s => s.id === sid)
+    if (!stock) return
+    const values = await noteForm.validateFields()
+    const noteVal = (values.note as string)?.trim() || undefined
+    await updateStock(activePoolId, sid, { note: noteVal })
+    setStocks(prev => prev.map(s => (s.id === sid ? { ...s, note: noteVal } : s)))
+    message.success('备注已保存')
+    setNoteModalOpen(false)
+    setNoteEditingStockId(null)
   }
 
   const handleTabDragStart = (e: React.DragEvent, i: number) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)) }
@@ -544,7 +515,6 @@ const PoolList: React.FC = () => {
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 300) loadMore()
   }, [hasMore, loadingMore, loading, loadMore])
 
-  const stockOptions = allStocks.map(s => ({ value: s.ts_code, label: `${s.stock_name || s.ts_code} (${s.ts_code})` }))
   const fmtLimitDate = (d?: string) => d ? `${d.slice(4, 6)}-${d.slice(6)}` : ''
 
   /* ===== Render: Left panel stock item ===== */
@@ -661,19 +631,15 @@ const PoolList: React.FC = () => {
             <span style={{ fontSize: 14, color: '#8c8c8c' }}>{selectedStock.ts_code}</span>
             {selectedStock.industry && <Tag>{selectedStock.industry}</Tag>}
           </div>
-          <Space size="small">
-            <Dropdown trigger={['click']} menu={{
-              items: [
-                { key: 'plan', label: '创建交易计划', onClick: () => openCreatePlanModal(selectedStock) },
-                { key: 'pin', label: selectedStock.pinned ? '取消置顶' : '置顶', onClick: () => handleTogglePin(selectedStock) },
-                { type: 'divider' as const },
-                { key: 'delete', label: '移除', danger: true, onClick: () => Modal.confirm({ title: '确定移除？', onOk: () => handleDeleteStock(selectedStock.id) }) },
-              ],
-            }}>
-              <Button size="small">操作 <EllipsisOutlined /></Button>
-            </Dropdown>
-            <Button size="small" onClick={() => navigate(`/stocks/${selectedStock.ts_code}`)}>完整详情 <ArrowRightOutlined /></Button>
-          </Space>
+          <Dropdown trigger={['click']} menu={{
+            items: [
+              { key: 'pin', label: selectedStock.pinned ? '取消置顶' : '置顶', onClick: () => handleTogglePin(selectedStock) },
+              { type: 'divider' as const },
+              { key: 'delete', label: '移除', danger: true, onClick: () => Modal.confirm({ title: '确定移除？', onOk: () => handleDeleteStock(selectedStock.id) }) },
+            ],
+          }}>
+            <Button size="small">操作 <EllipsisOutlined /></Button>
+          </Dropdown>
         </div>
 
         {/* K-line chart */}
@@ -690,6 +656,31 @@ const PoolList: React.FC = () => {
           ) : (
             <div ref={chartDivRef} style={{ width: '100%', height: 440, opacity: chartLoading ? 0.4 : 1, transition: 'opacity 0.2s' }} />
           )}
+        </Card>
+
+        {/* 股票备注 */}
+        <Card
+          size="small"
+          title="股票备注"
+          extra={<Button type="link" size="small" onClick={openNoteModal}>编辑</Button>}
+          style={{
+            marginTop: 12,
+            border: '1px solid #ffccc7',
+            borderRadius: 8,
+            background: '#fffafa',
+          }}
+        >
+          <div
+            style={{
+              minHeight: 80,
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.6,
+              fontSize: 14,
+              color: selectedStock.note?.trim() ? '#262626' : '#bfbfbf',
+            }}
+          >
+            {selectedStock.note?.trim() ? selectedStock.note : '暂无备注'}
+          </div>
         </Card>
       </div>
     )
@@ -908,32 +899,17 @@ const PoolList: React.FC = () => {
         </Form>
       </Modal>
 
-      <Modal title={`创建交易计划 - ${planStock?.stock_name || planStock?.ts_code || ''}`} open={planModalOpen}
-        onOk={handleCreatePlan} onCancel={() => { setPlanModalOpen(false); setPlanStock(null) }} width={560}>
-        <Form form={planForm} layout="vertical">
-          <Form.Item name="title" label="标题" rules={[{ required: true }]}><Input placeholder="计划标题" /></Form.Item>
-          <Form.Item name={['stocks', 0, 'ts_code']} hidden><Input /></Form.Item>
-          <Form.Item noStyle shouldUpdate>
-            {() => (
-              <div style={{ marginBottom: 16, padding: 12, background: '#fafafa', borderRadius: 8 }}>
-                <div style={{ marginBottom: 8 }}>股票：{planStock?.stock_name || planStock?.ts_code || '-'}</div>
-                <Form.Item name={['stocks', 0, 'trigger_strategy']} label="触发策略">
-                  <AutoComplete options={TRIGGER_OPTIONS.map(o => ({ value: o }))} placeholder="输入或选择" />
-                </Form.Item>
-                <Space wrap>
-                  <Form.Item name={['stocks', 0, 'planned_buy_price']} label="买入价"><InputNumber style={{ width: 120 }} /></Form.Item>
-                  <Form.Item name={['stocks', 0, 'target_price']} label="目标价"><InputNumber style={{ width: 120 }} /></Form.Item>
-                  <Form.Item name={['stocks', 0, 'stop_loss_price']} label="止损价"><InputNumber style={{ width: 120 }} /></Form.Item>
-                </Space>
-                <Form.Item name={['stocks', 0, 'position_plan']} label="仓位(%)"><InputNumber min={0} max={100} addonAfter="%" style={{ width: 140 }} /></Form.Item>
-                <Form.Item name={['stocks', 0, 'risk_level']} label="风险程度">
-                  <Select style={{ width: 120 }} options={[{ value: 1, label: '低风险' }, { value: 2, label: '中风险' }, { value: 3, label: '高风险' }]} />
-                </Form.Item>
-                <Form.Item name={['stocks', 0, 'note']} label="备注"><Input.TextArea rows={2} /></Form.Item>
-              </div>
-            )}
+      <Modal
+        title="编辑股票备注"
+        open={noteModalOpen}
+        onOk={handleSaveNote}
+        onCancel={() => { setNoteModalOpen(false); setNoteEditingStockId(null); noteForm.resetFields() }}
+        destroyOnClose
+      >
+        <Form form={noteForm} layout="vertical">
+          <Form.Item name="note" label="备注内容">
+            <Input.TextArea rows={6} placeholder="记录看盘要点、策略思路等" showCount maxLength={2000} />
           </Form.Item>
-          <Form.Item name="note" label="计划备注"><Input.TextArea rows={2} /></Form.Item>
         </Form>
       </Modal>
 
@@ -944,44 +920,6 @@ const PoolList: React.FC = () => {
         </Upload.Dragger>
       </Modal>
 
-      <Modal title="新建交易计划" open={createPlanModalOpen} onOk={handleCreatePlanFromToolbar}
-        onCancel={() => { setCreatePlanModalOpen(false); createPlanForm.resetFields() }} width={900}>
-        <Form form={createPlanForm} layout="vertical" initialValues={{ stocks: [{ risk_level: 2 }] }}>
-          <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入标题' }]}><Input placeholder="计划标题" /></Form.Item>
-          <Form.Item name="note" label="计划备注"><Input.TextArea rows={2} /></Form.Item>
-          <Form.Item label="股票列表">
-            <Form.List name="stocks" rules={[{ validator: (_, v) => v?.length ? Promise.resolve() : Promise.reject('至少添加一只股票') }]}>
-              {(fields, { add, remove }) => (<>
-                <Table dataSource={fields} rowKey={f => String(f.key)} pagination={false} size="small" scroll={{ x: 1100 }} columns={[
-                  { title: '股票', key: 'ts_code', width: 180, render: (_, __, i) => (
-                    <Form.Item name={[fields[i].name, 'ts_code']} noStyle rules={[{ required: true, message: '请选择' }]}>
-                      <Select showSearch placeholder="搜索" size="small" style={{ width: 160 }} options={stockOptions}
-                        filterOption={(input, opt) => (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())} />
-                    </Form.Item>
-                  )},
-                  { title: '策略', key: 'trigger_strategy', width: 130, render: (_, __, i) => (
-                    <Form.Item name={[fields[i].name, 'trigger_strategy']} noStyle>
-                      <AutoComplete options={TRIGGER_OPTIONS.map(o => ({ value: o }))} size="small" style={{ width: 120 }} />
-                    </Form.Item>
-                  )},
-                  { title: '买入价', key: 'buy', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'planned_buy_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
-                  { title: '目标', key: 'target', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'target_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
-                  { title: '止损', key: 'sl', width: 85, render: (_, __, i) => <Form.Item name={[fields[i].name, 'stop_loss_price']} noStyle><InputNumber size="small" style={{ width: 70 }} /></Form.Item> },
-                  { title: '仓位%', key: 'pos', width: 90, render: (_, __, i) => <Form.Item name={[fields[i].name, 'position_plan']} noStyle><InputNumber size="small" min={0} max={100} addonAfter="%" style={{ width: 80 }} /></Form.Item> },
-                  { title: '风险', key: 'risk', width: 100, render: (_, __, i) => (
-                    <Form.Item name={[fields[i].name, 'risk_level']} noStyle>
-                      <Select size="small" style={{ width: 90 }} options={[{ value: 1, label: '低' }, { value: 2, label: '中' }, { value: 3, label: '高' }]} />
-                    </Form.Item>
-                  )},
-                  { title: '备注', key: 'note', width: 100, render: (_, __, i) => <Form.Item name={[fields[i].name, 'note']} noStyle><Input size="small" /></Form.Item> },
-                  { title: '', key: 'action', width: 40, render: (_, __, i) => fields.length > 1 ? <a onClick={() => remove(fields[i].name)} style={{ color: '#ff4d4f' }}>删</a> : null },
-                ]} />
-                <Button type="dashed" onClick={() => add({ risk_level: 2 })} block icon={<PlusOutlined />} style={{ marginTop: 8 }}>添加股票</Button>
-              </>)}
-            </Form.List>
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   )
 }
