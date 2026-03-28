@@ -3,13 +3,13 @@ import {
   Button, Modal, Form, Input, InputNumber, Space, Card,
   Tag, Upload, message, Popconfirm, Select, AutoComplete,
   Segmented, Spin, Empty, Dropdown, Table,
-  DatePicker,
+  DatePicker, Tooltip,
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
   PushpinFilled, HolderOutlined,
   EllipsisOutlined, ArrowRightOutlined,
-  DownOutlined,
+  DownOutlined, StarFilled, StarOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import * as echarts from 'echarts'
@@ -17,6 +17,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   listPools, createPool, updatePool, deletePool, reorderPools,
   listStocks, addStock, deleteStock, updateStock, importCSV, getAllStocks,
+  getCoreWatchCodes, toggleCoreWatch,
 } from '../../api/pools'
 import { searchStocks } from '../../api/stocks'
 import { getStockChartWithMarks } from '../../api/strategy'
@@ -73,6 +74,8 @@ const PoolList: React.FC = () => {
   const [poolRules, setPoolRules] = useState<MonitorRule[]>([])
   const [monitorTemplates, setMonitorTemplates] = useState<MonitorTemplate[]>([])
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [coreWatchCodes, setCoreWatchCodes] = useState<Set<string>>(new Set())
+  const [coreWatchBusyTsCode, setCoreWatchBusyTsCode] = useState<string | null>(null)
 
   const navigate = useNavigate()
   const initialLoaded = useRef(false)
@@ -98,10 +101,39 @@ const PoolList: React.FC = () => {
 
   /* ===== Data Fetching ===== */
 
+  const refreshCoreWatch = useCallback(() => {
+    getCoreWatchCodes()
+      .then(res => setCoreWatchCodes(new Set(res.data.ts_codes || [])))
+      .catch(() => {})
+  }, [])
+
   const fetchPools = async () => {
     const res = await listPools()
     setPools(res.data)
     return res.data
+  }
+
+  const handleToggleCoreWatch = async (stock: WatchStock, starred: boolean) => {
+    setCoreWatchBusyTsCode(stock.ts_code)
+    try {
+      await toggleCoreWatch({
+        ts_code: stock.ts_code,
+        starred,
+        limit_up_date: stock.limit_up_date || undefined,
+      })
+      setCoreWatchCodes(prev => {
+        const next = new Set(prev)
+        if (starred) next.add(stock.ts_code)
+        else next.delete(stock.ts_code)
+        return next
+      })
+      message.success(starred ? '已加入「核心关注」股票池' : '已取消特别关注')
+      fetchPools().catch(() => {})
+    } catch {
+      message.error('操作失败，请重试')
+    } finally {
+      setCoreWatchBusyTsCode(null)
+    }
   }
 
   const fetchPage = async (poolId: string, pageNum: number) => {
@@ -144,13 +176,14 @@ const PoolList: React.FC = () => {
   /* ===== Effects ===== */
 
   useEffect(() => {
+    refreshCoreWatch()
     fetchPools().then(data => {
       if (!initialLoaded.current && data.length > 0) {
         setActivePoolId(data[0].id)
         initialLoaded.current = true
       }
     })
-  }, [])
+  }, [refreshCoreWatch])
 
   useEffect(() => {
     if (activePoolId) loadInitial(activePoolId)
@@ -519,6 +552,8 @@ const PoolList: React.FC = () => {
   const renderStockItem = (stock: WatchStock) => {
     const isSelected = stock.ts_code === selectedCode
     const borderColor = isSelected ? '#1677ff' : 'transparent'
+    const starred = coreWatchCodes.has(stock.ts_code)
+    const starBusy = coreWatchBusyTsCode === stock.ts_code
 
     return (
       <div
@@ -538,8 +573,38 @@ const PoolList: React.FC = () => {
         onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = isSelected ? '#f0f5ff' : 'transparent' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontWeight: 600, fontSize: 14 }}>{stock.stock_name || '-'}</span>
-          {stock.pinned && <PushpinFilled style={{ color: '#faad14', fontSize: 12 }} />}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 14 }}>
+            <Tooltip title={starred ? '取消特别关注（从核心关注移除）' : '加入核心关注'}>
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={e => {
+                  e.stopPropagation()
+                  if (!starBusy) handleToggleCoreWatch(stock, !starred)
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (!starBusy) handleToggleCoreWatch(stock, !starred)
+                  }
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  color: starred ? '#faad14' : '#d9d9d9',
+                  cursor: starBusy ? 'wait' : 'pointer',
+                  opacity: starBusy ? 0.5 : 1,
+                }}
+              >
+                {starred ? <StarFilled /> : <StarOutlined />}
+              </span>
+            </Tooltip>
+            {stock.stock_name || '-'}
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {stock.pinned && <PushpinFilled style={{ color: '#faad14', fontSize: 12 }} />}
+          </span>
         </div>
 
         <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>
@@ -574,7 +639,24 @@ const PoolList: React.FC = () => {
       <div style={{ overflowY: 'auto', height: '100%', padding: '0 0 16px' }}>
         {/* Info header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Tooltip title={coreWatchCodes.has(selectedStock.ts_code) ? '取消特别关注' : '加入核心关注'}>
+              <Button
+                type="text"
+                size="large"
+                loading={coreWatchBusyTsCode === selectedStock.ts_code}
+                icon={
+                  coreWatchCodes.has(selectedStock.ts_code)
+                    ? <StarFilled style={{ color: '#faad14', fontSize: 22 }} />
+                    : <StarOutlined style={{ fontSize: 22, color: '#bfbfbf' }} />
+                }
+                onClick={() =>
+                  coreWatchBusyTsCode !== selectedStock.ts_code &&
+                  handleToggleCoreWatch(selectedStock, !coreWatchCodes.has(selectedStock.ts_code))
+                }
+                style={{ padding: '4px 8px' }}
+              />
+            </Tooltip>
             <span style={{ fontSize: 18, fontWeight: 700 }}>{selectedStock.stock_name || selectedStock.ts_code}</span>
             <span style={{ fontSize: 14, color: '#8c8c8c' }}>{selectedStock.ts_code}</span>
             {selectedStock.industry && <Tag>{selectedStock.industry}</Tag>}
