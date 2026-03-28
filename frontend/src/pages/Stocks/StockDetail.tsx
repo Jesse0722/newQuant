@@ -11,6 +11,7 @@ import { getStockChart, getStockAlerts, getStockDetails, createStockDetail } fro
 import { updateDetail, deleteDetail } from '../../api/plans'
 import { extractTradeFromImage } from '../../api/ocr'
 import type { StockChartData, StockAlertItem, TradeDetail } from '../../types'
+import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const statusColors: Record<string, string> = {
   pending: 'default', active: 'blue', completed: 'green', cancelled: 'red', processed: 'purple',
@@ -217,7 +218,11 @@ const StockDetail: React.FC = () => {
 
     const option: echarts.EChartsOption = {
       animation: false,
-      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' },
+        formatter: makeKlineAxisTooltipFormatter(quotes),
+      },
       legend: { data: ['MA5', 'MA10', 'MA20'], top: 0, left: 'center' },
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       grid: [gridMain, gridVol, gridSub],

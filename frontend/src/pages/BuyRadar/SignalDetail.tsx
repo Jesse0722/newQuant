@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import * as echarts from 'echarts'
 import { getStockChartWithMarks } from '../../api/strategy'
 import type { BuySignal, StockChartDataWithMarks, SignalMark } from '../../types'
+import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const STATUS_LABELS: Record<string, { text: string; color: string }> = {
   triggered: { text: '已触发买点', color: '#f5222d' },
@@ -134,7 +135,11 @@ const SignalDetail: React.FC<Props> = ({
 
     const option: echarts.EChartsOption = {
       animation: false,
-      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' },
+        formatter: makeKlineAxisTooltipFormatter(quotes),
+      },
       legend: { data: ['MA5', 'MA10', 'MA20'], top: 0, left: 'center' },
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       grid: [gridMain, gridVol, gridSub],

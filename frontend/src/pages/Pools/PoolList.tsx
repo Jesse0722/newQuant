@@ -27,6 +27,7 @@ import type {
   Pool, WatchStock, MonitorRule, MonitorTemplate,
   StockChartDataWithMarks,
 } from '../../types'
+import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const PAGE_SIZE = 50
 const TRIGGER_OPTIONS = ['短线', '龙头战法', 'MACD金叉', '突破', '回调', '趋势跟踪', '事件驱动', '均线支撑', '量价配合']
@@ -251,7 +252,11 @@ const PoolList: React.FC = () => {
       }
       chartInstance.current.setOption({
         animation: false,
-        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'cross' },
+          formatter: makeKlineAxisTooltipFormatter(quotes),
+        },
         legend: { data: ['MA5', 'MA10', 'MA20'], top: 0, left: 'center', textStyle: { fontSize: 11 } },
         axisPointer: { link: [{ xAxisIndex: 'all' }] },
         grid: [
