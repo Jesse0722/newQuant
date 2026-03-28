@@ -10,7 +10,9 @@ from app.schemas.pool import (
     PoolCreate, PoolUpdate, PoolOut,
     WatchStockCreate, WatchStockUpdate, WatchStockOut, WatchStockPagination,
     CSVImportResult, BatchAddStocks, BatchAddResult, QuickCreatePool,
+    CoreWatchCodesOut, CoreWatchToggleBody, CoreWatchToggleOut,
 )
+from app.services.core_watch_service import list_core_watch_ts_codes, toggle_core_watch_star
 from app.exceptions import AppError
 from app.utils import normalize_ts_code
 from app.services.sync_service import sync_single_stock
@@ -83,6 +85,28 @@ def reorder_pools(body: dict = Body(...), db: Session = Depends(get_db)):
             pool.sort_order = i
     db.commit()
     return {"ok": True}
+
+
+@router.get("/core-watch/codes", response_model=CoreWatchCodesOut)
+def get_core_watch_codes(db: Session = Depends(get_db)):
+    """买点雷达：获取「核心关注」池内股票代码（池不存在则 pool_id 为空）"""
+    pool_id, ts_codes = list_core_watch_ts_codes(db)
+    return CoreWatchCodesOut(pool_id=pool_id, ts_codes=ts_codes)
+
+
+@router.post("/core-watch/toggle", response_model=CoreWatchToggleOut)
+def core_watch_toggle(body: CoreWatchToggleBody, db: Session = Depends(get_db)):
+    """买点雷达特别关注：加星加入核心关注池，取消星标则移除"""
+    try:
+        result = toggle_core_watch_star(
+            db,
+            body.ts_code,
+            body.starred,
+            limit_up_date=body.limit_up_date,
+        )
+        return CoreWatchToggleOut(**result)
+    except ValueError as e:
+        raise AppError(code=2003, message=str(e))
 
 
 @router.post("", response_model=PoolOut, status_code=201)

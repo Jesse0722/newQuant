@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip } from 'antd'
 import { ScanOutlined } from '@ant-design/icons'
 import { scanBuySignals, getBuyStrategies } from '../../api/strategy'
-import { listPools } from '../../api/pools'
+import { listPools, getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import SignalList from './SignalList'
 import SignalDetail from './SignalDetail'
 import type { BuySignal, BuySignalStatus, BuySignalScanResult, BuyStrategy, Pool } from '../../types'
@@ -18,7 +18,15 @@ const BuyRadarPage: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<FilterStatus>('all')
   const [selectedSignal, setSelectedSignal] = useState<BuySignal | null>(null)
+  const [coreWatchCodes, setCoreWatchCodes] = useState<Set<string>>(new Set())
+  const [coreWatchBusyTsCode, setCoreWatchBusyTsCode] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  const refreshCoreWatch = useCallback(() => {
+    getCoreWatchCodes()
+      .then((res) => setCoreWatchCodes(new Set(res.data.ts_codes || [])))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     listPools()
@@ -32,6 +40,8 @@ const BuyRadarPage: React.FC = () => {
       })
       .catch(() => message.error('加载股票池失败'))
 
+    refreshCoreWatch()
+
     getBuyStrategies()
       .then((res) => {
         const list = res.data || []
@@ -41,7 +51,32 @@ const BuyRadarPage: React.FC = () => {
         }
       })
       .catch(() => {})
-  }, [])
+  }, [refreshCoreWatch])
+
+  const handleToggleCoreWatch = async (sig: BuySignal, starred: boolean) => {
+    setCoreWatchBusyTsCode(sig.ts_code)
+    try {
+      await toggleCoreWatch({
+        ts_code: sig.ts_code,
+        starred,
+        limit_up_date: sig.life_line_date || undefined,
+      })
+      setCoreWatchCodes((prev) => {
+        const next = new Set(prev)
+        if (starred) next.add(sig.ts_code)
+        else next.delete(sig.ts_code)
+        return next
+      })
+      message.success(starred ? '已加入「核心关注」股票池' : '已取消特别关注')
+      listPools()
+        .then((res) => setPools(res.data || []))
+        .catch(() => {})
+    } catch {
+      message.error('操作失败，请重试')
+    } finally {
+      setCoreWatchBusyTsCode(null)
+    }
+  }
 
   const filteredSignals = scanResult
     ? filter === 'all'
@@ -218,6 +253,9 @@ const BuyRadarPage: React.FC = () => {
                 signals={filteredSignals}
                 selectedCode={selectedSignal?.ts_code || null}
                 onSelect={handleSelect}
+                coreWatchCodes={coreWatchCodes}
+                onToggleCoreWatch={handleToggleCoreWatch}
+                coreWatchBusyTsCode={coreWatchBusyTsCode}
               />
             )}
           </div>
@@ -225,7 +263,12 @@ const BuyRadarPage: React.FC = () => {
 
         {/* 右侧详情 */}
         <div style={{ flex: 1, minWidth: 0, padding: '12px 16px', overflowY: 'auto' }}>
-          <SignalDetail signal={selectedSignal} />
+          <SignalDetail
+            signal={selectedSignal}
+            coreWatchCodes={coreWatchCodes}
+            onToggleCoreWatch={handleToggleCoreWatch}
+            coreWatchBusyTsCode={coreWatchBusyTsCode}
+          />
         </div>
       </div>
     </div>

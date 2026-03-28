@@ -1,5 +1,6 @@
 import React from 'react'
-import { Tag, Empty } from 'antd'
+import { Tag, Empty, Tooltip } from 'antd'
+import { StarFilled, StarOutlined } from '@ant-design/icons'
 import type { BuySignal, BuySignalStatus } from '../../types'
 
 const STATUS_CONFIG: Record<BuySignalStatus, { color: string; label: string }> = {
@@ -13,9 +14,19 @@ interface Props {
   signals: BuySignal[]
   selectedCode: string | null
   onSelect: (signal: BuySignal) => void
+  coreWatchCodes: Set<string>
+  onToggleCoreWatch: (signal: BuySignal, starred: boolean) => void
+  coreWatchBusyTsCode?: string | null
 }
 
-const SignalList: React.FC<Props> = ({ signals, selectedCode, onSelect }) => {
+const SignalList: React.FC<Props> = ({
+  signals,
+  selectedCode,
+  onSelect,
+  coreWatchCodes,
+  onToggleCoreWatch,
+  coreWatchBusyTsCode,
+}) => {
   if (signals.length === 0) {
     return (
       <div style={{ padding: 32, textAlign: 'center' }}>
@@ -29,6 +40,8 @@ const SignalList: React.FC<Props> = ({ signals, selectedCode, onSelect }) => {
       {signals.map((s) => {
         const cfg = STATUS_CONFIG[s.signal_status] || STATUS_CONFIG.tracking
         const isActive = s.ts_code === selectedCode
+        const starred = coreWatchCodes.has(s.ts_code)
+        const busy = coreWatchBusyTsCode === s.ts_code
         return (
           <div
             key={s.ts_code}
@@ -50,7 +63,33 @@ const SignalList: React.FC<Props> = ({ signals, selectedCode, onSelect }) => {
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <span style={{ fontWeight: 600, fontSize: 14 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 14 }}>
+                <Tooltip title={starred ? '取消特别关注（从核心关注移除）' : '加入核心关注'}>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (!busy) onToggleCoreWatch(s, !starred)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (!busy) onToggleCoreWatch(s, !starred)
+                      }
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      color: starred ? '#faad14' : '#d9d9d9',
+                      cursor: busy ? 'wait' : 'pointer',
+                      opacity: busy ? 0.5 : 1,
+                    }}
+                  >
+                    {starred ? <StarFilled /> : <StarOutlined />}
+                  </span>
+                </Tooltip>
                 {s.name}
               </span>
               <Tag color={cfg.color} style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>

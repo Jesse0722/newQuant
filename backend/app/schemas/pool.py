@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PoolCreate(BaseModel):
@@ -88,3 +88,21 @@ class QuickCreatePool(BaseModel):
 class WatchStockPagination(BaseModel):
     items: list[WatchStockOut]
     total: int
+
+
+class CoreWatchCodesOut(BaseModel):
+    pool_id: Optional[str] = None
+    ts_codes: list[str]
+
+
+class CoreWatchToggleBody(BaseModel):
+    ts_code: str
+    starred: bool
+    limit_up_date: Optional[str] = Field(None, description="涨停日 YYYYMMDD，与买点雷达一致")
+
+
+class CoreWatchToggleOut(BaseModel):
+    starred: bool
+    pool_id: Optional[str] = None
+    stock_id: Optional[str] = None
+    ts_code: str

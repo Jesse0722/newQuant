@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react'
-import { Card, Tag, Descriptions, Segmented, Space, Row, Col, Statistic, Empty, Button } from 'antd'
-import { CheckCircleFilled, CloseCircleFilled, ArrowRightOutlined } from '@ant-design/icons'
+import { Card, Tag, Descriptions, Segmented, Space, Row, Col, Statistic, Empty, Button, Tooltip } from 'antd'
+import { CheckCircleFilled, CloseCircleFilled, ArrowRightOutlined, StarFilled, StarOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import * as echarts from 'echarts'
 import { getStockChartWithMarks } from '../../api/strategy'
@@ -15,9 +15,17 @@ const STATUS_LABELS: Record<string, { text: string; color: string }> = {
 
 interface Props {
   signal: BuySignal | null
+  coreWatchCodes: Set<string>
+  onToggleCoreWatch: (signal: BuySignal, starred: boolean) => void
+  coreWatchBusyTsCode?: string | null
 }
 
-const SignalDetail: React.FC<Props> = ({ signal }) => {
+const SignalDetail: React.FC<Props> = ({
+  signal,
+  coreWatchCodes,
+  onToggleCoreWatch,
+  coreWatchBusyTsCode,
+}) => {
   const navigate = useNavigate()
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
@@ -30,7 +38,7 @@ const SignalDetail: React.FC<Props> = ({ signal }) => {
     getStockChartWithMarks(signal.ts_code, period, signal.life_line_date || undefined).then((res) =>
       setChartData(res.data)
     )
-  }, [signal?.ts_code, period])
+  }, [signal?.ts_code, signal?.life_line_date, period])
 
   const renderChart = useCallback(() => {
     if (!chartRef.current || !chartData || chartData.quotes.length === 0) return
@@ -178,12 +186,24 @@ const SignalDetail: React.FC<Props> = ({ signal }) => {
   }
 
   const statusCfg = STATUS_LABELS[signal.signal_status] || STATUS_LABELS.tracking
+  const starred = coreWatchCodes.has(signal.ts_code)
+  const starBusy = coreWatchBusyTsCode === signal.ts_code
 
   return (
     <div style={{ overflowY: 'auto', height: '100%', padding: '0 0 16px 0' }}>
       {/* 顶部信息栏 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <Tooltip title={starred ? '取消特别关注' : '加入核心关注'}>
+            <Button
+              type="text"
+              size="large"
+              loading={starBusy}
+              icon={starred ? <StarFilled style={{ color: '#faad14', fontSize: 22 }} /> : <StarOutlined style={{ fontSize: 22, color: '#bfbfbf' }} />}
+              onClick={() => !starBusy && onToggleCoreWatch(signal, !starred)}
+              style={{ padding: '4px 8px' }}
+            />
+          </Tooltip>
           <span style={{ fontSize: 18, fontWeight: 700, marginRight: 8 }}>{signal.name}</span>
           <span style={{ fontSize: 14, color: '#8c8c8c', marginRight: 12 }}>{signal.ts_code}</span>
           {signal.industry && <Tag>{signal.industry}</Tag>}

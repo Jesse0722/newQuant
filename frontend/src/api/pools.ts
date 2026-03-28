@@ -66,3 +66,17 @@ export const quickCreatePool = (data: {
   ts_codes: string[]
   description?: string
 }) => client.post<Pool>('/pools/quick-create', data)
+
+/** 买点雷达「核心关注」池内股票代码 */
+export const getCoreWatchCodes = () =>
+  client.get<{ pool_id: string | null; ts_codes: string[] }>('/pools/core-watch/codes')
+
+export const toggleCoreWatch = (data: {
+  ts_code: string
+  starred: boolean
+  limit_up_date?: string | null
+}) =>
+  client.post<{ starred: boolean; pool_id: string | null; stock_id?: string; ts_code: string }>(
+    '/pools/core-watch/toggle',
+    data
+  )
