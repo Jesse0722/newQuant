@@ -199,13 +199,14 @@ def analyze_next_day_shrink(df: pd.DataFrame, limit_up_idx: int) -> dict:
 # ================================================================
 
 MA5_PULLBACK_CONDS = {
-    "touch_ma5":          {"label": "回踩至MA5附近",      "weight": 1.5, "core": True},
-    "moderate_vol":       {"label": "成交量温和",          "weight": 0.5, "core": False},
-    "yang_candle":        {"label": "收出阳线",            "weight": 1.0, "core": True},
-    "above_ma5":          {"label": "收盘站上MA5",         "weight": 1.0, "core": True},
-    "pullback_done":      {"label": "经历回调",            "weight": 1.0, "core": True},
-    "ma5_rising":         {"label": "MA5走平或上升",       "weight": 0.5, "core": False},
-    "turnover_moderate":  {"label": "换手率<5%",           "weight": 0.5, "core": False},
+    "touch_ma5":          {"label": "日内回踩至MA5",       "weight": 1.0, "core": True},
+    "close_near_ma5":     {"label": "收盘靠近MA5(偏离<2%)", "weight": 1.5, "core": True},
+    "moderate_vol":       {"label": "成交量温和",           "weight": 0.5, "core": False},
+    "yang_candle":        {"label": "收出阳线",             "weight": 1.0, "core": True},
+    "above_ma5":          {"label": "收盘站上MA5",          "weight": 1.0, "core": True},
+    "pullback_done":      {"label": "经历有效回调(>=3%)",    "weight": 1.0, "core": True},
+    "ma5_rising":         {"label": "MA5走平或上升",        "weight": 1.0, "core": True},
+    "turnover_moderate":  {"label": "换手率<5%",            "weight": 0.5, "core": False},
 }
 
 
@@ -216,11 +217,18 @@ def analyze_ma5_pullback(df: pd.DataFrame, limit_up_idx: int) -> dict:
     ma5 = latest.get("ma5")
     vol_ma5 = latest.get("vol_ma5")
 
-    # 回踩MA5：日内最低触及MA5附近
+    # 日内回踩MA5：最低价触及MA5附近
     if ma5 is not None and not pd.isna(ma5) and ma5 > 0:
         c["touch_ma5"] = latest["low"] <= ma5 * 1.01
     else:
         c["touch_ma5"] = False
+
+    # 收盘靠近MA5：偏离不超过2%（防止日内探底后大幅反弹远离MA5的假信号）
+    if ma5 is not None and not pd.isna(ma5) and ma5 > 0:
+        dist = (latest["close"] - ma5) / ma5
+        c["close_near_ma5"] = -0.005 <= dist <= 0.02
+    else:
+        c["close_near_ma5"] = False
 
     # 量能温和
     if vol_ma5 is not None and not pd.isna(vol_ma5) and vol_ma5 > 0:
@@ -231,23 +239,21 @@ def analyze_ma5_pullback(df: pd.DataFrame, limit_up_idx: int) -> dict:
 
     c["yang_candle"] = latest["close"] > latest["open"]
 
-    # 收盘基本站上MA5
+    # 收盘站上MA5
     if ma5 is not None and not pd.isna(ma5):
         c["above_ma5"] = latest["close"] >= ma5 * 0.995
     else:
         c["above_ma5"] = False
 
-    # 经历回调：至少出现过一根阴线 或 最高收盘到今日有>=2%回撤
+    # 经历有效回调：阶段高点到当前收盘有>=3%回撤
     post = df.iloc[limit_up_idx + 1 : latest_idx + 1]
-    has_yin = any(post.iloc[i]["close"] < post.iloc[i]["open"] for i in range(len(post)))
     if len(post) > 1:
         peak = post["close"].max()
-        has_pullback = latest["close"] < peak * 0.98
+        c["pullback_done"] = latest["close"] < peak * 0.97
     else:
-        has_pullback = False
-    c["pullback_done"] = has_yin or has_pullback
+        c["pullback_done"] = False
 
-    # MA5方向：今日MA5 >= 昨日MA5
+    # MA5方向：今日MA5 >= 昨日MA5（核心：防止下行趋势抄底）
     if latest_idx >= 1:
         prev_ma5 = df.iloc[latest_idx - 1].get("ma5")
         if ma5 is not None and not pd.isna(ma5) and prev_ma5 is not None and not pd.isna(prev_ma5):
