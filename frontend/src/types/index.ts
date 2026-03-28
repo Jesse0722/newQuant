@@ -24,6 +24,8 @@ export interface WatchStock {
   monitor_status: string
   pinned: boolean
   note?: string
+  ai_analysis?: string
+  ai_analyzed_at?: string
   limit_up_date?: string
   created_at: string
 }
@@ -303,6 +305,17 @@ export interface BuyStrategy {
   id: string
   name: string
   description: string
+}
+
+export interface AiAnalysisResult {
+  score: number
+  trend: '上涨' | '震荡' | '下跌' | string
+  技术面: string
+  基本面: string
+  量能: string
+  风险提示: string
+  操作建议: string
+  summary: string
 }
 
 export interface SignalMark {

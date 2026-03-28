@@ -1,12 +1,11 @@
 """AI 智能选股服务：支持 OpenAI、通义千问、Ollama"""
-import json
-import os
 import re
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models.stock import StockBasic
 from app.models.pool import WatchStock
+from app.services.llm_client import call_llm
 from app.services.tushare_adapter import tushare_adapter
 from app.tasks.background import task_registry
 
@@ -59,53 +58,6 @@ def _ensure_stock_basic(db: Session, ts_codes: list[str]):
         pass
 
 
-def _call_openai(prompt: str) -> str:
-    from openai import OpenAI
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    base_url = os.getenv("OPENAI_BASE_URL")
-    if not api_key and not base_url:
-        raise RuntimeError("未配置 AI：请设置 OPENAI_API_KEY 或使用 Ollama 配置 OLLAMA_BASE_URL")
-    client = OpenAI(api_key=api_key or "ollama", base_url=base_url)
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-    )
-    return resp.choices[0].message.content or ""
-
-
-def _call_ollama(prompt: str) -> str:
-    from openai import OpenAI
-    base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-    client = OpenAI(base_url=f"{base}/v1", api_key="ollama")
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-    )
-    return resp.choices[0].message.content or ""
-
-
-def _call_qwen(prompt: str) -> str:
-    from dashscope import Generation
-    api_key = os.getenv("DASHSCOPE_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("未配置通义千问：请设置 DASHSCOPE_API_KEY")
-    model = os.getenv("DASHSCOPE_MODEL", "qwen-plus")
-    resp = Generation.call(
-        api_key=api_key,
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        result_format="message",
-        temperature=0.3,
-    )
-    if resp.status_code != 200:
-        raise RuntimeError(f"通义千问调用失败: {resp.message}")
-    return resp.output.choices[0].message.content or ""
-
-
 def _parse_ts_codes(text: str) -> list[str]:
     """从 AI 返回文本中解析 ts_codes"""
     text = text.strip()
@@ -130,7 +82,6 @@ def run_ai_screen(task_id: str, description: str, scope: str | None):
     db = SessionLocal()
     try:
         task.message = "正在调用 AI 分析..."
-        provider = os.getenv("AI_PROVIDER", "openai").lower()
         prompt = SCREEN_PROMPT + description.strip()
 
         if scope and scope != "full":
@@ -139,12 +90,7 @@ def run_ai_screen(task_id: str, description: str, scope: str | None):
                 codes_str = ", ".join([s.ts_code for s in stocks[:200]])
                 prompt += f"\n\n可选股票池（仅从以下筛选）：{codes_str}"
 
-        if provider == "ollama":
-            raw = _call_ollama(prompt)
-        elif provider == "qwen":
-            raw = _call_qwen(prompt)
-        else:
-            raw = _call_openai(prompt)
+        raw = call_llm(prompt)
 
         ts_codes = _parse_ts_codes(raw)
         if not ts_codes:

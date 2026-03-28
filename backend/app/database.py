@@ -25,5 +25,7 @@ def init_db():
     migrate_pool_sort_order()
     from scripts.migrate_limit_up_fields import migrate as migrate_limit_up_fields
     migrate_limit_up_fields()
+    from scripts.migrate_watch_stock_ai_fields import migrate as migrate_watch_stock_ai_fields
+    migrate_watch_stock_ai_fields()
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

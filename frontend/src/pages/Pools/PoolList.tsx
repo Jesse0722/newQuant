@@ -3,13 +3,13 @@ import {
   Button, Modal, Form, Input, InputNumber, Space, Card,
   Tag, Upload, message, Popconfirm, Select, AutoComplete,
   Segmented, Spin, Empty, Dropdown,
-  DatePicker, Tooltip,
+  DatePicker, Tooltip, Progress,
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
   PushpinFilled, PushpinOutlined, HolderOutlined,
   DownOutlined, StarFilled, StarOutlined,
-  EditOutlined, DeleteOutlined,
+  EditOutlined, DeleteOutlined, RobotOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import * as echarts from 'echarts'
@@ -19,12 +19,12 @@ import {
   getCoreWatchCodes, toggleCoreWatch,
 } from '../../api/pools'
 import { searchStocks } from '../../api/stocks'
-import { getStockChartWithMarks } from '../../api/strategy'
+import { aiAnalyzeStock, getStockChartWithMarks } from '../../api/strategy'
 import { syncPool, getTaskStatus } from '../../api/sync'
 import { getPoolRules, createPoolRule, deleteRule, listTemplates } from '../../api/monitor'
 import type {
   Pool, WatchStock, MonitorRule, MonitorTemplate,
-  StockChartDataWithMarks,
+  StockChartDataWithMarks, AiAnalysisResult,
 } from '../../types'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
@@ -70,6 +70,7 @@ const PoolList: React.FC = () => {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [coreWatchCodes, setCoreWatchCodes] = useState<Set<string>>(new Set())
   const [coreWatchBusyTsCode, setCoreWatchBusyTsCode] = useState<string | null>(null)
+  const [aiAnalyzingStockId, setAiAnalyzingStockId] = useState<string | null>(null)
 
   const initialLoaded = useRef(false)
   const listRef = useRef<HTMLDivElement>(null)
@@ -497,6 +498,27 @@ const PoolList: React.FC = () => {
     setNoteEditingStockId(null)
   }
 
+  const handleAnalyzeStock = async () => {
+    if (!selectedStock || !activePoolId) return
+    setAiAnalyzingStockId(selectedStock.id)
+    try {
+      const res = await aiAnalyzeStock({ ts_code: selectedStock.ts_code, stock_id: selectedStock.id })
+      const analysisText = JSON.stringify(res.data.analysis, null, 2)
+      const analyzedAt = res.data.ai_analyzed_at
+      setStocks(prev => prev.map(s => (
+        s.id === selectedStock.id
+          ? { ...s, ai_analysis: analysisText, ai_analyzed_at: analyzedAt }
+          : s
+      )))
+      message.success('AI 分析完成')
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'AI 分析失败，请稍后重试'
+      message.error(msg)
+    } finally {
+      setAiAnalyzingStockId(null)
+    }
+  }
+
   const handleTabDragStart = (e: React.DragEvent, i: number) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)) }
   const handleTabDragOver = (e: React.DragEvent, i: number) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverIndex(i) }
   const handleTabDragLeave = () => setDragOverIndex(null)
@@ -516,6 +538,20 @@ const PoolList: React.FC = () => {
   }, [hasMore, loadingMore, loading, loadMore])
 
   const fmtLimitDate = (d?: string) => d ? `${d.slice(4, 6)}-${d.slice(6)}` : ''
+  const parseAiAnalysis = (raw?: string): AiAnalysisResult | null => {
+    if (!raw) return null
+    try {
+      return JSON.parse(raw) as AiAnalysisResult
+    } catch {
+      return null
+    }
+  }
+
+  const trendColor = (trend?: string) => {
+    if (trend === '上涨') return 'green'
+    if (trend === '下跌') return 'red'
+    return 'default'
+  }
 
   /* ===== Render: Left panel stock item ===== */
 
@@ -605,6 +641,8 @@ const PoolList: React.FC = () => {
       </div>
     }
 
+    const ai = parseAiAnalysis(selectedStock.ai_analysis)
+
     return (
       <div style={{ overflowY: 'auto', height: '100%', padding: '0 0 16px' }}>
         {/* Info header */}
@@ -693,6 +731,65 @@ const PoolList: React.FC = () => {
           >
             {selectedStock.note?.trim() ? selectedStock.note : '暂无备注'}
           </div>
+        </Card>
+
+        <Card
+          size="small"
+          title={<span style={{ fontWeight: 600, fontSize: 14, color: '#262626' }}>AI 智能分析</span>}
+          extra={
+            <Tooltip title="分析当前股票">
+              <Button
+                type="text"
+                size="small"
+                icon={<RobotOutlined />}
+                loading={aiAnalyzingStockId === selectedStock.id}
+                onClick={handleAnalyzeStock}
+              />
+            </Tooltip>
+          }
+          style={{
+            marginTop: 12,
+            background: '#fff',
+            border: '1px solid #f0f0f0',
+            borderRadius: 8,
+            boxShadow: 'none',
+          }}
+          styles={{ body: { paddingTop: 12 } }}
+        >
+          {!ai ? (
+            <div style={{ color: '#8c8c8c', minHeight: 80, lineHeight: 1.8 }}>
+              点击右上角按钮进行 AI 分析，结果将独立保存，不覆盖手动备注。
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Progress
+                  type="dashboard"
+                  size={72}
+                  percent={Math.max(0, Math.min(100, (Number(ai.score) || 0) * 10))}
+                  format={() => `${ai.score || 0}/10`}
+                />
+                <div>
+                  <div style={{ marginBottom: 4 }}>
+                    <Tag color={trendColor(ai.trend)}>{ai.trend || '震荡'}</Tag>
+                  </div>
+                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>
+                    分析时间：{selectedStock.ai_analyzed_at ? dayjs(selectedStock.ai_analyzed_at).format('YYYY-MM-DD HH:mm:ss') : '-'}
+                  </div>
+                </div>
+              </div>
+              <div style={{ lineHeight: 1.8, fontSize: 14 }}>
+                <div><span style={{ color: '#8c8c8c' }}>技术面：</span>{ai.技术面 || '-'}</div>
+                <div><span style={{ color: '#8c8c8c' }}>基本面：</span>{ai.基本面 || '-'}</div>
+                <div><span style={{ color: '#8c8c8c' }}>量能：</span>{ai.量能 || '-'}</div>
+                <div><span style={{ color: '#8c8c8c' }}>风险提示：</span>{ai.风险提示 || '-'}</div>
+                <div><span style={{ color: '#8c8c8c' }}>操作建议：</span>{ai.操作建议 || '-'}</div>
+              </div>
+              <div style={{ fontWeight: 600, color: '#262626' }}>
+                总结：{ai.summary || '-'}
+              </div>
+            </div>
+          )}
         </Card>
       </div>
     )

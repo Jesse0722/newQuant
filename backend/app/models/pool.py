@@ -30,6 +30,8 @@ class WatchStock(Base):
     monitor_status = Column(String(16), nullable=False, default="monitoring")
     pinned = Column(Boolean, nullable=False, default=False)
     note = Column(Text)
+    ai_analysis = Column(Text, nullable=True)  # AI 智能分析结果（JSON 字符串）
+    ai_analyzed_at = Column(DateTime, nullable=True)  # AI 分析时间
     limit_up_date = Column(String(8), nullable=True)  # 涨停日期 YYYYMMDD
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     pool = relationship("WatchPool", back_populates="stocks")

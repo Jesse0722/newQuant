@@ -18,6 +18,11 @@ class AiScreenRequest(BaseModel):
     scope: Optional[str] = Field(None, description="full 或 pool_id，AI 选股时可选")
 
 
+class AiAnalyzeRequest(BaseModel):
+    ts_code: str = Field(..., description="股票代码，例如 000001.SZ")
+    stock_id: str = Field(..., description="观察池股票 ID（watch_stock.id）")
+
+
 class LimitUpBuyPointRequest(BaseModel):
     trade_date_from: str = Field(..., description="开始日期 YYYYMMDD")
     trade_date_to: str = Field(..., description="结束日期 YYYYMMDD")

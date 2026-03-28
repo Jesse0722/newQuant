@@ -1,4 +1,5 @@
 import client from './client'
+import type { AiAnalysisResult } from '../types'
 
 export interface ScreenTemplate {
   id: string
@@ -32,6 +33,15 @@ export const runIndicatorScreen = (data: {
 
 export const runAiScreen = (data: { description: string; scope?: string }) =>
   client.post<{ task_id: string }>('/strategy/ai-screen', data)
+
+export const aiAnalyzeStock = (data: { ts_code: string; stock_id: string }) =>
+  client.post<{
+    stock_id: string
+    ts_code: string
+    analysis: AiAnalysisResult
+    ai_analyzed_at: string
+    raw: string
+  }>('/strategy/ai-analyze', data)
 
 export const getScreenResult = (taskId: string) =>
   client.get<ScreenResult>(`/strategy/result/${taskId}`)

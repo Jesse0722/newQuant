@@ -56,6 +56,8 @@ class WatchStockOut(BaseModel):
     monitor_status: str
     pinned: bool = False
     note: Optional[str] = None
+    ai_analysis: Optional[str] = None
+    ai_analyzed_at: Optional[datetime] = None
     limit_up_date: Optional[str] = None
     created_at: datetime
     model_config = {"from_attributes": True}

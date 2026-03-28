@@ -7,9 +7,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.services.backtest_service import run_single_strategy_backtest
-from app.schemas.strategy import IndicatorScreenRequest, AiScreenRequest, LimitUpBuyPointRequest, BacktestRequest, BacktestResult, ScreenResult
+from app.schemas.strategy import (
+    IndicatorScreenRequest,
+    AiScreenRequest,
+    AiAnalyzeRequest,
+    LimitUpBuyPointRequest,
+    BacktestRequest,
+    BacktestResult,
+    ScreenResult,
+)
 from app.services.strategy_service import run_indicator_screen, run_limit_up_buy_point_screen, SCREEN_TEMPLATES, LIMIT_UP_BUY_POINT_TEMPLATES
 from app.services.ai_screen_service import run_ai_screen
+from app.services.ai_analysis_service import analyze_stock
 from app.services.limit_up_service import (
     get_or_create_limit_up_pool,
     collect_limit_up_stocks,
@@ -60,6 +69,17 @@ def run_ai_screen_task(body: AiScreenRequest):
     """提交 AI 智能选股任务"""
     task_id = submit_task("ai_screen", run_ai_screen, body.description, body.scope or "full")
     return {"task_id": task_id}
+
+
+@router.post("/ai-analyze")
+def run_ai_analyze(body: AiAnalyzeRequest, db: Session = Depends(get_db)):
+    """单只股票 AI 智能分析，并写入观察池股票 ai_analysis 字段"""
+    try:
+        return analyze_stock(db, body.ts_code, body.stock_id)
+    except ValueError as e:
+        raise AppError(code=2003, message=str(e), status_code=400)
+    except RuntimeError as e:
+        raise AppError(code=2004, message=str(e), status_code=400)
 
 
 @router.post("/limit-up-buy-point")
