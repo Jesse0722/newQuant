@@ -7,9 +7,9 @@ import {
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
-  PushpinFilled, HolderOutlined,
-  EllipsisOutlined,
+  PushpinFilled, PushpinOutlined, HolderOutlined,
   DownOutlined, StarFilled, StarOutlined,
+  EditOutlined, DeleteOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import * as echarts from 'echarts'
@@ -631,15 +631,21 @@ const PoolList: React.FC = () => {
             <span style={{ fontSize: 14, color: '#8c8c8c' }}>{selectedStock.ts_code}</span>
             {selectedStock.industry && <Tag>{selectedStock.industry}</Tag>}
           </div>
-          <Dropdown trigger={['click']} menu={{
-            items: [
-              { key: 'pin', label: selectedStock.pinned ? '取消置顶' : '置顶', onClick: () => handleTogglePin(selectedStock) },
-              { type: 'divider' as const },
-              { key: 'delete', label: '移除', danger: true, onClick: () => Modal.confirm({ title: '确定移除？', onOk: () => handleDeleteStock(selectedStock.id) }) },
-            ],
-          }}>
-            <Button size="small">操作 <EllipsisOutlined /></Button>
-          </Dropdown>
+          <Space size={4}>
+            <Tooltip title={selectedStock.pinned ? '取消置顶' : '置顶'}>
+              <Button
+                type="text"
+                size="small"
+                icon={selectedStock.pinned ? <PushpinFilled style={{ color: '#faad14' }} /> : <PushpinOutlined />}
+                onClick={() => handleTogglePin(selectedStock)}
+              />
+            </Tooltip>
+            <Tooltip title="从本池移除">
+              <Popconfirm title="确定从本池移除该股票？" onConfirm={() => handleDeleteStock(selectedStock.id)}>
+                <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+              </Popconfirm>
+            </Tooltip>
+          </Space>
         </div>
 
         {/* K-line chart */}
@@ -661,14 +667,20 @@ const PoolList: React.FC = () => {
         {/* 股票备注 */}
         <Card
           size="small"
-          title="股票备注"
-          extra={<Button type="link" size="small" onClick={openNoteModal}>编辑</Button>}
+          title={<span style={{ fontWeight: 600, fontSize: 14, color: '#262626' }}>股票备注</span>}
+          extra={
+            <Tooltip title="编辑备注">
+              <Button type="text" size="small" icon={<EditOutlined />} onClick={openNoteModal} />
+            </Tooltip>
+          }
           style={{
             marginTop: 12,
-            border: '1px solid #ffccc7',
+            background: '#fff',
+            border: '1px solid #f0f0f0',
             borderRadius: 8,
-            background: '#fffafa',
+            boxShadow: 'none',
           }}
+          styles={{ body: { paddingTop: 12 } }}
         >
           <div
             style={{
