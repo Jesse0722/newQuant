@@ -541,7 +541,7 @@ def analyze_ma_golden_cross(df: pd.DataFrame, limit_up_idx: int) -> dict:
 RUBBING_LINE_CONDS = {
     "rubbing_pattern":        {"label": "发现搓揉线形态（长上影+长下影）", "weight": 1.5, "core": True},
     "day_upper_vol_moderate":  {"label": "上影日量能适中（≤涨停日量能）",  "weight": 1.0, "core": True},
-    "day_upper_low_turnover": {"label": "上影日换手率≤3%",               "weight": 1.5, "core": True},
+    "day_upper_low_turnover": {"label": "上影日换手相对前一日±3%以内",     "weight": 1.5, "core": True},
     "day_lower_vol_shrink":   {"label": "下影日缩量（<上影日）",          "weight": 1.0, "core": True},
     "not_break_low":          {"label": "全程未破涨停板最低价",           "weight": 1.5, "core": True},
     "breakout_close":         {"label": "收盘突破上影最高价",             "weight": 1.5, "core": True},
@@ -591,10 +591,16 @@ def analyze_rubbing_line(df: pd.DataFrame, limit_up_idx: int) -> dict:
         c["day_upper_vol_moderate"] = float(day_upper["vol"]) <= float(lu["vol"]) * 1.1
         c["day_lower_vol_shrink"] = float(day_lower["vol"]) < float(day_upper["vol"])
 
-        # 上影日换手率 <= 3%
+        # 上影日换手率与前一交易日之差的绝对值 <= 3 个百分点
         upper_tr = day_upper.get("turnover_rate")
-        if upper_tr is not None and not pd.isna(upper_tr):
-            c["day_upper_low_turnover"] = upper_tr <= 3.0
+        prev_tr = df.iloc[day_upper_idx - 1].get("turnover_rate")
+        if (
+            upper_tr is not None
+            and not pd.isna(upper_tr)
+            and prev_tr is not None
+            and not pd.isna(prev_tr)
+        ):
+            c["day_upper_low_turnover"] = abs(float(upper_tr) - float(prev_tr)) <= 3.0
         else:
             c["day_upper_low_turnover"] = False
 
