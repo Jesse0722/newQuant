@@ -18,7 +18,7 @@ class TushareAdapter:
 
     def get_stock_basic(self, ts_code: str = None) -> pd.DataFrame:
         params = {"exchange": "", "list_status": "L",
-                  "fields": "ts_code,symbol,name,area,industry,market,list_date,list_status"}
+                  "fields": "ts_code,symbol,name,area,industry,market,list_date,list_status,float_share"}
         if ts_code:
             params["ts_code"] = ts_code
         return self.pro.stock_basic(**params)
@@ -32,7 +32,7 @@ class TushareAdapter:
         return self.pro.daily(**params)
 
     def get_daily_basic(self, ts_code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-        params = {"ts_code": ts_code, "fields": "ts_code,trade_date,turnover_rate"}
+        params = {"ts_code": ts_code, "fields": "ts_code,trade_date,turnover_rate,float_share"}
         if start_date:
             params["start_date"] = start_date
         if end_date:
@@ -42,6 +42,10 @@ class TushareAdapter:
     def get_daily_by_date(self, trade_date: str) -> pd.DataFrame:
         """按交易日期获取全市场日线行情。trade_date 格式 YYYYMMDD"""
         return self.pro.daily(trade_date=trade_date)
+
+    def get_rt_k(self, ts_code: str) -> pd.DataFrame:
+        """实时日 K；ts_code 支持逗号分隔多码，单次建议不超过 5000 支。"""
+        return self.pro.rt_k(ts_code=ts_code)
 
 
 tushare_adapter = TushareAdapter()

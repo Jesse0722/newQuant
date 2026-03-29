@@ -122,17 +122,21 @@ def sync_daily(db: Session, ts_code: str, days: int = 250):
 
 
 def _backfill_turnover_rate(db: Session, ts_code: str, start_date: str, end_date: str):
-    """补充换手率到已存在的 DailyQuote 行；代理不支持时静默跳过。"""
+    """补充换手率、流通股本到已存在的 DailyQuote；daily_basic 中的 float_share 回写 StockBasic。"""
     try:
         basic_df = tushare_adapter.get_daily_basic(
             ts_code=ts_code, start_date=start_date, end_date=end_date
         )
         if basic_df.empty:
             return
+        latest_fs = None
+        sub = basic_df.dropna(subset=["float_share"]) if "float_share" in basic_df.columns else None
+        if sub is not None and not sub.empty:
+            sub = sub.sort_values("trade_date")
+            v = sub.iloc[-1].get("float_share")
+            if v is not None and not (isinstance(v, float) and v != v):
+                latest_fs = float(v)
         for _, row in basic_df.iterrows():
-            tr = row.get("turnover_rate")
-            if tr is None or (isinstance(tr, float) and tr != tr):
-                continue
             td = str(row.get("trade_date", ""))
             if not td:
                 continue
@@ -140,8 +144,18 @@ def _backfill_turnover_rate(db: Session, ts_code: str, start_date: str, end_date
                 DailyQuote.ts_code == ts_code,
                 DailyQuote.trade_date == td,
             ).first()
-            if quote and quote.turnover_rate is None:
+            if not quote:
+                continue
+            tr = row.get("turnover_rate")
+            if tr is not None and not (isinstance(tr, float) and tr != tr) and quote.turnover_rate is None:
                 quote.turnover_rate = float(tr)
+            fs = row.get("float_share")
+            if fs is not None and not (isinstance(fs, float) and fs != fs) and quote.float_share is None:
+                quote.float_share = float(fs)
+        if latest_fs is not None:
+            basic_row = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+            if basic_row:
+                basic_row.float_share = latest_fs
         _commit_with_retry(db)
     except Exception:
         pass

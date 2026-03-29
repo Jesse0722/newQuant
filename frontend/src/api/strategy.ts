@@ -121,3 +121,7 @@ export const submitStrategyBacktest = (data: {
 
 export const getStrategyBacktestResult = (taskId: string) =>
   client.get<StrategyBacktestTaskStatus>(`/strategy/strategy-backtest/${taskId}`)
+
+
+export const getTradingSession = () =>
+  client.get<{ in_session: boolean }>('/market/trading-session')

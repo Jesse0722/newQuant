@@ -306,6 +306,15 @@ export interface BuySignalScanResult {
   approaching_count: number
   strategy_id?: string
   strategy_name?: string
+  scan_data_mode?: 'intraday_merged' | 'historical_only'
+  as_of?: string
+  intraday_provisional?: boolean
+  trade_date_today?: string
+  realtime?: {
+    requested: boolean
+    applied: boolean
+    error?: string | null
+  }
 }
 
 export interface BuyStrategy {

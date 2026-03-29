@@ -11,6 +11,7 @@ class StockBasic(Base):
     market = Column(String(16))
     list_date = Column(String(8))
     list_status = Column(String(2))
+    float_share = Column(Float, nullable=True)
 
 class DailyQuote(Base):
     __tablename__ = "daily_quote"
@@ -26,3 +27,4 @@ class DailyQuote(Base):
     vol = Column(Float)
     amount = Column(Float)
     turnover_rate = Column(Float, nullable=True)
+    float_share = Column(Float, nullable=True)

@@ -29,5 +29,7 @@ def init_db():
     migrate_watch_stock_ai_fields()
     from scripts.migrate_daily_quote_turnover import migrate as migrate_daily_quote_turnover
     migrate_daily_quote_turnover()
+    from scripts.migrate_float_share import migrate as migrate_float_share
+    migrate_float_share()
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

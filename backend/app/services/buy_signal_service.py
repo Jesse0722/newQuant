@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchPool, WatchStock
-from app.services.limit_up_service import LIMIT_UP_POOL_NAME, _get_limit_up_threshold
+from app.services.limit_up_service import LIMIT_UP_POOL_NAME
 from app.services.indicator import calc_ma, calc_macd, calc_rsi, calc_vol_ma
 from app.services.limit_up_tactics import (
     TACTIC_REGISTRY,
@@ -20,6 +20,10 @@ from app.services.limit_up_tactics import (
     _build_signal,
     _calc_persist_days,
 )
+from app.services.trading_session import is_a_share_trading_session, shanghai_trade_date_str
+from app.services.tushare_adapter import tushare_adapter
+
+RT_K_CHUNK = 5000
 
 # ---------- 策略参数 ----------
 
@@ -488,22 +492,196 @@ def list_buy_strategies() -> list[dict]:
     return [{"id": k, "name": v["name"], "description": v["description"]} for k, v in STRATEGY_REGISTRY.items()]
 
 
+# ---------- 实时日 K（rt_k）与流通股本换手 ----------
+
+def _fetch_rt_k_map(ts_codes: list[str]) -> dict[str, dict]:
+    if not ts_codes:
+        return {}
+    out: dict[str, dict] = {}
+    for i in range(0, len(ts_codes), RT_K_CHUNK):
+        chunk = ts_codes[i : i + RT_K_CHUNK]
+        df = tushare_adapter.get_rt_k(ts_code=",".join(chunk))
+        if df is None or df.empty:
+            continue
+        for _, row in df.iterrows():
+            code = row.get("ts_code")
+            if code is not None:
+                out[str(code)] = row.to_dict()
+    return out
+
+
+def resolve_float_share(db: Session, ts_code: str, ref_trade_date: str) -> float | None:
+    row = (
+        db.query(DailyQuote.float_share)
+        .filter(
+            DailyQuote.ts_code == ts_code,
+            DailyQuote.trade_date <= ref_trade_date,
+            DailyQuote.float_share.isnot(None),
+        )
+        .order_by(DailyQuote.trade_date.desc())
+        .first()
+    )
+    if row and row[0] is not None:
+        v = float(row[0])
+        if v > 0:
+            return v
+    br = db.query(StockBasic.float_share).filter(StockBasic.ts_code == ts_code).first()
+    if br and br[0] is not None:
+        v = float(br[0])
+        if v > 0:
+            return v
+    return None
+
+
+def _merge_rt_k_into_df(df: pd.DataFrame, rt: dict, trade_date_today: str) -> pd.DataFrame:
+    """rt_k 的 vol 为股、daily 库内为手；amount 为元 vs 千元。"""
+    if df.empty:
+        return df
+    df = df.copy()
+    vol_raw = rt.get("vol")
+    if vol_raw is None or (isinstance(vol_raw, float) and vol_raw != vol_raw):
+        return df
+    vol_hands = float(vol_raw) / 100.0
+    amt = rt.get("amount")
+    amount_k = float(amt) / 1000.0 if amt is not None and not (isinstance(amt, float) and amt != amt) else None
+    pre_close = rt.get("pre_close")
+    close = rt.get("close")
+    pc = float(pre_close) if pre_close is not None and not (isinstance(pre_close, float) and pre_close != pre_close) else None
+    cl = float(close) if close is not None and not (isinstance(close, float) and close != close) else None
+    if cl is None:
+        return df
+    pct_chg = None
+    if pc is not None and pc > 0:
+        pct_chg = (cl / pc - 1.0) * 100.0
+    def _f(k):
+        x = rt.get(k)
+        if x is None or (isinstance(x, float) and x != x):
+            return None
+        return float(x)
+    new_row = {
+        "trade_date": trade_date_today,
+        "open": _f("open"),
+        "high": _f("high"),
+        "low": _f("low"),
+        "close": cl,
+        "pre_close": pc,
+        "pct_chg": pct_chg,
+        "vol": vol_hands,
+        "amount": amount_k,
+        "turnover_rate": None,
+    }
+    last_td = str(df.iloc[-1]["trade_date"])
+    if last_td == trade_date_today:
+        idx = len(df) - 1
+        for col, val in new_row.items():
+            if val is not None and col in df.columns:
+                df.iat[idx, df.columns.get_loc(col)] = val
+    else:
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    return df
+
+
+def _apply_intraday_turnover_if_needed(
+    db: Session, df: pd.DataFrame, ts_code: str, trade_date_today: str
+) -> pd.DataFrame:
+    if df.empty:
+        return df
+    last_idx = len(df) - 1
+    if str(df.iloc[last_idx]["trade_date"]) != trade_date_today:
+        return df
+    tr = df.iloc[last_idx].get("turnover_rate")
+    if tr is not None and not pd.isna(tr):
+        return df
+    fs = resolve_float_share(db, ts_code, trade_date_today)
+    if fs is None or fs <= 0:
+        return df
+    vol = df.iloc[last_idx].get("vol")
+    if vol is None or pd.isna(vol) or float(vol) <= 0:
+        return df
+    vol = float(vol)
+    pct = (vol * 100.0) / (fs * 10000.0) * 100.0
+    df = df.copy()
+    df.iat[last_idx, df.columns.get_loc("turnover_rate")] = round(pct, 4)
+    return df
+
+
+def _prepare_scan_dataframe(
+    db: Session,
+    ts_code: str,
+    rt_map: dict[str, dict],
+    trade_date_today: str,
+    merge_rt: bool,
+) -> pd.DataFrame:
+    df = _build_df(db, ts_code)
+    if df.empty or len(df) < 10:
+        return df
+    if merge_rt:
+        rt = rt_map.get(ts_code)
+        if rt is not None:
+            df = _merge_rt_k_into_df(df, rt, trade_date_today)
+    df = _apply_intraday_turnover_if_needed(db, df, ts_code, trade_date_today)
+    return _calc_indicators(df)
+
+
+def _resolve_pool_id(db: Session, pool_id: str | None) -> str | None:
+    if pool_id:
+        return pool_id
+    pool = db.query(WatchPool).filter(WatchPool.name == LIMIT_UP_POOL_NAME).first()
+    return pool.id if pool else None
+
+
+def _scan_context(db: Session, pool_id: str | None):
+    trade_date_today = shanghai_trade_date_str()
+    pid = _resolve_pool_id(db, pool_id)
+    if not pid:
+        return None, [], {}, {"requested": False, "applied": False, "error": None}, trade_date_today, False
+    stocks = db.query(WatchStock).filter(WatchStock.pool_id == pid).all()
+    in_session = is_a_share_trading_session()
+    realtime = {"requested": in_session, "applied": False, "error": None}
+    rt_map: dict[str, dict] = {}
+    if in_session and stocks:
+        try:
+            rt_map = _fetch_rt_k_map([ws.ts_code for ws in stocks])
+            realtime["applied"] = len(rt_map) > 0
+        except Exception as e:
+            realtime["error"] = str(e)[:500]
+            rt_map = {}
+            realtime["applied"] = False
+    merge_rt = bool(realtime["applied"])
+    return pid, stocks, rt_map, realtime, trade_date_today, merge_rt
+
+def _scan_meta_fields(realtime: dict, trade_date_today: str) -> dict:
+    applied = bool(realtime.get("applied"))
+    mode = "intraday_merged" if applied else "historical_only"
+    return {
+        "scan_data_mode": mode,
+        "as_of": datetime.now().isoformat(),
+        "intraday_provisional": applied,
+        "realtime": realtime,
+        "trade_date_today": trade_date_today,
+    }
+
 # ---------- 主入口：扫描池内所有股票 ----------
 
 def scan_pool_buy_signals(db: Session, pool_id: str | None = None, strategy_id: str = "two_phase") -> dict:
+    pid, stocks, rt_map, realtime, trade_date_today, merge_rt = _scan_context(db, pool_id)
+    if not pid:
+        meta = _scan_meta_fields(realtime, trade_date_today)
+        return {**_empty_result(strategy_id), **meta}
     if strategy_id in TACTIC_REGISTRY:
-        return _scan_tactic(db, pool_id, strategy_id)
-    return _scan_two_phase(db, pool_id)
+        return _scan_tactic(db, pid, strategy_id, stocks, rt_map, trade_date_today, merge_rt, realtime)
+    return _scan_two_phase(db, pid, stocks, rt_map, trade_date_today, merge_rt, realtime)
 
 
-def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
-    if not pool_id:
-        pool = db.query(WatchPool).filter(WatchPool.name == LIMIT_UP_POOL_NAME).first()
-        if not pool:
-            return _empty_result("two_phase")
-        pool_id = pool.id
-
-    stocks = db.query(WatchStock).filter(WatchStock.pool_id == pool_id).all()
+def _scan_two_phase(
+    db: Session,
+    pool_id: str,
+    stocks: list,
+    rt_map: dict[str, dict],
+    trade_date_today: str,
+    merge_rt: bool,
+    realtime: dict,
+) -> dict:
     basic_cache: dict[str, StockBasic | None] = {}
     signals: list[dict] = []
     params = DEFAULT_PARAMS.copy()
@@ -519,7 +697,7 @@ def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
             )
             continue
 
-        df = _build_df(db, ts_code)
+        df = _prepare_scan_dataframe(db, ts_code, rt_map, trade_date_today, merge_rt)
         if df.empty or len(df) < 10:
             signals.append(
                 _scan_stub_invalidated(
@@ -529,8 +707,6 @@ def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
                 )
             )
             continue
-
-        df = _calc_indicators(df)
         life_info = _validate_life_line(df, ws.limit_up_date, ts_code)
 
         if not life_info:
@@ -575,22 +751,24 @@ def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
             **analysis,
         })
 
-    return _finalize(signals, "two_phase")
+    return _finalize(signals, "two_phase", **_scan_meta_fields(realtime, trade_date_today))
 
 
-def _scan_tactic(db: Session, pool_id: str | None, strategy_id: str) -> dict:
+def _scan_tactic(
+    db: Session,
+    pool_id: str,
+    strategy_id: str,
+    stocks: list,
+    rt_map: dict[str, dict],
+    trade_date_today: str,
+    merge_rt: bool,
+    realtime: dict,
+) -> dict:
     """六大战法通用扫描器"""
     tactic = TACTIC_REGISTRY[strategy_id]
     analyze_fn = tactic["analyze_fn"]
     tactic_max_days = tactic.get("max_days", 20)
 
-    if not pool_id:
-        pool = db.query(WatchPool).filter(WatchPool.name == LIMIT_UP_POOL_NAME).first()
-        if not pool:
-            return _empty_result(strategy_id)
-        pool_id = pool.id
-
-    stocks = db.query(WatchStock).filter(WatchStock.pool_id == pool_id).all()
     basic_cache: dict[str, StockBasic | None] = {}
     signals: list[dict] = []
 
@@ -602,7 +780,7 @@ def _scan_tactic(db: Session, pool_id: str | None, strategy_id: str) -> dict:
             )
             continue
 
-        df = _build_df(db, ts_code)
+        df = _prepare_scan_dataframe(db, ts_code, rt_map, trade_date_today, merge_rt)
         if df.empty or len(df) < 10:
             signals.append(
                 _scan_stub_invalidated(
@@ -612,8 +790,6 @@ def _scan_tactic(db: Session, pool_id: str | None, strategy_id: str) -> dict:
                 )
             )
             continue
-
-        df = _calc_indicators(df)
 
         mask = df["trade_date"] == ws.limit_up_date
         if not mask.any():
@@ -670,7 +846,7 @@ def _scan_tactic(db: Session, pool_id: str | None, strategy_id: str) -> dict:
             **analysis,
         })
 
-    return _finalize(signals, strategy_id)
+    return _finalize(signals, strategy_id, **_scan_meta_fields(realtime, trade_date_today))
 
 
 def _empty_result(strategy_id: str) -> dict:
@@ -686,7 +862,7 @@ def _empty_result(strategy_id: str) -> dict:
     }
 
 
-def _finalize(signals: list[dict], strategy_id: str) -> dict:
+def _finalize(signals: list[dict], strategy_id: str, **meta) -> dict:
     status_order = {"triggered": 0, "approaching": 1, "tracking": 2, "invalidated": 3}
     signals.sort(
         key=lambda s: (
@@ -696,7 +872,7 @@ def _finalize(signals: list[dict], strategy_id: str) -> dict:
         )
     )
     name = STRATEGY_REGISTRY.get(strategy_id, {}).get("name", strategy_id)
-    return {
+    out = {
         "signals": signals,
         "scan_time": datetime.now().isoformat(),
         "total": len(signals),
@@ -705,6 +881,8 @@ def _finalize(signals: list[dict], strategy_id: str) -> dict:
         "strategy_id": strategy_id,
         "strategy_name": name,
     }
+    out.update(meta)
+    return out
 
 
 # ---------- 辅助 ----------
