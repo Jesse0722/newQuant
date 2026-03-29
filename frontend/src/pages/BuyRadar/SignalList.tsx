@@ -91,6 +91,11 @@ const SignalList: React.FC<Props> = ({
                   </span>
                 </Tooltip>
                 {s.name}
+                {(s.signal_persist_days || 0) >= 2 && (
+                  <Tag color="purple" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 5px' }}>
+                    连续{s.signal_persist_days}天
+                  </Tag>
+                )}
               </span>
               <Tag color={cfg.color} style={{ margin: 0, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>
                 {cfg.label}

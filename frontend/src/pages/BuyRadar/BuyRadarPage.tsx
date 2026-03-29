@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip } from 'antd'
-import { ScanOutlined } from '@ant-design/icons'
-import { scanBuySignals, getBuyStrategies } from '../../api/strategy'
+import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip, Modal, DatePicker, Progress, Table, Row, Col, Statistic } from 'antd'
+import { ScanOutlined, BarChartOutlined } from '@ant-design/icons'
+import dayjs, { Dayjs } from 'dayjs'
+import { scanBuySignals, getBuyStrategies, submitStrategyBacktest, getStrategyBacktestResult } from '../../api/strategy'
 import { listPools, getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import SignalList from './SignalList'
 import SignalDetail from './SignalDetail'
-import type { BuySignal, BuySignalStatus, BuySignalScanResult, BuyStrategy, Pool } from '../../types'
+import type { BuySignal, BuySignalStatus, BuySignalScanResult, BuyStrategy, Pool, StrategyBacktestResult } from '../../types'
 
 type FilterStatus = 'all' | BuySignalStatus
 
@@ -20,7 +21,18 @@ const BuyRadarPage: React.FC = () => {
   const [selectedSignal, setSelectedSignal] = useState<BuySignal | null>(null)
   const [coreWatchCodes, setCoreWatchCodes] = useState<Set<string>>(new Set())
   const [coreWatchBusyTsCode, setCoreWatchBusyTsCode] = useState<string | null>(null)
+  const [backtestVisible, setBacktestVisible] = useState(false)
+  const [backtestRunning, setBacktestRunning] = useState(false)
+  const [backtestTaskId, setBacktestTaskId] = useState<string | null>(null)
+  const [backtestProgress, setBacktestProgress] = useState(0)
+  const [backtestMessage, setBacktestMessage] = useState('')
+  const [backtestResult, setBacktestResult] = useState<StrategyBacktestResult | null>(null)
+  const [backtestRange, setBacktestRange] = useState<[Dayjs, Dayjs]>([
+    dayjs().subtract(90, 'day'),
+    dayjs().subtract(1, 'day'),
+  ])
   const containerRef = useRef<HTMLDivElement>(null)
+  const backtestPollingRef = useRef<number | null>(null)
 
   const refreshCoreWatch = useCallback(() => {
     getCoreWatchCodes()
@@ -121,6 +133,71 @@ const BuyRadarPage: React.FC = () => {
     }
   }
 
+  const stopBacktestPolling = () => {
+    if (backtestPollingRef.current != null) {
+      window.clearTimeout(backtestPollingRef.current)
+      backtestPollingRef.current = null
+    }
+  }
+
+  const pollBacktest = useCallback((taskId: string) => {
+    const tick = async () => {
+      try {
+        const res = await getStrategyBacktestResult(taskId)
+        const data = res.data
+        setBacktestProgress(Math.round((data.progress || 0) * 100))
+        setBacktestMessage(data.message || '')
+        if (data.status === 'completed') {
+          setBacktestRunning(false)
+          setBacktestResult(data.result || null)
+          message.success('回测完成')
+          stopBacktestPolling()
+          return
+        }
+        if (data.status === 'failed') {
+          setBacktestRunning(false)
+          message.error(data.message || '回测失败')
+          stopBacktestPolling()
+          return
+        }
+      } catch {
+        setBacktestRunning(false)
+        message.error('回测结果查询失败')
+        stopBacktestPolling()
+        return
+      }
+      backtestPollingRef.current = window.setTimeout(tick, 1500)
+    }
+    tick()
+  }, [])
+
+  const handleRunBacktest = async () => {
+    if (!activePoolId) {
+      message.warning('请先选择股票池')
+      return
+    }
+    const trade_date_from = backtestRange[0].format('YYYYMMDD')
+    const trade_date_to = backtestRange[1].format('YYYYMMDD')
+    setBacktestRunning(true)
+    setBacktestProgress(0)
+    setBacktestMessage('提交回测任务中...')
+    setBacktestResult(null)
+    try {
+      const res = await submitStrategyBacktest({
+        strategy_id: activeStrategyId,
+        trade_date_from,
+        trade_date_to,
+        pool_id: activePoolId,
+      })
+      const taskId = res.data.task_id
+      setBacktestTaskId(taskId)
+      pollBacktest(taskId)
+    } catch {
+      setBacktestRunning(false)
+      message.error('提交回测任务失败')
+    }
+  }
+
   const handleSelect = useCallback((signal: BuySignal) => {
     setSelectedSignal(signal)
   }, [])
@@ -146,6 +223,10 @@ const BuyRadarPage: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [filteredSignals, selectedSignal])
+
+  useEffect(() => {
+    return () => stopBacktestPolling()
+  }, [])
 
   const scanTime = scanResult?.scan_time
     ? new Date(scanResult.scan_time).toLocaleString('zh-CN')
@@ -193,6 +274,13 @@ const BuyRadarPage: React.FC = () => {
           >
             扫描买点
           </Button>
+          <Button
+            icon={<BarChartOutlined />}
+            onClick={() => setBacktestVisible(true)}
+            disabled={!activePoolId}
+          >
+            回测验证
+          </Button>
           <Segmented
             options={[
               { label: `全部${scanResult ? ` (${scanResult.signals.filter(s => s.signal_status !== 'invalidated').length})` : ''}`, value: 'all' },
@@ -230,6 +318,88 @@ const BuyRadarPage: React.FC = () => {
           </span>
         </div>
       </div>
+
+      <Modal
+        title="策略回测验证"
+        open={backtestVisible}
+        onCancel={() => {
+          if (!backtestRunning) {
+            setBacktestVisible(false)
+          }
+        }}
+        width={980}
+        footer={[
+          <Button key="close" onClick={() => setBacktestVisible(false)} disabled={backtestRunning}>
+            关闭
+          </Button>,
+          <Button key="run" type="primary" loading={backtestRunning} onClick={handleRunBacktest}>
+            开始回测
+          </Button>,
+        ]}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Space wrap>
+            <span style={{ color: '#595959' }}>策略:</span>
+            <b>{strategies.find((s) => s.id === activeStrategyId)?.name || activeStrategyId}</b>
+            <span style={{ color: '#595959', marginLeft: 12 }}>区间:</span>
+            <DatePicker.RangePicker
+              value={backtestRange}
+              onChange={(v) => {
+                if (v && v[0] && v[1]) {
+                  setBacktestRange([v[0], v[1]])
+                }
+              }}
+              format="YYYY-MM-DD"
+              allowClear={false}
+            />
+          </Space>
+
+          {(backtestRunning || backtestTaskId) && (
+            <div>
+              <Progress percent={backtestProgress} status={backtestRunning ? 'active' : 'normal'} />
+              <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>{backtestMessage || (backtestTaskId ? `任务ID: ${backtestTaskId}` : '')}</div>
+            </div>
+          )}
+
+          {backtestResult && (
+            <>
+              <Row gutter={12}>
+                <Col span={6}><Statistic title="总信号数" value={backtestResult.total_signals} /></Col>
+                <Col span={6}><Statistic title="次日胜率" value={backtestResult.win_rate_1d} suffix="%" precision={1} /></Col>
+                <Col span={6}><Statistic title="次日均收益" value={backtestResult.avg_return_1d} suffix="%" precision={2} /></Col>
+                <Col span={6}><Statistic title="最大回撤(5日)" value={backtestResult.max_drawdown} suffix="%" precision={2} valueStyle={{ color: backtestResult.max_drawdown < 0 ? '#cf1322' : undefined }} /></Col>
+              </Row>
+              <Row gutter={12}>
+                <Col span={6}><Statistic title="3日胜率" value={backtestResult.win_rate_3d} suffix="%" precision={1} /></Col>
+                <Col span={6}><Statistic title="3日均收益" value={backtestResult.avg_return_3d} suffix="%" precision={2} /></Col>
+                <Col span={6}><Statistic title="5日胜率" value={backtestResult.win_rate_5d} suffix="%" precision={1} /></Col>
+                <Col span={6}><Statistic title="盈亏因子(1日)" value={backtestResult.profit_factor} precision={2} /></Col>
+              </Row>
+              <Table
+                size="small"
+                rowKey={(r) => `${r.ts_code}-${r.trigger_date}`}
+                pagination={{ pageSize: 8 }}
+                dataSource={backtestResult.signals}
+                columns={[
+                  { title: '代码', dataIndex: 'ts_code', width: 110 },
+                  { title: '名称', dataIndex: 'name', width: 120 },
+                  {
+                    title: '触发日',
+                    dataIndex: 'trigger_date',
+                    width: 120,
+                    render: (v: string) => `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6)}`,
+                  },
+                  { title: '入场价', dataIndex: 'entry_price', width: 90 },
+                  { title: '1日收益%', dataIndex: 'return_1d', width: 100 },
+                  { title: '3日收益%', dataIndex: 'return_3d', width: 100 },
+                  { title: '5日收益%', dataIndex: 'return_5d', width: 100 },
+                  { title: '评分', dataIndex: 'signal_score', width: 80 },
+                ]}
+              />
+            </>
+          )}
+        </Space>
+      </Modal>
 
       {/* 主体：左右分栏 */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, marginTop: 0 }}>

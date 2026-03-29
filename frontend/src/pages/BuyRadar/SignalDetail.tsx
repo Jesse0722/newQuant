@@ -4,7 +4,7 @@ import { CheckCircleFilled, CloseCircleFilled, ArrowRightOutlined, StarFilled, S
 import { useNavigate } from 'react-router-dom'
 import * as echarts from 'echarts'
 import { getStockChartWithMarks } from '../../api/strategy'
-import type { BuySignal, StockChartDataWithMarks, SignalMark } from '../../types'
+import type { BuySignal, StockChartDataWithMarks } from '../../types'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const STATUS_LABELS: Record<string, { text: string; color: string }> = {
@@ -221,10 +221,10 @@ const SignalDetail: React.FC<Props> = ({
 
       {/* 关键指标行 */}
       <Row gutter={16} style={{ marginBottom: 12 }}>
-        <Col span={4}>
+        <Col span={3}>
           <Statistic title="最新价" value={signal.latest_close ?? '-'} precision={2} valueStyle={{ fontSize: 16 }} />
         </Col>
-        <Col span={4}>
+        <Col span={3}>
           <Statistic
             title="今涨幅"
             value={signal.latest_pct_chg ?? 0}
@@ -233,17 +233,20 @@ const SignalDetail: React.FC<Props> = ({
             valueStyle={{ fontSize: 16, color: (signal.latest_pct_chg ?? 0) >= 0 ? '#cf1322' : '#3f8600' }}
           />
         </Col>
-        <Col span={4}>
+        <Col span={3}>
           <Statistic title="信号评分" value={signal.signal_score} suffix="/ 100" valueStyle={{ fontSize: 16, color: signal.signal_score >= 70 ? '#f5222d' : '#595959' }} />
         </Col>
-        <Col span={4}>
+        <Col span={3}>
           <Statistic title="回调幅度" value={signal.pullback_pct ?? '-'} precision={1} suffix="%" valueStyle={{ fontSize: 16 }} />
         </Col>
-        <Col span={4}>
+        <Col span={3}>
           <Statistic title="距生命线" value={signal.days_since_life_line ?? '-'} suffix="天" valueStyle={{ fontSize: 16 }} />
         </Col>
-        <Col span={4}>
+        <Col span={3}>
           <Statistic title="RSI" value={signal.rsi ?? '-'} precision={1} valueStyle={{ fontSize: 16 }} />
+        </Col>
+        <Col span={3}>
+          <Statistic title="信号持续" value={signal.signal_persist_days ?? 0} suffix="天" valueStyle={{ fontSize: 16, color: (signal.signal_persist_days || 0) >= 2 ? '#722ed1' : '#595959' }} />
         </Col>
       </Row>
 
@@ -301,6 +304,53 @@ const SignalDetail: React.FC<Props> = ({
             <Descriptions.Item label="RSI">{signal.rsi?.toFixed(1) ?? '-'}</Descriptions.Item>
           </Descriptions>
         )}
+      </Card>
+
+      <Card size="small" title="风险管理建议" style={{ marginTop: 12 }}>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Statistic
+              title="建议止损价"
+              value={signal.stop_loss_price ?? '-'}
+              precision={2}
+              valueStyle={{ color: '#cf1322', fontSize: 16 }}
+            />
+            <div style={{ marginTop: 4, fontSize: 12, color: '#8c8c8c' }}>
+              风险空间: {signal.stop_loss_pct != null ? `${signal.stop_loss_pct.toFixed(2)}%` : '-'}
+            </div>
+          </Col>
+          <Col span={8}>
+            <Statistic
+              title="第一目标价"
+              value={signal.target_price ?? '-'}
+              precision={2}
+              valueStyle={{ color: '#3f8600', fontSize: 16 }}
+            />
+            <div style={{ marginTop: 4, fontSize: 12, color: '#8c8c8c' }}>
+              目标收益: {signal.target_return_pct != null ? `${signal.target_return_pct.toFixed(2)}%` : '-'}
+            </div>
+          </Col>
+          <Col span={8}>
+            <Statistic
+              title="盈亏比"
+              value={signal.risk_reward_ratio ?? '-'}
+              precision={2}
+              suffix={signal.risk_reward_ratio != null ? ':1' : ''}
+              valueStyle={{
+                color:
+                  signal.risk_reward_ratio == null
+                    ? '#595959'
+                    : signal.risk_reward_ratio >= 1.5
+                      ? '#3f8600'
+                      : '#fa8c16',
+                fontSize: 16,
+              }}
+            />
+            <div style={{ marginTop: 4, fontSize: 12, color: '#8c8c8c' }}>
+              {signal.risk_reward_ratio != null && signal.risk_reward_ratio < 1.5 ? '提示: 盈亏比偏低，注意仓位' : '建议结合盘中量价再确认'}
+            </div>
+          </Col>
+        </Row>
       </Card>
     </div>
   )

@@ -14,7 +14,12 @@ from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchPool, WatchStock
 from app.services.limit_up_service import LIMIT_UP_POOL_NAME, _get_limit_up_threshold
 from app.services.indicator import calc_ma, calc_macd, calc_rsi, calc_vol_ma
-from app.services.limit_up_tactics import TACTIC_REGISTRY, common_pre_filter, _build_signal
+from app.services.limit_up_tactics import (
+    TACTIC_REGISTRY,
+    common_pre_filter,
+    _build_signal,
+    _calc_persist_days,
+)
 
 # ---------- 策略参数 ----------
 
@@ -263,6 +268,9 @@ def _analyze_stock(df: pd.DataFrame, life_info: dict, params: dict) -> dict:
             "days_since_life_line": 0, "phase2_high": None, "pullback_pct": None,
             "latest_close": None, "latest_pct_chg": None,
             "rsi": None, "macd_hist": None, "volume_ratio": None,
+            "signal_persist_days": 0,
+            "stop_loss_price": None, "target_price": None,
+            "stop_loss_pct": None, "target_return_pct": None, "risk_reward_ratio": None,
             "met_conditions": [], "unmet_conditions": ["无生命线后数据"],
         }
 
@@ -275,6 +283,9 @@ def _analyze_stock(df: pd.DataFrame, life_info: dict, params: dict) -> dict:
             "latest_close": float(df.iloc[last_idx]["close"]),
             "latest_pct_chg": float(df.iloc[last_idx]["pct_chg"]) if not pd.isna(df.iloc[last_idx].get("pct_chg")) else 0.0,
             "rsi": None, "macd_hist": None, "volume_ratio": None,
+            "signal_persist_days": 0,
+            "stop_loss_price": None, "target_price": None,
+            "stop_loss_pct": None, "target_return_pct": None, "risk_reward_ratio": None,
             "met_conditions": [], "unmet_conditions": [f"超过{max_days}天跟踪窗口"],
         }
 
@@ -286,6 +297,9 @@ def _analyze_stock(df: pd.DataFrame, life_info: dict, params: dict) -> dict:
             "latest_close": float(latest["close"]),
             "latest_pct_chg": float(latest["pct_chg"]) if not pd.isna(latest.get("pct_chg")) else 0.0,
             "rsi": None, "macd_hist": None, "volume_ratio": None,
+            "signal_persist_days": 0,
+            "stop_loss_price": None, "target_price": None,
+            "stop_loss_pct": None, "target_return_pct": None, "risk_reward_ratio": None,
             "met_conditions": [], "unmet_conditions": ["跌破生命线最低价"],
         }
 
@@ -298,18 +312,64 @@ def _analyze_stock(df: pd.DataFrame, life_info: dict, params: dict) -> dict:
     # 用统一加权评分构建信号
     rsi = latest.get("rsi14", 50)
     vr = latest.get("volume_ratio", 1.0)
+    latest_close = float(latest["close"])
+    stop_loss_price = round(float(life_low) * 0.97, 2)
+    target_price = round(float(life_close) * 1.10, 2)
+    if latest_close > 0:
+        stop_loss_pct = round((latest_close - stop_loss_price) / latest_close * 100, 2)
+        target_return_pct = round((target_price - latest_close) / latest_close * 100, 2)
+    else:
+        stop_loss_pct = None
+        target_return_pct = None
+    risk_reward_ratio = (
+        round(target_return_pct / stop_loss_pct, 2)
+        if stop_loss_pct is not None and stop_loss_pct > 0 and target_return_pct is not None
+        else None
+    )
     metrics = {
         "days_since_life_line": days_since,
         "phase2_high": phase2_high,
         "pullback_pct": pullback_pct,
-        "latest_close": float(latest["close"]),
+        "latest_close": latest_close,
         "latest_pct_chg": float(latest["pct_chg"]) if not pd.isna(latest.get("pct_chg")) else 0.0,
         "rsi": round(float(rsi), 1) if not pd.isna(rsi) else None,
         "macd_hist": round(float(latest.get("macd_hist", 0)), 4) if not pd.isna(latest.get("macd_hist")) else None,
         "volume_ratio": round(float(vr), 2) if not pd.isna(vr) else None,
+        "signal_persist_days": 1,
+        "stop_loss_price": stop_loss_price,
+        "target_price": target_price,
+        "stop_loss_pct": stop_loss_pct,
+        "target_return_pct": target_return_pct,
+        "risk_reward_ratio": risk_reward_ratio,
     }
 
     return _build_signal(conditions, TWO_PHASE_CONDS, metrics)
+
+
+def _calc_two_phase_persist_days(
+    df: pd.DataFrame,
+    life_info: dict,
+    params: dict,
+    current_status: str,
+    max_lookback: int = 2,
+) -> int:
+    """计算二阶段信号连续满足天数（含今日）。"""
+    if current_status not in ("triggered", "approaching"):
+        return 0
+    persist_days = 1
+    life_idx = life_info["df_idx"]
+    total_len = len(df)
+    for i in range(1, max_lookback + 1):
+        cut_len = total_len - i
+        if cut_len <= life_idx + 1:
+            break
+        prev_df = df.iloc[:cut_len].copy()
+        prev_sig = _analyze_stock(prev_df, life_info, params)
+        if prev_sig.get("signal_status") in ("triggered", "approaching"):
+            persist_days += 1
+        else:
+            break
+    return persist_days
 
 
 # ---------- 信号标注（K线图用） ----------
@@ -401,6 +461,12 @@ def _scan_stub_invalidated(
         "rsi": None,
         "macd_hist": None,
         "volume_ratio": None,
+        "signal_persist_days": 0,
+        "stop_loss_price": None,
+        "target_price": None,
+        "stop_loss_pct": None,
+        "target_return_pct": None,
+        "risk_reward_ratio": None,
     }
 
 
@@ -487,10 +553,19 @@ def _scan_two_phase(db: Session, pool_id: str | None) -> dict:
                 "rsi": None,
                 "macd_hist": None,
                 "volume_ratio": None,
+                "signal_persist_days": 0,
+                "stop_loss_price": None,
+                "target_price": None,
+                "stop_loss_pct": None,
+                "target_return_pct": None,
+                "risk_reward_ratio": None,
             })
             continue
 
         analysis = _analyze_stock(df, life_info, params)
+        analysis["signal_persist_days"] = _calc_two_phase_persist_days(
+            df, life_info, params, analysis.get("signal_status", "")
+        )
         signals.append({
             "ts_code": ts_code,
             "name": _get_stock_name(db, ts_code, basic_cache),
@@ -573,10 +648,19 @@ def _scan_tactic(db: Session, pool_id: str | None, strategy_id: str) -> dict:
                 "rsi": None,
                 "macd_hist": None,
                 "volume_ratio": None,
+                "signal_persist_days": 0,
+                "stop_loss_price": None,
+                "target_price": None,
+                "stop_loss_pct": None,
+                "target_return_pct": None,
+                "risk_reward_ratio": None,
             })
             continue
 
         analysis = analyze_fn(df, limit_up_idx)
+        analysis["signal_persist_days"] = _calc_persist_days(
+            df, limit_up_idx, analyze_fn, analysis.get("signal_status", "")
+        )
         signals.append({
             "ts_code": ts_code,
             "name": _get_stock_name(db, ts_code, basic_cache),
@@ -604,7 +688,13 @@ def _empty_result(strategy_id: str) -> dict:
 
 def _finalize(signals: list[dict], strategy_id: str) -> dict:
     status_order = {"triggered": 0, "approaching": 1, "tracking": 2, "invalidated": 3}
-    signals.sort(key=lambda s: (status_order.get(s["signal_status"], 9), -s.get("signal_score", 0)))
+    signals.sort(
+        key=lambda s: (
+            status_order.get(s["signal_status"], 9),
+            -int(s.get("signal_persist_days", 0) or 0),
+            -s.get("signal_score", 0),
+        )
+    )
     name = STRATEGY_REGISTRY.get(strategy_id, {}).get("name", strategy_id)
     return {
         "signals": signals,

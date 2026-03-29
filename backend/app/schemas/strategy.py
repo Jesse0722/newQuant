@@ -50,6 +50,40 @@ class BacktestResult(BaseModel):
     total_signals: int = 0
 
 
+class StrategyBacktestRequest(BaseModel):
+    strategy_id: str = Field(..., description="策略ID，如 two_phase / ma5_pullback")
+    trade_date_from: str = Field(..., description="开始日期 YYYYMMDD")
+    trade_date_to: str = Field(..., description="结束日期 YYYYMMDD")
+    pool_id: Optional[str] = Field(None, description="股票池ID，不传则默认涨停观察池")
+
+
+class StrategyBacktestSignal(BaseModel):
+    ts_code: str
+    name: str
+    trigger_date: str
+    entry_price: float
+    return_1d: Optional[float] = None
+    return_3d: Optional[float] = None
+    return_5d: Optional[float] = None
+    signal_score: int = 0
+
+
+class StrategyBacktestResult(BaseModel):
+    strategy_id: str
+    trade_date_from: str
+    trade_date_to: str
+    total_signals: int = 0
+    win_rate_1d: float = 0.0
+    win_rate_3d: float = 0.0
+    win_rate_5d: float = 0.0
+    avg_return_1d: float = 0.0
+    avg_return_3d: float = 0.0
+    avg_return_5d: float = 0.0
+    max_drawdown: float = 0.0
+    profit_factor: float = 0.0
+    signals: list[StrategyBacktestSignal] = []
+
+
 class ScreenResultItem(BaseModel):
     ts_code: str
     stock_name: str = ""

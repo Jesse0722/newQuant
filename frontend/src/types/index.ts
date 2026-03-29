@@ -290,6 +290,12 @@ export interface BuySignal {
   rsi: number | null
   macd_hist: number | null
   volume_ratio: number | null
+  signal_persist_days?: number
+  stop_loss_price?: number | null
+  target_price?: number | null
+  stop_loss_pct?: number | null
+  target_return_pct?: number | null
+  risk_reward_ratio?: number | null
 }
 
 export interface BuySignalScanResult {
@@ -306,6 +312,41 @@ export interface BuyStrategy {
   id: string
   name: string
   description: string
+}
+
+export interface StrategyBacktestSignal {
+  ts_code: string
+  name: string
+  trigger_date: string
+  entry_price: number
+  return_1d?: number | null
+  return_3d?: number | null
+  return_5d?: number | null
+  signal_score: number
+}
+
+export interface StrategyBacktestResult {
+  strategy_id: string
+  trade_date_from: string
+  trade_date_to: string
+  total_signals: number
+  win_rate_1d: number
+  win_rate_3d: number
+  win_rate_5d: number
+  avg_return_1d: number
+  avg_return_3d: number
+  avg_return_5d: number
+  max_drawdown: number
+  profit_factor: number
+  signals: StrategyBacktestSignal[]
+}
+
+export interface StrategyBacktestTaskStatus {
+  task_id: string
+  status: 'running' | 'completed' | 'failed' | string
+  progress: number
+  message: string
+  result?: StrategyBacktestResult
 }
 
 export interface AiAnalysisResult {

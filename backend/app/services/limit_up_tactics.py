@@ -57,6 +57,37 @@ def _build_signal(conditions: dict[str, bool], cond_defs: dict[str, dict], metri
     }
 
 
+def _calc_persist_days(
+    df: pd.DataFrame,
+    limit_up_idx: int,
+    analyze_fn,
+    current_status: str,
+    max_lookback: int = 2,
+) -> int:
+    """
+    计算信号连续满足天数（含今日）。
+    仅统计 triggered / approaching；其余状态返回 0。
+    """
+    if current_status not in ("triggered", "approaching"):
+        return 0
+    if max_lookback <= 0:
+        return 1
+
+    persist_days = 1
+    total_len = len(df)
+    for i in range(1, max_lookback + 1):
+        cut_len = total_len - i
+        if cut_len <= limit_up_idx + 1:
+            break
+        prev_df = df.iloc[:cut_len].copy()
+        prev_sig = analyze_fn(prev_df, limit_up_idx)
+        if prev_sig.get("signal_status") in ("triggered", "approaching"):
+            persist_days += 1
+        else:
+            break
+    return persist_days
+
+
 # ================================================================
 # 公共工具
 # ================================================================
@@ -114,15 +145,35 @@ def _metrics(df: pd.DataFrame, limit_up_idx: int) -> dict:
     mh = _safe(latest.get("macd_hist"))
     vr = _safe(latest.get("volume_ratio"))
     pct = latest.get("pct_chg")
+    latest_close = float(latest["close"])
+    stop_loss_price = round(float(lu["low"]) * 0.97, 2)
+    target_price = round(float(lu["close"]) * 1.10, 2)
+    if latest_close > 0:
+        stop_loss_pct = round((latest_close - stop_loss_price) / latest_close * 100, 2)
+        target_return_pct = round((target_price - latest_close) / latest_close * 100, 2)
+    else:
+        stop_loss_pct = None
+        target_return_pct = None
+    risk_reward_ratio = (
+        round(target_return_pct / stop_loss_pct, 2)
+        if stop_loss_pct is not None and stop_loss_pct > 0 and target_return_pct is not None
+        else None
+    )
     return {
         "days_since_life_line": days,
         "phase2_high": ph,
         "pullback_pct": pb,
-        "latest_close": float(latest["close"]),
+        "latest_close": latest_close,
         "latest_pct_chg": round(float(pct), 2) if pct is not None and not pd.isna(pct) else 0.0,
         "rsi": round(float(rsi), 1) if rsi is not None else None,
         "macd_hist": round(float(mh), 4) if mh is not None else None,
         "volume_ratio": round(float(vr), 2) if vr is not None else None,
+        "signal_persist_days": 1,
+        "stop_loss_price": stop_loss_price,
+        "target_price": target_price,
+        "stop_loss_pct": stop_loss_pct,
+        "target_return_pct": target_return_pct,
+        "risk_reward_ratio": risk_reward_ratio,
     }
 
 

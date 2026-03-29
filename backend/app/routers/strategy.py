@@ -14,6 +14,7 @@ from app.schemas.strategy import (
     LimitUpBuyPointRequest,
     BacktestRequest,
     BacktestResult,
+    StrategyBacktestRequest,
     ScreenResult,
 )
 from app.services.strategy_service import run_indicator_screen, run_limit_up_buy_point_screen, SCREEN_TEMPLATES, LIMIT_UP_BUY_POINT_TEMPLATES
@@ -28,6 +29,7 @@ from app.services.buy_signal_service import scan_pool_buy_signals, list_buy_stra
 from app.services.sync_service import sync_single_stock, _sync_stock_basic_full
 from app.models.sync_log import SyncLog
 from app.tasks.background import submit_task, get_task_status
+from app.services.strategy_backtest import run_strategy_backtest_task
 from app.exceptions import AppError
 
 
@@ -117,6 +119,35 @@ def get_buy_strategies():
 def scan_buy_signals(body: ScanBuySignalsRequest, db: Session = Depends(get_db)):
     """扫描观察池买点信号，支持多策略选择"""
     return scan_pool_buy_signals(db, body.pool_id, body.strategy_id)
+
+
+@router.post("/strategy-backtest")
+def submit_strategy_backtest(body: StrategyBacktestRequest):
+    """提交新买点策略回测任务（异步）"""
+    task_id = submit_task(
+        "strategy_backtest",
+        run_strategy_backtest_task,
+        body.strategy_id,
+        body.trade_date_from,
+        body.trade_date_to,
+        body.pool_id,
+    )
+    return {"task_id": task_id}
+
+
+@router.get("/strategy-backtest/{task_id}")
+def get_strategy_backtest_result(task_id: str):
+    """查询新买点策略回测任务状态与结果"""
+    status = get_task_status(task_id)
+    if not status:
+        raise AppError(code=1004, message="任务不存在", status_code=404)
+    return {
+        "task_id": status.id,
+        "status": status.status,
+        "progress": status.progress,
+        "message": status.message,
+        "result": status.result,
+    }
 
 
 @router.post("/limit-up/collect")

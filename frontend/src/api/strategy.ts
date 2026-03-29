@@ -91,7 +91,12 @@ export const collectLimitUp = (params?: { trade_date?: string; window_days?: num
 
 // ---------- 买点雷达 ----------
 
-import type { BuySignalScanResult, StockChartDataWithMarks, BuyStrategy } from '../types'
+import type {
+  BuySignalScanResult,
+  StockChartDataWithMarks,
+  BuyStrategy,
+  StrategyBacktestTaskStatus,
+} from '../types'
 
 export const getBuyStrategies = () =>
   client.get<BuyStrategy[]>('/strategy/buy-strategies')
@@ -106,3 +111,13 @@ export const getStockChartWithMarks = (tsCode: string, period: number, limitUpDa
   client.get<StockChartDataWithMarks>(`/stocks/${tsCode}/chart`, {
     params: { period, mark_signals: true, limit_up_date: limitUpDate || undefined },
   })
+
+export const submitStrategyBacktest = (data: {
+  strategy_id: string
+  trade_date_from: string
+  trade_date_to: string
+  pool_id?: string | null
+}) => client.post<{ task_id: string }>('/strategy/strategy-backtest', data)
+
+export const getStrategyBacktestResult = (taskId: string) =>
+  client.get<StrategyBacktestTaskStatus>(`/strategy/strategy-backtest/${taskId}`)
