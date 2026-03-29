@@ -129,6 +129,13 @@ const Alerts: React.FC = () => {
       ),
     },
     {
+      title: '所属行业',
+      key: 'industry',
+      width: 100,
+      ellipsis: true,
+      render: (_: unknown, r: Alert) => r.industry || r.buy_signal?.industry || '-',
+    },
+    {
       title: '策略',
       key: 'strategy',
       width: 120,
@@ -254,7 +261,7 @@ const Alerts: React.FC = () => {
         columns={columns}
         rowKey="id"
         loading={loading}
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1200 }}
         pagination={{
           current: page,
           total,

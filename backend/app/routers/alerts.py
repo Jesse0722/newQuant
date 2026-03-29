@@ -36,6 +36,10 @@ def _enrich_alert(db: Session, alert: Alert) -> AlertOut:
         out.buy_signal = sig
     if isinstance(meta, dict):
         out.scan_meta = meta
+    if basic and basic.industry:
+        out.industry = basic.industry
+    elif isinstance(sig, dict) and sig.get("industry"):
+        out.industry = sig.get("industry")
     if alert.source == "buy_radar":
         sid = alert.buy_strategy_id or (sig.get("strategy_id") if isinstance(sig, dict) else None)
         out.strategy_name = STRATEGY_REGISTRY.get(sid or "", {}).get("name", sid)

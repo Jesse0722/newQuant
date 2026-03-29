@@ -118,6 +118,7 @@ export interface Alert {
   buy_strategy_id?: string | null
   ts_code: string
   stock_name?: string
+  industry?: string | null
   template_name?: string
   strategy_name?: string
   buy_signal?: Record<string, any>

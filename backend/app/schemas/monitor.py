@@ -43,6 +43,7 @@ class AlertOut(BaseModel):
     buy_strategy_id: Optional[str] = None
     ts_code: str
     stock_name: Optional[str] = None
+    industry: Optional[str] = None
     template_name: Optional[str] = None
     strategy_name: Optional[str] = None
     buy_signal: Optional[dict] = None
