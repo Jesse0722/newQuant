@@ -35,3 +35,21 @@ def init_db():
     migrate_alert_buy_radar()
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)
+    _ensure_alert_buy_radar_columns(engine)
+
+
+def _ensure_alert_buy_radar_columns(engine):
+    """启动后校验 alert 表结构；若仍缺列则再执行一次迁移（避免路径不一致导致未迁移）。"""
+    from sqlalchemy import inspect
+
+    if "sqlite" not in str(engine.url):
+        return
+    insp = inspect(engine)
+    if not insp.has_table("alert"):
+        return
+    names = {c["name"] for c in insp.get_columns("alert")}
+    if "source" in names and "buy_strategy_id" in names:
+        return
+    from scripts.migrate_alert_buy_radar import migrate as migrate_alert_buy_radar
+
+    migrate_alert_buy_radar()

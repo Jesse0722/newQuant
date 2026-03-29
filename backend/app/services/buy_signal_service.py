@@ -687,6 +687,7 @@ def _batch_last_trade_dates(db: Session, ts_codes: list[str], fallback: str) -> 
 def _sync_buy_radar_alerts(
     db: Session,
     pool_id: str,
+    stocks: list,
     rt_map: dict[str, dict],
     merge_rt: bool,
     trade_date_today: str,
@@ -698,6 +699,7 @@ def _sync_buy_radar_alerts(
     if not triggered:
         return
 
+    ts_to_ws = {ws.ts_code: ws for ws in stocks}
     ts_codes = [s["ts_code"] for s in triggered]
     last_dates = _batch_last_trade_dates(db, ts_codes, trade_date_today)
     strat_name = STRATEGY_REGISTRY.get(strategy_id, {}).get("name", strategy_id)
@@ -710,11 +712,13 @@ def _sync_buy_radar_alerts(
         else:
             trig_date = last_dates.get(ts_code, trade_date_today)
 
-        watch = (
-            db.query(WatchStock)
-            .filter(WatchStock.pool_id == pool_id, WatchStock.ts_code == ts_code)
-            .first()
-        )
+        watch = ts_to_ws.get(ts_code)
+        if not watch:
+            watch = (
+                db.query(WatchStock)
+                .filter(WatchStock.pool_id == pool_id, WatchStock.ts_code == ts_code)
+                .first()
+            )
         if not watch:
             continue
 
@@ -854,7 +858,7 @@ def _scan_two_phase(
     meta = _scan_meta_fields(realtime, trade_date_today)
     out = _finalize(signals, "two_phase", **meta)
     _sync_buy_radar_alerts(
-        db, pool_id, rt_map, merge_rt, trade_date_today, "two_phase", signals, meta
+        db, pool_id, stocks, rt_map, merge_rt, trade_date_today, "two_phase", signals, meta
     )
     return out
 
@@ -954,7 +958,7 @@ def _scan_tactic(
     meta = _scan_meta_fields(realtime, trade_date_today)
     out = _finalize(signals, strategy_id, **meta)
     _sync_buy_radar_alerts(
-        db, pool_id, rt_map, merge_rt, trade_date_today, strategy_id, signals, meta
+        db, pool_id, stocks, rt_map, merge_rt, trade_date_today, strategy_id, signals, meta
     )
     return out
 

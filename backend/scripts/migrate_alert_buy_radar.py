@@ -1,6 +1,8 @@
 """Alert 表：source、buy_strategy_id、rule_id 可空（SQLite 必要时整表重建）。"""
+import logging
 import sqlite3
-from app.config import DATABASE_URL
+
+logger = logging.getLogger(__name__)
 
 
 def _needs_rebuild(cur) -> bool:
@@ -18,9 +20,16 @@ def _needs_rebuild(cur) -> bool:
 
 
 def migrate():
-    if "sqlite" not in DATABASE_URL:
+    """使用与 ORM 相同的 engine URL，避免 DATABASE_URL 字符串解析与真实库文件不一致。"""
+    from app.database import engine
+
+    url = engine.url
+    if url.get_backend_name() != "sqlite":
         return
-    db_path = DATABASE_URL.replace("sqlite:///", "")
+    db_path = url.database
+    if not db_path:
+        logger.warning("migrate_alert_buy_radar: sqlite URL 无 database 路径，跳过")
+        return
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='alert'")
@@ -30,6 +39,7 @@ def migrate():
     if not _needs_rebuild(cur):
         conn.close()
         return
+    logger.info("migrate_alert_buy_radar: 重建 alert 表（买点提醒 source / 可空 rule_id）")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS alert_new (
