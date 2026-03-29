@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.stock import DailyQuote
 from app.models.pool import WatchPool, WatchStock
-from app.models.monitor import MonitorRule, Alert
+from app.models.monitor import MonitorRule
 from app.services.indicator import calc_ma, calc_macd, calc_rsi, calc_vol_ma, calc_n_day_high
 from app.tasks.background import task_registry
 import pandas as pd
@@ -166,10 +166,10 @@ def evaluate_rule(df: pd.DataFrame, rule: MonitorRule, watch_stock: WatchStock |
     return False
 
 
-def scan_stock(db: Session, watch_stock: WatchStock) -> list[Alert]:
+def scan_stock(db: Session, watch_stock: WatchStock) -> None:
     df = _get_df(db, watch_stock.ts_code)
     if df.empty:
-        return []
+        return
 
     rules = db.query(MonitorRule).filter(
         MonitorRule.stock_id == watch_stock.id, MonitorRule.is_active == True
@@ -179,35 +179,9 @@ def scan_stock(db: Session, watch_stock: WatchStock) -> list[Alert]:
             MonitorRule.pool_id == watch_stock.pool_id, MonitorRule.is_active == True
         ).all()
 
-    alerts = []
-    for rule in rules:
-        if evaluate_rule(df, rule, watch_stock):
-            last_date = df["trade_date"].iloc[-1]
-            existing = db.query(Alert).filter(
-                Alert.stock_id == watch_stock.id,
-                Alert.rule_id == rule.id,
-                Alert.trigger_date == last_date,
-            ).first()
-            if not existing:
-                snapshot = {
-                    "close": df["close"].iloc[-1],
-                    "open": df["open"].iloc[-1],
-                    "high": df["high"].iloc[-1],
-                    "low": df["low"].iloc[-1],
-                    "vol": df["vol"].iloc[-1],
-                }
-                alert = Alert(
-                    stock_id=watch_stock.id,
-                    rule_id=rule.id,
-                    ts_code=watch_stock.ts_code,
-                    trigger_date=last_date,
-                    snapshot=snapshot,
-                )
-                db.add(alert)
-                alerts.append(alert)
-    if alerts:
+    rule_matched = any(evaluate_rule(df, rule, watch_stock) for rule in rules)
+    if rule_matched:
         watch_stock.monitor_status = "triggered"
-        # 买点触发后自动加入目标池
         pool = db.query(WatchPool).filter(WatchPool.id == watch_stock.pool_id).first()
         if pool and pool.trigger_target_pool_id:
             existing = db.query(WatchStock).filter(
@@ -222,7 +196,6 @@ def scan_stock(db: Session, watch_stock: WatchStock) -> list[Alert]:
                 )
                 db.add(target_stock)
     db.commit()
-    return alerts
 
 
 def scan_pool(task_id: str, pool_id: str):

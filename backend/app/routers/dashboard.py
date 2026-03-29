@@ -18,7 +18,13 @@ def get_dashboard(db: Session = Depends(get_db)):
         WatchStock.monitor_status == "monitoring"
     ).scalar()
 
-    recent_alerts_raw = db.query(Alert).order_by(Alert.created_at.desc()).limit(10).all()
+    recent_alerts_raw = (
+        db.query(Alert)
+        .filter(Alert.source == "buy_radar")
+        .order_by(Alert.created_at.desc())
+        .limit(10)
+        .all()
+    )
     recent_alerts = []
     for a in recent_alerts_raw:
         basic = db.query(StockBasic).filter(StockBasic.ts_code == a.ts_code).first()

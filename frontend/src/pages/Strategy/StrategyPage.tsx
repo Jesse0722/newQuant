@@ -373,7 +373,10 @@ const StrategyPage: React.FC = () => {
                 <span>日期范围：</span>
                 <DatePicker.RangePicker
                   value={dateRange}
-                  onChange={(v) => setDateRange(v)}
+                  onChange={(v) => {
+                    if (v?.[0] && v[1]) setDateRange([v[0], v[1]])
+                    else setDateRange(null)
+                  }}
                   format="YYYY-MM-DD"
                   style={{ width: 260 }}
                 />
@@ -443,7 +446,10 @@ const StrategyPage: React.FC = () => {
                 <span>日期范围：</span>
                 <DatePicker.RangePicker
                   value={backtestDateRange}
-                  onChange={(v) => setBacktestDateRange(v)}
+                  onChange={(v) => {
+                    if (v?.[0] && v[1]) setBacktestDateRange([v[0], v[1]])
+                    else setBacktestDateRange(null)
+                  }}
                   format="YYYY-MM-DD"
                   style={{ width: 260 }}
                 />

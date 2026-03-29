@@ -17,9 +17,9 @@ const menuItems = [
   { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/pools', icon: <EyeOutlined />, label: '观察池' },
   { key: '/buy-radar', icon: <RadarChartOutlined />, label: '买点雷达' },
+  { key: '/alerts', icon: <AlertOutlined />, label: '买点提醒' },
   { key: '/strategy', icon: <FilterOutlined />, label: '策略选股' },
   { key: '/data', icon: <DatabaseOutlined />, label: '数据管理' },
-  { key: '/alerts', icon: <AlertOutlined />, label: '监控提醒' },
   { key: '/plans', icon: <FileTextOutlined />, label: '交易计划' },
 ]
 

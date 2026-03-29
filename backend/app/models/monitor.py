@@ -18,10 +18,12 @@ class Alert(Base):
     __tablename__ = "alert"
     id = Column(String(36), primary_key=True, default=gen_uuid)
     stock_id = Column(String(36), ForeignKey("watch_stock.id"), nullable=False)
-    rule_id = Column(String(36), ForeignKey("monitor_rule.id"), nullable=False)
+    rule_id = Column(String(36), ForeignKey("monitor_rule.id"), nullable=True)
     ts_code = Column(String(16), nullable=False)
     trigger_date = Column(String(8), nullable=False)
     status = Column(String(16), nullable=False, default="pending")
     plan_id = Column(String(36), ForeignKey("trade_plan.id"), nullable=True)
     snapshot = Column(JSON)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    source = Column(String(16), nullable=False, default="monitor")
+    buy_strategy_id = Column(String(64), nullable=True)

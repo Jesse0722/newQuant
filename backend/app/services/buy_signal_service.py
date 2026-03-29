@@ -8,8 +8,10 @@
 import numpy as np
 import pandas as pd
 from datetime import datetime
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.monitor import Alert
 from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchPool, WatchStock
 from app.services.limit_up_service import LIMIT_UP_POOL_NAME
@@ -650,6 +652,104 @@ def _scan_context(db: Session, pool_id: str | None):
     merge_rt = bool(realtime["applied"])
     return pid, stocks, rt_map, realtime, trade_date_today, merge_rt
 
+
+def _json_safe_for_alert(obj):
+    if isinstance(obj, dict):
+        return {k: _json_safe_for_alert(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe_for_alert(v) for v in obj]
+    if isinstance(obj, (np.floating, np.integer)):
+        return float(obj) if isinstance(obj, np.floating) else int(obj)
+    if hasattr(obj, "item") and callable(getattr(obj, "item", None)):
+        try:
+            return obj.item()
+        except Exception:
+            pass
+    return obj
+
+
+def _batch_last_trade_dates(db: Session, ts_codes: list[str], fallback: str) -> dict[str, str]:
+    if not ts_codes:
+        return {}
+    rows = (
+        db.query(DailyQuote.ts_code, func.max(DailyQuote.trade_date).label("md"))
+        .filter(DailyQuote.ts_code.in_(ts_codes))
+        .group_by(DailyQuote.ts_code)
+        .all()
+    )
+    out = {r.ts_code: (str(r.md) if r.md is not None else fallback) for r in rows}
+    for c in ts_codes:
+        if c not in out:
+            out[c] = fallback
+    return out
+
+
+def _sync_buy_radar_alerts(
+    db: Session,
+    pool_id: str,
+    rt_map: dict[str, dict],
+    merge_rt: bool,
+    trade_date_today: str,
+    strategy_id: str,
+    signals: list[dict],
+    scan_meta_base: dict,
+) -> None:
+    triggered = [s for s in signals if s.get("signal_status") == "triggered"]
+    if not triggered:
+        return
+
+    ts_codes = [s["ts_code"] for s in triggered]
+    last_dates = _batch_last_trade_dates(db, ts_codes, trade_date_today)
+    strat_name = STRATEGY_REGISTRY.get(strategy_id, {}).get("name", strategy_id)
+    scan_meta = {**scan_meta_base, "pool_id": pool_id}
+
+    for sig in triggered:
+        ts_code = sig["ts_code"]
+        if merge_rt and ts_code in rt_map:
+            trig_date = trade_date_today
+        else:
+            trig_date = last_dates.get(ts_code, trade_date_today)
+
+        watch = (
+            db.query(WatchStock)
+            .filter(WatchStock.pool_id == pool_id, WatchStock.ts_code == ts_code)
+            .first()
+        )
+        if not watch:
+            continue
+
+        signal_payload = _json_safe_for_alert({**sig, "strategy_id": strategy_id, "strategy_name": strat_name})
+        snapshot = {"_v": 1, "signal": signal_payload, "scan_meta": _json_safe_for_alert(scan_meta)}
+
+        existing = (
+            db.query(Alert)
+            .filter(
+                Alert.stock_id == watch.id,
+                Alert.source == "buy_radar",
+                Alert.buy_strategy_id == strategy_id,
+                Alert.trigger_date == trig_date,
+            )
+            .first()
+        )
+        if existing:
+            existing.snapshot = snapshot
+            existing.ts_code = ts_code
+        else:
+            db.add(
+                Alert(
+                    stock_id=watch.id,
+                    rule_id=None,
+                    ts_code=ts_code,
+                    trigger_date=trig_date,
+                    status="pending",
+                    snapshot=snapshot,
+                    source="buy_radar",
+                    buy_strategy_id=strategy_id,
+                )
+            )
+    db.commit()
+
+
 def _scan_meta_fields(realtime: dict, trade_date_today: str) -> dict:
     applied = bool(realtime.get("applied"))
     mode = "intraday_merged" if applied else "historical_only"
@@ -751,7 +851,12 @@ def _scan_two_phase(
             **analysis,
         })
 
-    return _finalize(signals, "two_phase", **_scan_meta_fields(realtime, trade_date_today))
+    meta = _scan_meta_fields(realtime, trade_date_today)
+    out = _finalize(signals, "two_phase", **meta)
+    _sync_buy_radar_alerts(
+        db, pool_id, rt_map, merge_rt, trade_date_today, "two_phase", signals, meta
+    )
+    return out
 
 
 def _scan_tactic(
@@ -846,7 +951,12 @@ def _scan_tactic(
             **analysis,
         })
 
-    return _finalize(signals, strategy_id, **_scan_meta_fields(realtime, trade_date_today))
+    meta = _scan_meta_fields(realtime, trade_date_today)
+    out = _finalize(signals, strategy_id, **meta)
+    _sync_buy_radar_alerts(
+        db, pool_id, rt_map, merge_rt, trade_date_today, strategy_id, signals, meta
+    )
+    return out
 
 
 def _empty_result(strategy_id: str) -> dict:

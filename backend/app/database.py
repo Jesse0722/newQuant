@@ -31,5 +31,7 @@ def init_db():
     migrate_daily_quote_turnover()
     from scripts.migrate_float_share import migrate as migrate_float_share
     migrate_float_share()
+    from scripts.migrate_alert_buy_radar import migrate as migrate_alert_buy_radar
+    migrate_alert_buy_radar()
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

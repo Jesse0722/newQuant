@@ -113,10 +113,15 @@ export interface MonitorRule {
 export interface Alert {
   id: string
   stock_id: string
-  rule_id: string
+  rule_id?: string | null
+  source?: string
+  buy_strategy_id?: string | null
   ts_code: string
   stock_name?: string
   template_name?: string
+  strategy_name?: string
+  buy_signal?: Record<string, any>
+  scan_meta?: Record<string, any>
   trigger_date: string
   status: string
   plan_id?: string

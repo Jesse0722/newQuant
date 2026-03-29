@@ -38,16 +38,25 @@ class MonitorRuleOut(BaseModel):
 class AlertOut(BaseModel):
     id: str
     stock_id: str
-    rule_id: str
+    rule_id: Optional[str] = None
+    source: str = "monitor"
+    buy_strategy_id: Optional[str] = None
     ts_code: str
     stock_name: Optional[str] = None
     template_name: Optional[str] = None
+    strategy_name: Optional[str] = None
+    buy_signal: Optional[dict] = None
+    scan_meta: Optional[dict] = None
     trigger_date: str
     status: str
     plan_id: Optional[str] = None
     snapshot: Optional[dict] = None
     created_at: datetime
     model_config = {"from_attributes": True}
+
+
+class AlertBatchCountOut(BaseModel):
+    count: int
 
 
 class AlertUpdate(BaseModel):

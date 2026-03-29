@@ -15,7 +15,7 @@ const Dashboard: React.FC = () => {
   }, [])
 
   const alertColumns = [
-    { title: '股票代码', dataIndex: 'ts_code', key: 'ts_code', render: (v: string, r: any) => <a onClick={(e) => { e.stopPropagation(); navigate(`/stocks/${v}`) }}>{v}</a> },
+    { title: '股票代码', dataIndex: 'ts_code', key: 'ts_code', render: (v: string) => <a onClick={(e) => { e.stopPropagation(); navigate(`/stocks/${v}`) }}>{v}</a> },
     { title: '股票名称', dataIndex: 'stock_name', key: 'stock_name', render: (v: string, r: any) => <a onClick={(e) => { e.stopPropagation(); navigate(`/stocks/${r.ts_code}`) }}>{v || '-'}</a> },
     { title: '触发日期', dataIndex: 'trigger_date', key: 'trigger_date' },
     {

@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip, Modal, DatePicker, Progress, Table, Row, Col, Statistic, InputNumber, Switch } from 'antd'
-import { ScanOutlined, BarChartOutlined } from '@ant-design/icons'
+import { ScanOutlined, BarChartOutlined, BellOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { scanBuySignals, getBuyStrategies, submitStrategyBacktest, getStrategyBacktestResult, getTradingSession } from '../../api/strategy'
+import { getAlertsPendingCount } from '../../api/alerts'
 import { listPools, getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import SignalList from './SignalList'
 import SignalDetail from './SignalDetail'
@@ -14,6 +16,8 @@ const LS_AUTO = 'buyRadar:autoScanByStrategy'
 const LS_INTERVAL = 'buyRadar:intervalMinutes'
 
 const BuyRadarPage: React.FC = () => {
+  const navigate = useNavigate()
+  const [pendingAlertCount, setPendingAlertCount] = useState(0)
   const [pools, setPools] = useState<Pool[]>([])
   const [activePoolId, setActivePoolId] = useState('')
   const [strategies, setStrategies] = useState<BuyStrategy[]>([])
@@ -58,6 +62,18 @@ const BuyRadarPage: React.FC = () => {
       .then((res) => setCoreWatchCodes(new Set(res.data.ts_codes || [])))
       .catch(() => {})
   }, [])
+
+  const refreshPendingAlerts = useCallback(() => {
+    getAlertsPendingCount({ source: 'buy_radar' })
+      .then((res) => setPendingAlertCount(res.data.count))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    refreshPendingAlerts()
+    const id = window.setInterval(refreshPendingAlerts, 60_000)
+    return () => window.clearInterval(id)
+  }, [refreshPendingAlerts])
 
   useEffect(() => {
     listPools()
@@ -165,8 +181,9 @@ const BuyRadarPage: React.FC = () => {
       const res = await scanBuySignals(activePoolId, activeStrategyId)
       setScanResultsByStrategy((prev) => ({ ...prev, [activeStrategyId]: res.data }))
       message.success(
-        `扫描完成: ${res.data.triggered_count} 只触发, ${res.data.approaching_count} 只接近, 共 ${res.data.total} 只`
+        `扫描完成: ${res.data.triggered_count} 只触发, ${res.data.approaching_count} 只接近, 共 ${res.data.total} 只。待处理提醒已更新，可到买点提醒查看。`
       )
+      refreshPendingAlerts()
       if (res.data.signals.length > 0) {
         const first = res.data.signals.find((s) => s.signal_status !== 'invalidated') || res.data.signals[0]
         setSelectedSignal(first)
@@ -262,6 +279,7 @@ const BuyRadarPage: React.FC = () => {
         } catch (_) { /* 静默 */ }
         if (i < enabled.length - 1) await new Promise((r) => setTimeout(r, 200))
       }
+      refreshPendingAlerts()
     }
     void run()
     autoScanIntervalRef.current = window.setInterval(run, Math.max(1, intervalMinutes) * 60 * 1000)
@@ -271,7 +289,7 @@ const BuyRadarPage: React.FC = () => {
         autoScanIntervalRef.current = null
       }
     }
-  }, [inSession, activePoolId, autoScanByStrategy, intervalMinutes])
+  }, [inSession, activePoolId, autoScanByStrategy, intervalMinutes, refreshPendingAlerts])
 
   const handleSelect = useCallback((signal: BuySignal) => {
     setSelectedSignal(signal)
@@ -315,6 +333,16 @@ const BuyRadarPage: React.FC = () => {
         padding: '12px 0', borderBottom: '1px solid #f0f0f0', marginBottom: 0, flexShrink: 0,
       }}>
         <Space size="middle" wrap>
+          <Tooltip title="待处理买点提醒，点击进入买点提醒">
+            <Badge count={pendingAlertCount} size="small" offset={[-4, 4]}>
+              <Button
+                type="text"
+                aria-label="买点提醒"
+                icon={<BellOutlined style={{ fontSize: 18 }} />}
+                onClick={() => navigate('/alerts?from=radar')}
+              />
+            </Badge>
+          </Tooltip>
           <span style={{ fontSize: 13, color: '#595959' }}>股票池</span>
           <Select
             style={{ minWidth: 180 }}
