@@ -28,3 +28,8 @@ def is_a_share_trading_session(now: datetime | None = None) -> bool:
 def shanghai_trade_date_str(now: datetime | None = None) -> str:
     """自然日 YYYYMMDD（上海），用于与 DB 最后一根 K 的 trade_date 比较。"""
     return _to_shanghai(now).strftime("%Y%m%d")
+
+
+def shanghai_datetime(now: datetime | None = None) -> datetime:
+    """当前或给定时刻的上海时区 datetime。"""
+    return _to_shanghai(now)

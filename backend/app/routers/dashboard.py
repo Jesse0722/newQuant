@@ -1,69 +1,48 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
-from app.database import get_db
-from app.models.pool import WatchPool, WatchStock
-from app.models.monitor import Alert
-from app.models.trade import TradePlan
-from app.models.stock import StockBasic
+from fastapi import APIRouter, HTTPException, Query
+
+from app.services.limit_market_board_service import get_limit_market_board_payload
+from app.services.trade_date_resolver import TradeDateResolutionError
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
 
 @router.get("/dashboard")
-def get_dashboard(db: Session = Depends(get_db)):
-    total_pools = db.query(func.count(WatchPool.id)).scalar()
-    total_stocks = db.query(func.count(WatchStock.id)).scalar()
-    monitoring_count = db.query(func.count(WatchStock.id)).filter(
-        WatchStock.monitor_status == "monitoring"
-    ).scalar()
-
-    recent_alerts_raw = (
-        db.query(Alert)
-        .filter(Alert.source == "buy_radar")
-        .order_by(Alert.created_at.desc())
-        .limit(10)
-        .all()
-    )
-    recent_alerts = []
-    for a in recent_alerts_raw:
-        basic = db.query(StockBasic).filter(StockBasic.ts_code == a.ts_code).first()
-        recent_alerts.append({
-            "id": a.id,
-            "ts_code": a.ts_code,
-            "stock_name": basic.name if basic else None,
-            "trigger_date": a.trigger_date,
-            "status": a.status,
-            "plan_id": a.plan_id,
-        })
-
-    active_plans_raw = (
-        db.query(TradePlan)
-        .options(joinedload(TradePlan.stocks))
-        .filter(TradePlan.status.in_(["pending", "active"]))
-        .order_by(TradePlan.created_at.desc())
-        .all()
-    )
-    active_plans = []
-    for p in active_plans_raw:
-        first_stock = p.stocks[0] if p.stocks else None
-        active_plans.append({
-            "id": p.id,
-            "title": p.title,
-            "ts_code": first_stock.ts_code if first_stock else None,
-            "stock_name": first_stock.stock_name if first_stock else None,
-            "stock_count": len(p.stocks),
-            "status": p.status,
-            "risk_level": first_stock.risk_level if first_stock else 2,
-            "risk_reward_ratio": first_stock.risk_reward_ratio if first_stock else None,
-        })
-
-    return {
-        "pool_summary": {
-            "total_pools": total_pools,
-            "total_stocks": total_stocks,
-            "monitoring_count": monitoring_count,
-        },
-        "recent_alerts": recent_alerts,
-        "active_plans": active_plans,
-    }
+def get_dashboard(
+    trade_date: str | None = Query(
+        None,
+        description="可选，覆盖默认解析的交易日 YYYYMMDD",
+        pattern=r"^\d{8}$",
+    ),
+):
+    try:
+        return get_limit_market_board_payload(trade_date=trade_date)
+    except TradeDateResolutionError as e:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRADE_DATE_RESOLUTION_FAILED",
+                "message": str(e),
+                "hint": "请检查 Tushare trade_cal 是否可用，或稍后重试。",
+            },
+        ) from e
+    except Exception as e:
+        msg = str(e)[:500]
+        lower = msg.lower()
+        if any(x in lower for x in ("timeout", "connection", "timed out", "network", "errno")):
+            code = "TUSHARE_UNAVAILABLE"
+            status = 503
+        else:
+            code = "TUSHARE_ERROR"
+            status = 502
+        raise HTTPException(
+            status_code=status,
+            detail={
+                "code": code,
+                "message": msg,
+                "hint": (
+                    "请检查 backend 环境变量 TUSHARE_TOKEN 与积分权限"
+                    "（limit_cpt_list / limit_step 约需 8000 积分）。"
+                    "详见 https://tushare.pro/document/2"
+                ),
+            },
+        ) from e

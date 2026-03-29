@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 import tushare as ts
 import pandas as pd
 from app.config import TUSHARE_TOKEN, TUSHARE_API_URL
@@ -46,6 +48,31 @@ class TushareAdapter:
     def get_rt_k(self, ts_code: str) -> pd.DataFrame:
         """实时日 K；ts_code 支持逗号分隔多码，单次建议不超过 5000 支。"""
         return self.pro.rt_k(ts_code=ts_code)
+
+    def get_sse_open_dates(self, end_date: str, lookback_calendar_days: int = 400) -> list[str]:
+        """SSE 交易日历中 is_open=1 的日期，YYYYMMDD，升序。end_date 含当日。"""
+        ed = datetime.strptime(end_date, "%Y%m%d").date()
+        sd = ed - timedelta(days=lookback_calendar_days)
+        start_date = sd.strftime("%Y%m%d")
+        df = self.pro.trade_cal(
+            exchange="SSE",
+            start_date=start_date,
+            end_date=end_date,
+            fields="cal_date,is_open",
+        )
+        if df is None or df.empty:
+            return []
+        df = df[df["is_open"] == 1]
+        if df.empty:
+            return []
+        out = df["cal_date"].astype(str).str.replace("-", "", regex=False).tolist()
+        return sorted(set(out))
+
+    def get_limit_cpt_list(self, trade_date: str) -> pd.DataFrame:
+        return self.pro.limit_cpt_list(trade_date=trade_date)
+
+    def get_limit_step(self, trade_date: str) -> pd.DataFrame:
+        return self.pro.limit_step(trade_date=trade_date)
 
 
 tushare_adapter = TushareAdapter()

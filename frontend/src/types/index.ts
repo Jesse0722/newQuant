@@ -185,30 +185,30 @@ export interface TradePlan {
   pnl_summary?: PnlSummary
 }
 
+export interface DashboardLimitSectorRow {
+  ts_code: string
+  name: string
+  trade_date: string
+  days?: number | null
+  up_stat?: string | null
+  cons_nums?: number | null
+  up_nums?: number | null
+  pct_chg?: number | null
+  rank?: string | null
+}
+
+export interface DashboardLimitLadderRow {
+  ts_code: string
+  name: string
+  trade_date: string
+  nums: string
+}
+
 export interface DashboardData {
-  pool_summary: {
-    total_pools: number
-    total_stocks: number
-    monitoring_count: number
-  }
-  recent_alerts: Array<{
-    id: string
-    ts_code: string
-    stock_name?: string
-    trigger_date: string
-    status: string
-    plan_id?: string
-  }>
-  active_plans: Array<{
-    id: string
-    title?: string
-    ts_code?: string
-    stock_name?: string
-    stock_count?: number
-    status: string
-    risk_level: number
-    risk_reward_ratio?: number
-  }>
+  trade_date: string
+  resolved_by: 'default' | 'query'
+  sectors: DashboardLimitSectorRow[]
+  ladder: DashboardLimitLadderRow[]
 }
 
 export interface TaskStatus {
