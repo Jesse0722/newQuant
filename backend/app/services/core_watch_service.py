@@ -78,7 +78,7 @@ def toggle_core_watch_star(
             ts_code=code,
             source="buy_radar",
             limit_up_date=limit_up_date,
-            note="买点雷达特别关注",
+            # 不设默认备注：避免与「扫描改了我备注」的误解；池子说明已体现「买点雷达加星」
         )
         db.add(stock)
         db.commit()
