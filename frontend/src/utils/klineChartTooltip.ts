@@ -65,15 +65,21 @@ export function makeKlineAxisTooltipFormatter(quotes: QuoteItem[]) {
     for (const p of ps) {
       const marker = p.marker ?? ''
       const name = p.seriesName
-      if (name === 'K线' && Array.isArray(p.data) && p.data.length >= 4) {
-        const [open, close, low, high] = p.data as number[]
+      // OHLC 必须以 quotes[dataIndex] 为准。ECharts 轴触发下 candlestick 的 params.data
+      // 在部分版本/结构下可能为 { value: [...] }、维序不一致或与内部编码不一致，会导致开盘/高低与后端不符。
+      if (name === 'K线') {
         const q = quotes[idx]
+        if (!q) {
+          lines.push(`${marker}<span style="font-weight:500">${name}</span>`)
+          lines.push('暂无该日行情')
+          continue
+        }
         lines.push(`${marker}<span style="font-weight:500">${name}</span>`)
         lines.push(
-          `开盘: ${fmtPrice(open)}　收盘: ${fmtPrice(close)}　最低: ${fmtPrice(low)}　最高: ${fmtPrice(high)}`
+          `开盘: ${fmtPrice(q.open)}　收盘: ${fmtPrice(q.close)}　最低: ${fmtPrice(q.low)}　最高: ${fmtPrice(q.high)}`
         )
         lines.push(
-          `成交量: ${fmtIntLike(q?.vol)}　成交额: ${fmtAmountLike(q?.amount)}`
+          `成交量: ${fmtIntLike(q.vol)}　成交额: ${fmtAmountLike(q.amount)}`
         )
         const pct = resolvePctChg(quotes, idx)
         if (pct != null) {
@@ -84,7 +90,7 @@ export function makeKlineAxisTooltipFormatter(quotes: QuoteItem[]) {
         } else {
           lines.push('涨幅: —')
         }
-        const tr = q?.turnover_rate
+        const tr = q.turnover_rate
         if (tr != null && !Number.isNaN(Number(tr))) {
           lines.push(`换手率: ${Number(tr).toFixed(2)}%`)
         } else {
