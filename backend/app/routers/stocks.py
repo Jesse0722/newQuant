@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -41,10 +42,29 @@ def _nan_to_none(series: pd.Series) -> list:
     return [None if (v is None or (isinstance(v, float) and np.isnan(v))) else round(v, 4) for v in series]
 
 
+def _sync_stock_kline_job(ts_code: str) -> tuple[int | None, Exception | None]:
+    """在独立会话中跑同步，供主请求线程做超时控制（Session 非线程安全）。"""
+    from app.database import SessionLocal
+
+    s = SessionLocal()
+    try:
+        sync_stock_info(s, ts_code)
+        added = sync_daily(s, ts_code, days=250)
+        return (int(added or 0), None)
+    except Exception as e:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return (None, e)
+    finally:
+        s.close()
+
+
 def _ensure_latest_kline(db: Session, ts_code: str) -> dict:
     """
     详情查询前自动增量补齐该股票日线到最新可用交易日。
-    失败时降级为返回本地已有数据，避免影响页面可用性。
+    失败或超时时降级为返回本地已有数据，避免 Tushare 阻塞导致图表长时间无响应。
     """
     today = datetime.now().strftime("%Y%m%d")
     latest = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
@@ -56,25 +76,33 @@ def _ensure_latest_kline(db: Session, ts_code: str) -> dict:
             "latest_trade_date": latest,
         }
     try:
-        sync_stock_info(db, ts_code)
-        added = sync_daily(db, ts_code, days=250)
-        latest_after = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
-        return {
-            "auto_sync_attempted": True,
-            "status": "updated" if (added or 0) > 0 else "up_to_date",
-            "message": f"已自动补齐，新增 {added or 0} 条",
-            "latest_trade_date": latest_after or latest,
-            "added_count": int(added or 0),
-        }
-    except Exception as e:
-        db.rollback()
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_sync_stock_kline_job, ts_code)
+            added, err = fut.result(timeout=25.0)
+    except FutureTimeout:
         latest_after = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
         return {
             "auto_sync_attempted": True,
             "status": "sync_failed",
-            "message": f"自动补齐失败：{str(e)[:120]}",
+            "message": "自动补齐超时，已返回本地已有 K 线（可稍后在数据页全量同步）",
             "latest_trade_date": latest_after or latest,
         }
+    if err is not None:
+        latest_after = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
+        return {
+            "auto_sync_attempted": True,
+            "status": "sync_failed",
+            "message": f"自动补齐失败：{str(err)[:120]}",
+            "latest_trade_date": latest_after or latest,
+        }
+    latest_after = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
+    return {
+        "auto_sync_attempted": True,
+        "status": "updated" if (added or 0) > 0 else "up_to_date",
+        "message": f"已自动补齐，新增 {added or 0} 条",
+        "latest_trade_date": latest_after or latest,
+        "added_count": int(added or 0),
+    }
 
 
 @router.get("/{ts_code}/chart")
@@ -109,23 +137,38 @@ def get_stock_chart(
         "date": q.trade_date,
         "open": q.open, "high": q.high, "low": q.low, "close": q.close,
         "vol": q.vol, "amount": q.amount, "pct_chg": q.pct_chg,
+        "turnover_rate": q.turnover_rate,
     } for q in quotes])
 
-    # 尝试补充换手率（daily_basic）；部分代理不支持时自动降级，不影响 K 线展示。
-    df["turnover_rate"] = np.nan
-    try:
+    def _fetch_daily_basic_bounded() -> pd.DataFrame:
         start_date = str(df["date"].iloc[0])
         end_date = str(df["date"].iloc[-1])
-        basic_df = tushare_adapter.get_daily_basic(ts_code=ts_code, start_date=start_date, end_date=end_date)
-        if not basic_df.empty and "trade_date" in basic_df.columns and "turnover_rate" in basic_df.columns:
-            turnover_map = {
-                str(row["trade_date"]): row["turnover_rate"]
-                for _, row in basic_df.iterrows()
-                if row.get("trade_date") is not None
-            }
-            df["turnover_rate"] = df["date"].map(turnover_map)
-    except Exception:
-        pass
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(
+                tushare_adapter.get_daily_basic,
+                ts_code,
+                start_date,
+                end_date,
+            )
+            try:
+                return fut.result(timeout=12.0)
+            except FutureTimeout:
+                return pd.DataFrame()
+
+    # 仅当本地仍有缺失换手率时再请求 Tushare，且带超时，避免图表接口被网络挂死
+    if df["turnover_rate"].isna().any():
+        try:
+            basic_df = _fetch_daily_basic_bounded()
+            if not basic_df.empty and "trade_date" in basic_df.columns and "turnover_rate" in basic_df.columns:
+                turnover_map = {
+                    str(row["trade_date"]): row["turnover_rate"]
+                    for _, row in basic_df.iterrows()
+                    if row.get("trade_date") is not None
+                }
+                fill = df["date"].map(turnover_map)
+                df["turnover_rate"] = df["turnover_rate"].where(~df["turnover_rate"].isna(), fill)
+        except Exception:
+            pass
 
     ma5 = _nan_to_none(calc_ma(df, 5))
     ma10 = _nan_to_none(calc_ma(df, 10))
