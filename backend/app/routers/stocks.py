@@ -75,18 +75,23 @@ def _ensure_latest_kline(db: Session, ts_code: str) -> dict:
             "message": "本地数据已是最新",
             "latest_trade_date": latest,
         }
+    ex = ThreadPoolExecutor(max_workers=1)
     try:
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            fut = ex.submit(_sync_stock_kline_job, ts_code)
+        fut = ex.submit(_sync_stock_kline_job, ts_code)
+        try:
             added, err = fut.result(timeout=25.0)
-    except FutureTimeout:
-        latest_after = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
-        return {
-            "auto_sync_attempted": True,
-            "status": "sync_failed",
-            "message": "自动补齐超时，已返回本地已有 K 线（可稍后在数据页全量同步）",
-            "latest_trade_date": latest_after or latest,
-        }
+        except FutureTimeout:
+            latest_after = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
+            return {
+                "auto_sync_attempted": True,
+                "status": "sync_failed",
+                "message": "自动补齐超时，已返回本地已有 K 线（可稍后在数据页全量同步）",
+                "latest_trade_date": latest_after or latest,
+            }
+    finally:
+        # 勿用 with ThreadPoolExecutor：退出时 shutdown(wait=True) 会在超时后仍等待后台线程，请求永久挂起
+        ex.shutdown(wait=False)
+
     if err is not None:
         latest_after = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
         return {
@@ -143,7 +148,8 @@ def get_stock_chart(
     def _fetch_daily_basic_bounded() -> pd.DataFrame:
         start_date = str(df["date"].iloc[0])
         end_date = str(df["date"].iloc[-1])
-        with ThreadPoolExecutor(max_workers=1) as ex:
+        ex = ThreadPoolExecutor(max_workers=1)
+        try:
             fut = ex.submit(
                 tushare_adapter.get_daily_basic,
                 ts_code,
@@ -154,6 +160,8 @@ def get_stock_chart(
                 return fut.result(timeout=12.0)
             except FutureTimeout:
                 return pd.DataFrame()
+        finally:
+            ex.shutdown(wait=False)
 
     # 仅当本地仍有缺失换手率时再请求 Tushare，且带超时，避免图表接口被网络挂死
     if df["turnover_rate"].isna().any():
