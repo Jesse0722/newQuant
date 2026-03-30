@@ -625,6 +625,34 @@ def _prepare_scan_dataframe(
     return _calc_indicators(df)
 
 
+def _align_signal_latest_display_with_daily_db(
+    db: Session, signals: list[dict], merge_rt: bool
+) -> None:
+    """
+    盘中合并 rt_k 时，列表上的 latest_close / latest_pct_chg 与 K 线图（仅 daily_quote，不合并 rt）对齐；
+    信号判定仍基于上方 _prepare_scan_dataframe 中的合并数据，避免展示与图表口径不一致。
+    """
+    if not merge_rt:
+        return
+    cache: dict[str, pd.DataFrame] = {}
+    for s in signals:
+        code = s.get("ts_code")
+        if not code:
+            continue
+        if code not in cache:
+            cache[code] = _build_df(db, code)
+        df0 = cache[code]
+        if df0.empty:
+            continue
+        last = df0.iloc[-1]
+        lc = last.get("close")
+        pc = last.get("pct_chg")
+        if lc is not None and not pd.isna(lc):
+            s["latest_close"] = float(lc)
+        if pc is not None and not pd.isna(pc):
+            s["latest_pct_chg"] = float(pc)
+
+
 def _resolve_pool_id(db: Session, pool_id: str | None) -> str | None:
     if pool_id:
         return pool_id
@@ -855,6 +883,7 @@ def _scan_two_phase(
             **analysis,
         })
 
+    _align_signal_latest_display_with_daily_db(db, signals, merge_rt)
     meta = _scan_meta_fields(realtime, trade_date_today)
     out = _finalize(signals, "two_phase", **meta)
     _sync_buy_radar_alerts(
@@ -955,6 +984,7 @@ def _scan_tactic(
             **analysis,
         })
 
+    _align_signal_latest_display_with_daily_db(db, signals, merge_rt)
     meta = _scan_meta_fields(realtime, trade_date_today)
     out = _finalize(signals, strategy_id, **meta)
     _sync_buy_radar_alerts(
