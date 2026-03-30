@@ -39,15 +39,25 @@ def _is_stock_st(name: str | None) -> bool:
 
 
 def _get_trade_dates(days: int = 1) -> list[str]:
-    """获取最近 N 个交易日（从昨天开始）"""
-    dates = []
-    d = datetime.now() - timedelta(days=1)
-    while len(dates) < days:
-        s = d.strftime("%Y%m%d")
-        if d.weekday() < 5:
-            dates.append(s)
-        d -= timedelta(days=1)
-    return dates
+    """
+    最近 N 个「已完成」交易日（与仪表盘默认日逻辑一致，SSE 日历）。
+    盘后含当日；盘中为上一交易日。不再从「自然日昨天」起算（否则交易当天下午永远筛不到当天涨停）。
+    """
+    from app.services.trade_date_resolver import last_n_resolved_trade_dates
+
+    try:
+        return last_n_resolved_trade_dates(days)
+    except Exception:
+        # 日历失败时降级：从自然日昨天往前数工作日（旧逻辑，不含节假日）
+        dates: list[str] = []
+        d = datetime.now() - timedelta(days=1)
+        for _ in range(400):
+            if len(dates) >= days:
+                break
+            if d.weekday() < 5:
+                dates.append(d.strftime("%Y%m%d"))
+            d -= timedelta(days=1)
+        return dates[:days]
 
 
 def fetch_limit_up_stocks_in_range(

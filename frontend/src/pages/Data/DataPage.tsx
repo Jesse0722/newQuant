@@ -269,7 +269,7 @@ const DataPage: React.FC = () => {
 
       <Card title="涨停筛选" style={{ marginTop: 24 }}>
         <p style={{ color: '#666', marginBottom: 16 }}>
-          直接调用 Tushare 接口获取涨停股，加入观察池并自动下载 60 日 K 线。无需全量同步。
+          直接调用 Tushare 接口获取涨停股，加入观察池并自动下载 60 日 K 线。默认日期窗口与「最近已完成交易日」一致：盘后含当日；盘中为上一交易日（不再仅从自然日昨天起算）。
         </p>
         <Space>
           <span>处理最近</span>

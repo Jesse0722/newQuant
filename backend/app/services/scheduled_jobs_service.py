@@ -7,6 +7,7 @@ from app.models.pool import WatchStock
 from app.models.stock import DailyQuote
 from app.models.sync_log import SyncLog
 from app.services.limit_up_service import get_or_create_limit_up_pool, collect_limit_up_stocks
+from app.services.trade_date_resolver import resolve_dashboard_trade_date
 from app.services.sync_service import _sync_stock_basic_full, sync_stock_info, sync_daily
 
 
@@ -33,7 +34,7 @@ def run_4pm_collect_limit_up_job() -> dict:
         except Exception:
             pass
         pool = get_or_create_limit_up_pool(db)
-        trade_date = datetime.now().strftime("%Y%m%d")
+        trade_date = resolve_dashboard_trade_date()
         result = collect_limit_up_stocks(
             db=db,
             trade_date=trade_date,

@@ -44,6 +44,25 @@ def resolve_dashboard_trade_date(
     return td
 
 
+def last_n_resolved_trade_dates(
+    n: int,
+    adapter: TushareAdapter | None = None,
+    lookback_calendar_days: int = 400,
+) -> list[str]:
+    """
+    最近 n 个可用于日线的「已完成」交易日（升序），上限日为 resolve_dashboard_trade_date()。
+    供涨停筛选等与仪表盘一致的默认日期窗口。
+    """
+    if n < 1:
+        return []
+    ad = adapter or tushare_adapter
+    end = resolve_dashboard_trade_date(adapter=ad)
+    open_dates = ad.get_sse_open_dates(end, lookback_calendar_days=lookback_calendar_days)
+    if not open_dates:
+        return []
+    return open_dates[-n:] if len(open_dates) > n else open_dates
+
+
 def resolve_dashboard_trade_date_with_calendar(
     now: datetime,
     open_dates_sorted: list[str],
