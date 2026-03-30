@@ -62,10 +62,14 @@ class TushareAdapter:
         )
         if df is None or df.empty:
             return []
-        df = df[df["is_open"] == 1]
+        # is_open 可能为字符串；必须与 1 等价比较
+        open_mask = pd.to_numeric(df["is_open"], errors="coerce").eq(1)
+        df = df.loc[open_mask]
         if df.empty:
             return []
-        out = df["cal_date"].astype(str).str.replace("-", "", regex=False).tolist()
+        # cal_date 常为 datetime/Timestamp，勿用 astype(str)（会得到 "YYYY-MM-DD 00:00:00" 使 YYYYMMDD 比对与上游入参错误）
+        norm = pd.to_datetime(df["cal_date"], errors="coerce").dt.strftime("%Y%m%d")
+        out = [x for x in norm.dropna().tolist() if x and len(x) == 8]
         return sorted(set(out))
 
     def get_limit_cpt_list(self, trade_date: str) -> pd.DataFrame:
