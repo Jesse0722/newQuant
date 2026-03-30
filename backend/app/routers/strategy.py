@@ -153,7 +153,7 @@ def get_strategy_backtest_result(task_id: str):
 @router.post("/limit-up/collect")
 def collect_limit_up(
     trade_date: str = Query(None, description="交易日期 YYYYMMDD，默认最近交易日"),
-    window_days: int = Query(1, ge=1, le=60, description="处理最近 N 个交易日，默认 1"),
+    window_days: int = Query(1, ge=1, le=60, description="处理最近 N 个已完成交易日（SSE 日历，与仪表盘默认日一致），默认 1"),
     db: Session = Depends(get_db),
 ):
     """涨停筛选：直接调用 Tushare 获取涨停股，加入观察池并自动同步 60 日 K 线。无需全量同步。"""
