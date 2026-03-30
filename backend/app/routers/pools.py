@@ -13,6 +13,8 @@ from app.schemas.pool import (
     CoreWatchCodesOut, CoreWatchToggleBody, CoreWatchToggleOut,
 )
 from app.services.core_watch_service import list_core_watch_ts_codes, toggle_core_watch_star
+from app.services.buy_signal_service import _fetch_rt_k_map
+from app.services.trading_session import is_a_share_trading_session, shanghai_trade_date_str
 from app.exceptions import AppError
 from app.utils import normalize_ts_code
 from app.services.sync_service import sync_single_stock
@@ -21,7 +23,32 @@ from app.tasks.background import submit_task
 router = APIRouter(prefix="/api/pools", tags=["pools"])
 
 
-def _enrich_stock(db: Session, stock: WatchStock) -> WatchStockOut:
+def _rt_close_and_pct_chg(rt: dict) -> tuple[float | None, float | None]:
+    """解析 rt_k 单行：返回 (close, pct_chg)，与买点扫描合并日 K 逻辑一致。"""
+    def _f(x):
+        if x is None or (isinstance(x, float) and x != x):
+            return None
+        return float(x)
+
+    pc = _f(rt.get("pre_close"))
+    cl = _f(rt.get("close"))
+    if cl is None:
+        return None, None
+    pct = None
+    if pc is not None and pc > 0:
+        pct = (cl / pc - 1.0) * 100.0
+    if pct is None:
+        pct = _f(rt.get("pct_chg"))
+    return cl, pct
+
+
+def _enrich_stock(
+    db: Session,
+    stock: WatchStock,
+    *,
+    rt_map: dict[str, dict] | None = None,
+    trade_date_today: str | None = None,
+) -> WatchStockOut:
     basic = db.query(StockBasic).filter(StockBasic.ts_code == stock.ts_code).first()
     latest = db.query(DailyQuote).filter(
         DailyQuote.ts_code == stock.ts_code
@@ -33,6 +60,15 @@ def _enrich_stock(db: Session, stock: WatchStock) -> WatchStockOut:
         out.latest_price = latest.close
         out.pct_chg = latest.pct_chg
         out.trade_date = latest.trade_date
+    if rt_map and trade_date_today:
+        row = rt_map.get(stock.ts_code)
+        if row:
+            cl, pct = _rt_close_and_pct_chg(row)
+            if cl is not None:
+                out.latest_price = cl
+                if pct is not None:
+                    out.pct_chg = pct
+                out.trade_date = trade_date_today
     return out
 
 
@@ -211,9 +247,15 @@ def list_stocks(
     if limit_up_date_to:
         q = q.filter(WatchStock.limit_up_date <= limit_up_date_to)
     stocks = q.all()
+    rt_map: dict[str, dict] | None = None
+    trade_date_today: str | None = None
+    if stocks and is_a_share_trading_session():
+        codes = list({s.ts_code for s in stocks})
+        rt_map = _fetch_rt_k_map(codes)
+        trade_date_today = shanghai_trade_date_str()
     result = []
     for s in stocks:
-        out = _enrich_stock(db, s)
+        out = _enrich_stock(db, s, rt_map=rt_map, trade_date_today=trade_date_today)
         if keyword and keyword.lower() not in (s.ts_code + (out.stock_name or "")).lower():
             continue
         result.append(out)

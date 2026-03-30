@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from app.routers.pools import _rt_close_and_pct_chg
 from app.services.buy_signal_service import _merge_rt_k_into_df
 from app.services.trading_session import is_a_share_trading_session, shanghai_trade_date_str
 
@@ -64,6 +65,21 @@ class TestMergeRtK(unittest.TestCase):
         out = _merge_rt_k_into_df(hist, rt, "20250328")
         self.assertEqual(len(out), 1)
         self.assertAlmostEqual(float(out.iloc[0]["vol"]), 2000.0)
+
+
+class TestRtListQuote(unittest.TestCase):
+    def test_close_from_pre_close(self):
+        cl, pct = _rt_close_and_pct_chg({"close": 10.35, "pre_close": 10.2})
+        self.assertAlmostEqual(cl, 10.35)
+        self.assertAlmostEqual(pct, (10.35 / 10.2 - 1.0) * 100.0, places=4)
+
+    def test_falls_back_to_pct_chg_field(self):
+        cl, pct = _rt_close_and_pct_chg({"close": 10.0, "pct_chg": -1.5})
+        self.assertAlmostEqual(cl, 10.0)
+        self.assertAlmostEqual(pct, -1.5)
+
+    def test_no_close(self):
+        self.assertEqual(_rt_close_and_pct_chg({"pre_close": 10.0}), (None, None))
 
 
 class TestTradingSession(unittest.TestCase):
