@@ -1,6 +1,8 @@
 import csv
 import io
+from urllib.parse import quote
 from fastapi import APIRouter, Depends, UploadFile, File, Query, Body
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
@@ -37,6 +39,38 @@ def _enrich_stock(
         out.pct_chg = latest.pct_chg
         out.trade_date = latest.trade_date
     return out
+
+
+def _calc_limit_up_streak_and_5d_pct(db: Session, ts_code: str) -> tuple[int, float | None]:
+    """返回 (连板数, 5日涨幅%)。连板数按最新开始连续涨停日近似统计。"""
+    quotes = (
+        db.query(DailyQuote)
+        .filter(DailyQuote.ts_code == ts_code)
+        .order_by(DailyQuote.trade_date.desc())
+        .limit(30)
+        .all()
+    )
+    if not quotes:
+        return 0, None
+
+    streak = 0
+    for q in quotes:
+        pct = q.pct_chg
+        if pct is None:
+            break
+        # 主板/创业板/科创板涨停幅度不同，这里取兼容阈值，作为列表展示近似口径
+        if float(pct) >= 9.5:
+            streak += 1
+        else:
+            break
+
+    five_day_pct = None
+    if len(quotes) >= 5:
+        latest_close = quotes[0].close
+        close_5d_ago = quotes[4].close
+        if latest_close is not None and close_5d_ago not in (None, 0):
+            five_day_pct = (float(latest_close) / float(close_5d_ago) - 1.0) * 100.0
+    return streak, five_day_pct
 
 
 @router.get("", response_model=list[PoolOut])
@@ -232,6 +266,70 @@ def list_stocks(
     offset = (page - 1) * size
     items = result[offset : offset + size]
     return WatchStockPagination(items=items, total=total)
+
+
+@router.get("/{pool_id}/stocks/export")
+def export_stocks_csv(
+    pool_id: str,
+    keyword: str = Query(None),
+    monitor_status: str = Query(None),
+    limit_up_date_from: str = Query(None, description="涨停日期起 YYYYMMDD"),
+    limit_up_date_to: str = Query(None, description="涨停日期止 YYYYMMDD"),
+    sort_by: str = Query("created_at", description="排序字段: created_at | limit_up_date"),
+    order: str = Query("desc", description="排序方向: asc | desc"),
+    db: Session = Depends(get_db),
+):
+    pool = db.query(WatchPool).filter(WatchPool.id == pool_id).first()
+    if not pool:
+        raise AppError(code=2001, message="观察池不存在", status_code=404)
+
+    q = db.query(WatchStock).filter(WatchStock.pool_id == pool_id)
+    if monitor_status:
+        q = q.filter(WatchStock.monitor_status == monitor_status)
+    if limit_up_date_from:
+        q = q.filter(WatchStock.limit_up_date >= limit_up_date_from)
+    if limit_up_date_to:
+        q = q.filter(WatchStock.limit_up_date <= limit_up_date_to)
+    stocks = q.all()
+
+    result = []
+    for s in stocks:
+        out = _enrich_stock(db, s)
+        if keyword and keyword.lower() not in (s.ts_code + (out.stock_name or "")).lower():
+            continue
+        result.append(out)
+
+    rev = order == "desc"
+    null_val = "00000000" if rev else "99999999"
+    if sort_by == "limit_up_date":
+        result.sort(key=lambda x: (x.limit_up_date or null_val), reverse=rev)
+    else:
+        result.sort(key=lambda x: str(x.created_at or ""), reverse=rev)
+    result.sort(key=lambda x: x.pinned, reverse=True)
+
+    stream = io.StringIO()
+    writer = csv.writer(stream)
+    writer.writerow(["股票名称", "股票代码", "所属行业", "当前股价", "当日涨幅", "连板数", "5日涨幅"])
+    for item in result:
+        lb, pct_5d = _calc_limit_up_streak_and_5d_pct(db, item.ts_code)
+        writer.writerow([
+            item.stock_name or "",
+            item.ts_code,
+            item.industry or "",
+            f"{item.latest_price:.2f}" if item.latest_price is not None else "",
+            f"{item.pct_chg:.2f}%" if item.pct_chg is not None else "",
+            lb,
+            f"{pct_5d:.2f}%" if pct_5d is not None else "",
+        ])
+
+    csv_text = "\ufeff" + stream.getvalue()
+    filename = f"{pool.name}_stocks.csv"
+    filename_star = quote(filename)
+    return StreamingResponse(
+        io.BytesIO(csv_text.encode("utf-8")),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=stocks.csv; filename*=UTF-8''{filename_star}"},
+    )
 
 
 @router.post("/{pool_id}/stocks", response_model=WatchStockOut, status_code=201)

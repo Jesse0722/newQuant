@@ -15,7 +15,7 @@ import dayjs from 'dayjs'
 import * as echarts from 'echarts'
 import {
   listPools, createPool, updatePool, deletePool, reorderPools,
-  listStocks, addStock, deleteStock, updateStock, importCSV,
+  listStocks, addStock, deleteStock, updateStock, importCSV, exportStocksCSV,
   getCoreWatchCodes, toggleCoreWatch,
 } from '../../api/pools'
 import { searchStocks } from '../../api/stocks'
@@ -452,6 +452,33 @@ const PoolList: React.FC = () => {
     return false
   }
 
+  const handleExport = async () => {
+    if (!activePoolId || !activePool) return
+    const f = filtersRef.current
+    const params: {
+      sort_by: 'created_at' | 'limit_up_date'
+      order: 'asc' | 'desc'
+      limit_up_date_from?: string
+      limit_up_date_to?: string
+    } = {
+      sort_by: f.sortBy,
+      order: f.sortOrder,
+    }
+    if (f.limitUpDateFromStr) params.limit_up_date_from = f.limitUpDateFromStr
+    if (f.limitUpDateToStr) params.limit_up_date_to = f.limitUpDateToStr
+    const res = await exportStocksCSV(activePoolId, params)
+    const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${activePool.name || 'watch_pool'}_stocks.csv`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+    message.success('导出成功')
+  }
+
   const handleSync = async () => {
     if (!activePoolId) return
     setSyncing(true)
@@ -861,6 +888,11 @@ const PoolList: React.FC = () => {
                       label: 'CSV 批量导入',
                       icon: <UploadOutlined />,
                       onClick: () => setImportModalOpen(true),
+                    },
+                    {
+                      key: 'export',
+                      label: '导出 CSV',
+                      onClick: handleExport,
                     },
                   ],
                 }}

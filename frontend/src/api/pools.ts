@@ -38,6 +38,10 @@ export const listStocks = (
   poolId: string,
   params?: ListStocksParams
 ) => client.get<ListStocksResult>(`/pools/${poolId}/stocks`, { params })
+export const exportStocksCSV = (
+  poolId: string,
+  params?: ListStocksParams
+) => client.get<Blob>(`/pools/${poolId}/stocks/export`, { params, responseType: 'blob' })
 export const addStock = (poolId: string, data: { ts_code: string; added_price?: number; note?: string }) =>
   client.post<WatchStock>(`/pools/${poolId}/stocks`, data)
 export const updateStock = (poolId: string, stockId: string, data: { note?: string; monitor_status?: string; added_price?: number; pinned?: boolean }) =>
