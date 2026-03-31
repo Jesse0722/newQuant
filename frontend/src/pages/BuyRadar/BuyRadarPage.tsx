@@ -14,6 +14,7 @@ type FilterStatus = 'all' | BuySignalStatus
 
 const LS_AUTO = 'buyRadar:autoScanByStrategy'
 const LS_INTERVAL = 'buyRadar:intervalMinutes'
+const ALL_STRATEGY_ID = 'all'
 
 const BuyRadarPage: React.FC = () => {
   const navigate = useNavigate()
@@ -21,7 +22,7 @@ const BuyRadarPage: React.FC = () => {
   const [pools, setPools] = useState<Pool[]>([])
   const [activePoolId, setActivePoolId] = useState('')
   const [strategies, setStrategies] = useState<BuyStrategy[]>([])
-  const [activeStrategyId, setActiveStrategyId] = useState('two_phase')
+  const [activeStrategyId, setActiveStrategyId] = useState(ALL_STRATEGY_ID)
   const [scanResultsByStrategy, setScanResultsByStrategy] = useState<Record<string, BuySignalScanResult>>({})
   const [autoScanByStrategy, setAutoScanByStrategy] = useState<Record<string, boolean>>(() => {
     try {
@@ -93,14 +94,62 @@ const BuyRadarPage: React.FC = () => {
       .then((res) => {
         const list = res.data || []
         setStrategies(list)
-        if (list.length > 0 && !list.some((s) => s.id === 'two_phase')) {
-          setActiveStrategyId(list[0].id)
+        if (list.length > 0 && activeStrategyId !== ALL_STRATEGY_ID && !list.some((s) => s.id === activeStrategyId)) {
+          setActiveStrategyId(ALL_STRATEGY_ID)
         }
       })
       .catch(() => {})
-  }, [refreshCoreWatch])
+  }, [refreshCoreWatch, activeStrategyId])
 
-  const activeScanResult = scanResultsByStrategy[activeStrategyId] ?? null
+  const mergeAllStrategyResults = useCallback((results: BuySignalScanResult[]): BuySignalScanResult => {
+    const statusOrder: Record<BuySignalStatus, number> = {
+      triggered: 0,
+      approaching: 1,
+      tracking: 2,
+      invalidated: 3,
+    }
+    const byCode = new Map<string, BuySignal>()
+    results.forEach((r) => {
+      ;(r.signals || []).forEach((s) => {
+        const cur = byCode.get(s.ts_code)
+        if (!cur) {
+          byCode.set(s.ts_code, s)
+          return
+        }
+        const curRank = statusOrder[cur.signal_status] ?? 9
+        const nextRank = statusOrder[s.signal_status] ?? 9
+        if (nextRank < curRank || (nextRank === curRank && (s.signal_score || 0) > (cur.signal_score || 0))) {
+          byCode.set(s.ts_code, s)
+        }
+      })
+    })
+    const signals = Array.from(byCode.values()).sort((a, b) => {
+      const ra = statusOrder[a.signal_status] ?? 9
+      const rb = statusOrder[b.signal_status] ?? 9
+      if (ra !== rb) return ra - rb
+      return (b.signal_score || 0) - (a.signal_score || 0)
+    })
+    const latestScanTime = results
+      .map((r) => r.scan_time)
+      .filter(Boolean)
+      .sort()
+      .slice(-1)[0] || new Date().toISOString()
+    return {
+      signals,
+      scan_time: latestScanTime,
+      total: signals.length,
+      triggered_count: signals.filter((s) => s.signal_status === 'triggered').length,
+      approaching_count: signals.filter((s) => s.signal_status === 'approaching').length,
+      strategy_id: ALL_STRATEGY_ID,
+      strategy_name: '所有策略',
+    }
+  }, [])
+
+  const activeScanResult = activeStrategyId === ALL_STRATEGY_ID
+    ? mergeAllStrategyResults(
+        Object.values(scanResultsByStrategy).filter((r) => !!r?.strategy_id && r.strategy_id !== ALL_STRATEGY_ID)
+      )
+    : (scanResultsByStrategy[activeStrategyId] ?? null)
 
   useEffect(() => {
     try {
@@ -178,15 +227,44 @@ const BuyRadarPage: React.FC = () => {
     }
     setLoading(true)
     try {
-      const res = await scanBuySignals(activePoolId, activeStrategyId)
-      setScanResultsByStrategy((prev) => ({ ...prev, [activeStrategyId]: res.data }))
-      message.success(
-        `扫描完成: ${res.data.triggered_count} 只触发, ${res.data.approaching_count} 只接近, 共 ${res.data.total} 只。待处理提醒已更新，可到买点提醒查看。`
-      )
-      refreshPendingAlerts()
-      if (res.data.signals.length > 0) {
-        const first = res.data.signals.find((s) => s.signal_status !== 'invalidated') || res.data.signals[0]
-        setSelectedSignal(first)
+      if (activeStrategyId === ALL_STRATEGY_ID) {
+        const targets = strategies.map((s) => s.id)
+        if (targets.length === 0) {
+          message.warning('暂无可用策略')
+          return
+        }
+        const collected: BuySignalScanResult[] = []
+        const patch: Record<string, BuySignalScanResult> = {}
+        for (let i = 0; i < targets.length; i++) {
+          const sid = targets[i]
+          const res = await scanBuySignals(activePoolId, sid)
+          collected.push(res.data)
+          patch[sid] = res.data
+          if (i < targets.length - 1) {
+            await new Promise((r) => setTimeout(r, 150))
+          }
+        }
+        setScanResultsByStrategy((prev) => ({ ...prev, ...patch }))
+        const merged = mergeAllStrategyResults(collected)
+        message.success(
+          `全部策略扫描完成: ${merged.triggered_count} 只触发, ${merged.approaching_count} 只接近, 共 ${merged.total} 只。`
+        )
+        refreshPendingAlerts()
+        if (merged.signals.length > 0) {
+          const first = merged.signals.find((s) => s.signal_status !== 'invalidated') || merged.signals[0]
+          setSelectedSignal(first)
+        }
+      } else {
+        const res = await scanBuySignals(activePoolId, activeStrategyId)
+        setScanResultsByStrategy((prev) => ({ ...prev, [activeStrategyId]: res.data }))
+        message.success(
+          `扫描完成: ${res.data.triggered_count} 只触发, ${res.data.approaching_count} 只接近, 共 ${res.data.total} 只。待处理提醒已更新，可到买点提醒查看。`
+        )
+        refreshPendingAlerts()
+        if (res.data.signals.length > 0) {
+          const first = res.data.signals.find((s) => s.signal_status !== 'invalidated') || res.data.signals[0]
+          setSelectedSignal(first)
+        }
       }
     } catch {
       message.error('扫描失败，请确保已同步K线')
@@ -356,9 +434,19 @@ const BuyRadarPage: React.FC = () => {
           <Select
             style={{ minWidth: 160 }}
             value={activeStrategyId}
-            options={strategies.map((s) => ({ value: s.id, label: s.name }))}
+            options={[
+              { value: ALL_STRATEGY_ID, label: '所有策略' },
+              ...strategies.map((s) => ({ value: s.id, label: s.name })),
+            ]}
             onChange={handleStrategyChange}
             optionRender={(option) => {
+              if (option.value === ALL_STRATEGY_ID) {
+                return (
+                  <Tooltip title="按顺序执行全部策略扫描并汇总结果" placement="right">
+                    <span>{option.label}</span>
+                  </Tooltip>
+                )
+              }
               const st = strategies.find((s) => s.id === option.value)
               return (
                 <Tooltip title={st?.description} placement="right">
@@ -372,6 +460,7 @@ const BuyRadarPage: React.FC = () => {
             <Space size={4}>
               <span style={{ fontSize: 13, color: '#595959' }}>实时</span>
               <Switch
+                disabled={activeStrategyId === ALL_STRATEGY_ID}
                 checked={!!autoScanByStrategy[activeStrategyId]}
                 onChange={(checked) => {
                   const others = Object.entries(autoScanByStrategy).filter(([id, v]) => v && id !== activeStrategyId).length
@@ -400,7 +489,7 @@ const BuyRadarPage: React.FC = () => {
           <Button
             icon={<BarChartOutlined />}
             onClick={() => setBacktestVisible(true)}
-            disabled={!activePoolId}
+            disabled={!activePoolId || activeStrategyId === ALL_STRATEGY_ID}
           >
             回测验证
           </Button>
