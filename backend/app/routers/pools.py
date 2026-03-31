@@ -73,6 +73,22 @@ def _calc_limit_up_streak_and_5d_pct(db: Session, ts_code: str) -> tuple[int, fl
     return streak, five_day_pct
 
 
+def _normalize_pct_for_export(db: Session, ts_code: str, pct_chg: float | None) -> float | None:
+    """导出展示口径：接近涨停幅度时，规范显示为 10/20/30%。"""
+    if pct_chg is None:
+        return None
+    basic = db.query(StockBasic.market).filter(StockBasic.ts_code == ts_code).first()
+    market = (basic[0] if basic and basic[0] else "") or ""
+    limit_pct = 10.0
+    if "创业" in market or "科创" in market:
+        limit_pct = 20.0
+    elif "北交" in market:
+        limit_pct = 30.0
+    if abs(float(pct_chg) - limit_pct) <= 0.02:
+        return limit_pct
+    return float(pct_chg)
+
+
 @router.get("", response_model=list[PoolOut])
 def list_pools(db: Session = Depends(get_db)):
     pools = db.query(WatchPool).order_by(WatchPool.sort_order.asc(), WatchPool.created_at.desc()).all()
@@ -312,12 +328,13 @@ def export_stocks_csv(
     writer.writerow(["股票名称", "股票代码", "所属行业", "当前股价", "当日涨幅", "连板数", "5日涨幅"])
     for item in result:
         lb, pct_5d = _calc_limit_up_streak_and_5d_pct(db, item.ts_code)
+        pct_display = _normalize_pct_for_export(db, item.ts_code, item.pct_chg)
         writer.writerow([
             item.stock_name or "",
             item.ts_code,
             item.industry or "",
             f"{item.latest_price:.2f}" if item.latest_price is not None else "",
-            f"{item.pct_chg:.2f}%" if item.pct_chg is not None else "",
+            f"{pct_display:.2f}%" if pct_display is not None else "",
             lb,
             f"{pct_5d:.2f}%" if pct_5d is not None else "",
         ])
