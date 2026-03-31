@@ -1,5 +1,7 @@
 import csv
 import io
+import logging
+import time
 from fastapi import APIRouter, Depends, UploadFile, File, Query, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -21,6 +23,11 @@ from app.services.sync_service import sync_single_stock
 from app.tasks.background import submit_task
 
 router = APIRouter(prefix="/api/pools", tags=["pools"])
+logger = logging.getLogger(__name__)
+
+# rt_k 受 TuShare 账号权限限频；失败后进入短暂冷却，避免接口连续 500
+_RT_K_NEXT_RETRY_TS = 0.0
+_RT_K_COOLDOWN_SECONDS = 65
 
 
 def _rt_close_and_pct_chg(rt: dict) -> tuple[float | None, float | None]:
@@ -40,6 +47,23 @@ def _rt_close_and_pct_chg(rt: dict) -> tuple[float | None, float | None]:
     if pct is None:
         pct = _f(rt.get("pct_chg"))
     return cl, pct
+
+
+def _safe_fetch_rt_k_map(ts_codes: list[str]) -> dict[str, dict]:
+    global _RT_K_NEXT_RETRY_TS
+    now = time.time()
+    if now < _RT_K_NEXT_RETRY_TS:
+        return {}
+    try:
+        return _fetch_rt_k_map(ts_codes)
+    except Exception as e:
+        msg = str(e)
+        cooldown = _RT_K_COOLDOWN_SECONDS
+        if "每小时最多访问该接口1次" in msg:
+            cooldown = 3605
+        _RT_K_NEXT_RETRY_TS = now + cooldown
+        logger.warning("rt_k fetch failed, fallback to DailyQuote: %s", msg)
+        return {}
 
 
 def _enrich_stock(
@@ -251,7 +275,7 @@ def list_stocks(
     trade_date_today: str | None = None
     if stocks and is_a_share_trading_session():
         codes = list({s.ts_code for s in stocks})
-        rt_map = _fetch_rt_k_map(codes)
+        rt_map = _safe_fetch_rt_k_map(codes)
         trade_date_today = shanghai_trade_date_str()
     result = []
     for s in stocks:
