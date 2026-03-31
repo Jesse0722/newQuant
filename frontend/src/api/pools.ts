@@ -41,7 +41,14 @@ export const listStocks = (
 export const exportStocksCSV = (
   poolId: string,
   params?: ListStocksParams
-) => client.get<Blob>(`/pools/${poolId}/stocks/export`, { params, responseType: 'blob' })
+) => client.get<Blob>(`/pools/${poolId}/stocks/export`, {
+  params: { ...(params || {}), _ts: Date.now() },
+  responseType: 'blob',
+  headers: {
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache',
+  },
+})
 export const addStock = (poolId: string, data: { ts_code: string; added_price?: number; note?: string }) =>
   client.post<WatchStock>(`/pools/${poolId}/stocks`, data)
 export const updateStock = (poolId: string, stockId: string, data: { note?: string; monitor_status?: string; added_price?: number; pinned?: boolean }) =>
