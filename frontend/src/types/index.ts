@@ -121,6 +121,8 @@ export interface Alert {
   industry?: string | null
   template_name?: string
   strategy_name?: string
+  latest_price?: number
+  pct_chg?: number
   buy_signal?: Record<string, any>
   scan_meta?: Record<string, any>
   trigger_date: string
@@ -276,7 +278,13 @@ export interface Pagination<T> {
 
 // ---------- 买点雷达 ----------
 
-export type BuySignalStatus = 'triggered' | 'approaching' | 'tracking' | 'invalidated'
+export type BuySignalStatus =
+  | 'triggered'
+  | 'provisional_triggered'
+  | 'confirmed_triggered'
+  | 'approaching'
+  | 'tracking'
+  | 'invalidated'
 
 export interface BuySignal {
   ts_code: string
@@ -321,12 +329,23 @@ export interface BuySignalScanResult {
     applied: boolean
     error?: string | null
   }
+  provisional_count?: number
+  confirmed_count?: number
+  min_confirm_hits?: number
 }
 
 export interface BuyStrategy {
   id: string
   name: string
   description: string
+}
+
+export interface IntradayScanConfigItem {
+  pool_id: string
+  strategy_id: string
+  enabled: boolean
+  interval_minutes: number
+  min_confirm_hits: number
 }
 
 export interface StrategyBacktestSignal {

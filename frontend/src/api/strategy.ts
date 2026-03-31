@@ -96,16 +96,35 @@ import type {
   StockChartDataWithMarks,
   BuyStrategy,
   StrategyBacktestTaskStatus,
+  IntradayScanConfigItem,
 } from '../types'
 
 export const getBuyStrategies = () =>
   client.get<BuyStrategy[]>('/strategy/buy-strategies')
 
-export const scanBuySignals = (poolId?: string, strategyId: string = 'two_phase') =>
+export const scanBuySignals = (
+  poolId?: string,
+  strategyId: string = 'two_phase',
+  minConfirmHits: number = 2
+) =>
   client.post<BuySignalScanResult>('/strategy/scan-buy-signals', {
     pool_id: poolId || null,
     strategy_id: strategyId,
+    min_confirm_hits: minConfirmHits,
   })
+
+export const listIntradayScanConfig = (poolId?: string) =>
+  client.get<IntradayScanConfigItem[]>('/strategy/intraday-config', {
+    params: poolId ? { pool_id: poolId } : undefined,
+  })
+
+export const upsertIntradayScanConfig = (data: {
+  pool_id: string
+  strategy_id: string
+  enabled?: boolean
+  interval_minutes?: number
+  min_confirm_hits?: number
+}) => client.put<IntradayScanConfigItem>('/strategy/intraday-config', data)
 
 export const getStockChartWithMarks = (tsCode: string, period: number, limitUpDate?: string) =>
   client.get<StockChartDataWithMarks>(`/stocks/${tsCode}/chart`, {

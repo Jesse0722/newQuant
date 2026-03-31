@@ -9,6 +9,8 @@ import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const STATUS_LABELS: Record<string, { text: string; color: string }> = {
   triggered: { text: '已触发买点', color: '#f5222d' },
+  confirmed_triggered: { text: '收盘确证', color: '#cf1322' },
+  provisional_triggered: { text: '盘中候选', color: '#722ed1' },
   approaching: { text: '接近买点', color: '#fa8c16' },
   tracking: { text: '跟踪中', color: '#1890ff' },
   invalidated: { text: '已失效', color: '#bfbfbf' },

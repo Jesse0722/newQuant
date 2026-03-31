@@ -28,6 +28,7 @@ from app.services.limit_up_service import (
 from app.services.buy_signal_service import scan_pool_buy_signals, list_buy_strategies
 from app.services.sync_service import sync_single_stock, _sync_stock_basic_full
 from app.models.sync_log import SyncLog
+from app.models.intraday_scan import IntradayScanConfig
 from app.tasks.background import submit_task, get_task_status
 from app.services.strategy_backtest import run_strategy_backtest_task
 from app.exceptions import AppError
@@ -36,6 +37,23 @@ from app.exceptions import AppError
 class ScanBuySignalsRequest(BaseModel):
     pool_id: Optional[str] = Field(None, description="观察池 ID，不传则自动使用涨停池")
     strategy_id: str = Field("two_phase", description="策略 ID，默认二阶段买点")
+    min_confirm_hits: int = Field(2, ge=1, le=5, description="盘中确证阈值：连续命中次数")
+
+
+class IntradayConfigItem(BaseModel):
+    pool_id: str
+    strategy_id: str
+    enabled: bool = False
+    interval_minutes: int = Field(5, ge=1, le=30)
+    min_confirm_hits: int = Field(2, ge=1, le=5)
+
+
+class IntradayConfigPatch(BaseModel):
+    pool_id: str
+    strategy_id: str
+    enabled: Optional[bool] = None
+    interval_minutes: Optional[int] = Field(None, ge=1, le=30)
+    min_confirm_hits: Optional[int] = Field(None, ge=1, le=5)
 
 router = APIRouter(prefix="/api/strategy", tags=["strategy"])
 
@@ -118,7 +136,70 @@ def get_buy_strategies():
 @router.post("/scan-buy-signals")
 def scan_buy_signals(body: ScanBuySignalsRequest, db: Session = Depends(get_db)):
     """扫描观察池买点信号，支持多策略选择"""
-    return scan_pool_buy_signals(db, body.pool_id, body.strategy_id)
+    return scan_pool_buy_signals(
+        db,
+        body.pool_id,
+        body.strategy_id,
+        min_confirm_hits=body.min_confirm_hits,
+    )
+
+
+@router.get("/intraday-config")
+def list_intraday_config(
+    pool_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    q = db.query(IntradayScanConfig)
+    if pool_id:
+        q = q.filter(IntradayScanConfig.pool_id == pool_id)
+    rows = q.order_by(IntradayScanConfig.updated_at.desc()).all()
+    return [
+        IntradayConfigItem(
+            pool_id=r.pool_id,
+            strategy_id=r.strategy_id,
+            enabled=bool(r.enabled),
+            interval_minutes=int(r.interval_minutes or 5),
+            min_confirm_hits=int(r.min_confirm_hits or 2),
+        )
+        for r in rows
+    ]
+
+
+@router.put("/intraday-config", response_model=IntradayConfigItem)
+def upsert_intraday_config(body: IntradayConfigPatch, db: Session = Depends(get_db)):
+    row = (
+        db.query(IntradayScanConfig)
+        .filter(
+            IntradayScanConfig.pool_id == body.pool_id,
+            IntradayScanConfig.strategy_id == body.strategy_id,
+        )
+        .first()
+    )
+    if not row:
+        row = IntradayScanConfig(
+            pool_id=body.pool_id,
+            strategy_id=body.strategy_id,
+            enabled=bool(body.enabled) if body.enabled is not None else False,
+            interval_minutes=body.interval_minutes or 5,
+            min_confirm_hits=body.min_confirm_hits or 2,
+        )
+        db.add(row)
+    else:
+        if body.enabled is not None:
+            row.enabled = bool(body.enabled)
+        if body.interval_minutes is not None:
+            row.interval_minutes = body.interval_minutes
+        if body.min_confirm_hits is not None:
+            row.min_confirm_hits = body.min_confirm_hits
+    db.commit()
+    db.refresh(row)
+    return IntradayConfigItem(
+        pool_id=row.pool_id,
+        strategy_id=row.strategy_id,
+        enabled=bool(row.enabled),
+        interval_minutes=int(row.interval_minutes or 5),
+        min_confirm_hits=int(row.min_confirm_hits or 2),
+    )
 
 
 @router.post("/strategy-backtest")

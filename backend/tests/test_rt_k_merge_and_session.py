@@ -4,7 +4,12 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from app.services.buy_signal_service import _merge_rt_k_into_df
+from app.services.buy_signal_service import (
+    _merge_rt_k_into_df,
+    _apply_intraday_reliability_state,
+    INTRADAY_PROVISIONAL,
+    INTRADAY_CONFIRMED,
+)
 from app.services.trading_session import is_a_share_trading_session, shanghai_trade_date_str
 
 
@@ -81,6 +86,31 @@ class TestTradingSession(unittest.TestCase):
         sh = ZoneInfo("Asia/Shanghai")
         d = datetime(2026, 3, 30, 10, 0, 0, tzinfo=sh)
         self.assertEqual(shanghai_trade_date_str(d), "20260330")
+
+
+class TestIntradayReliability(unittest.TestCase):
+    def test_intraday_turns_provisional_then_confirmed(self):
+        signals = [{"ts_code": "000001.SZ", "signal_status": "triggered", "signal_score": 80}]
+        p1, c1 = _apply_intraday_reliability_state(
+            signals, "two_phase", "pool-a", "20260331", True, 2
+        )
+        self.assertEqual((p1, c1), (1, 0))
+        self.assertEqual(signals[0]["signal_status"], INTRADAY_PROVISIONAL)
+
+        signals2 = [{"ts_code": "000001.SZ", "signal_status": "triggered", "signal_score": 80}]
+        p2, c2 = _apply_intraday_reliability_state(
+            signals2, "two_phase", "pool-a", "20260331", True, 2
+        )
+        self.assertEqual((p2, c2), (0, 1))
+        self.assertEqual(signals2[0]["signal_status"], INTRADAY_CONFIRMED)
+
+    def test_post_close_directly_confirmed(self):
+        signals = [{"ts_code": "000001.SZ", "signal_status": "triggered", "signal_score": 80}]
+        p, c = _apply_intraday_reliability_state(
+            signals, "two_phase", "pool-a", "20260331", False, 2
+        )
+        self.assertEqual((p, c), (0, 1))
+        self.assertEqual(signals[0]["signal_status"], INTRADAY_CONFIRMED)
 
 
 if __name__ == "__main__":

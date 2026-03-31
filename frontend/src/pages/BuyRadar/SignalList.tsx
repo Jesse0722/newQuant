@@ -5,6 +5,8 @@ import type { BuySignal, BuySignalStatus } from '../../types'
 
 const STATUS_CONFIG: Record<BuySignalStatus, { color: string; label: string }> = {
   triggered: { color: '#f5222d', label: '已触发' },
+  confirmed_triggered: { color: '#cf1322', label: '收盘确证' },
+  provisional_triggered: { color: '#722ed1', label: '盘中候选' },
   approaching: { color: '#fa8c16', label: '接近' },
   tracking: { color: '#1890ff', label: '跟踪中' },
   invalidated: { color: '#bfbfbf', label: '已失效' },

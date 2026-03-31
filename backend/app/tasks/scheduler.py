@@ -5,6 +5,7 @@ from datetime import datetime
 from app.services.scheduled_jobs_service import (
     run_4pm_collect_limit_up_job,
     run_5pm_sync_latest_kline_job,
+    run_intraday_scan_job,
 )
 
 
@@ -49,6 +50,10 @@ class DailyJobScheduler:
     def _loop(self):
         while not self._stop_event.is_set():
             now = datetime.now()
+
+            # 盘中每分钟检查一次是否触发分钟级扫描（由配置中的 interval_minutes 决定）
+            if now.second < 20:
+                self._safe_run("intraday_scan", run_intraday_scan_job)
 
             if self._should_run("collect_limit_up_16", now, 16, 0):
                 self._safe_run("collect_limit_up_16", run_4pm_collect_limit_up_job)

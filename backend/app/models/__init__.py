@@ -3,6 +3,7 @@ from app.models.pool import WatchPool, WatchStock
 from app.models.monitor import MonitorRule, Alert
 from app.models.trade import TradePlan, TradePlanStock, TradeDetail
 from app.models.sync_log import SyncLog
+from app.models.intraday_scan import IntradayScanConfig
 
 __all__ = [
     "StockBasic", "DailyQuote",
@@ -10,4 +11,5 @@ __all__ = [
     "MonitorRule", "Alert",
     "TradePlan", "TradePlanStock", "TradeDetail",
     "SyncLog",
+    "IntradayScanConfig",
 ]

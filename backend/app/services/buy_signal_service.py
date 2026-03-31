@@ -7,6 +7,7 @@
 """
 import numpy as np
 import pandas as pd
+import time
 from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -489,6 +490,9 @@ STRATEGY_REGISTRY: dict[str, dict] = {
     },
 }
 
+INTRADAY_PROVISIONAL = "provisional_triggered"
+INTRADAY_CONFIRMED = "confirmed_triggered"
+
 
 def list_buy_strategies() -> list[dict]:
     return [{"id": k, "name": v["name"], "description": v["description"]} for k, v in STRATEGY_REGISTRY.items()]
@@ -496,19 +500,46 @@ def list_buy_strategies() -> list[dict]:
 
 # ---------- 实时日 K（rt_k）与流通股本换手 ----------
 
+_RT_CACHE_TTL = 60
+_rt_k_cache: dict[str, tuple[float, dict]] = {}
+
 def _fetch_rt_k_map(ts_codes: list[str]) -> dict[str, dict]:
     if not ts_codes:
         return {}
+        
+    now = time.time()
     out: dict[str, dict] = {}
-    for i in range(0, len(ts_codes), RT_K_CHUNK):
-        chunk = ts_codes[i : i + RT_K_CHUNK]
+    missing_codes: list[str] = []
+    
+    for code in ts_codes:
+        if code in _rt_k_cache:
+            ts, data = _rt_k_cache[code]
+            if now - ts < _RT_CACHE_TTL:
+                out[code] = data
+                continue
+        missing_codes.append(code)
+        
+    if not missing_codes:
+        return out
+
+    for i in range(0, len(missing_codes), RT_K_CHUNK):
+        chunk = missing_codes[i : i + RT_K_CHUNK]
         df = tushare_adapter.get_rt_k(ts_code=",".join(chunk))
         if df is None or df.empty:
             continue
         for _, row in df.iterrows():
             code = row.get("ts_code")
             if code is not None:
-                out[str(code)] = row.to_dict()
+                data = row.to_dict()
+                sc = str(code)
+                out[sc] = data
+                _rt_k_cache[sc] = (now, data)
+                
+    # Optional: cleanup entirely stale cache elements to prevent memory leak over long periods
+    stale_keys = [k for k, (t, _) in _rt_k_cache.items() if now - t > _RT_CACHE_TTL * 2]
+    for k in stale_keys:
+        _rt_k_cache.pop(k, None)
+        
     return out
 
 
@@ -723,7 +754,10 @@ def _sync_buy_radar_alerts(
     signals: list[dict],
     scan_meta_base: dict,
 ) -> None:
-    triggered = [s for s in signals if s.get("signal_status") == "triggered"]
+    triggered = [
+        s for s in signals
+        if s.get("signal_status") in ("triggered", INTRADAY_CONFIRMED)
+    ]
     if not triggered:
         return
 
@@ -793,16 +827,75 @@ def _scan_meta_fields(realtime: dict, trade_date_today: str) -> dict:
         "trade_date_today": trade_date_today,
     }
 
+
+_intraday_hit_cache: dict[str, tuple[int, float]] = {}
+_INTRADAY_HIT_TTL_SECONDS = 3600
+
+
+def _apply_intraday_reliability_state(
+    signals: list[dict],
+    strategy_id: str,
+    pool_id: str | None,
+    trade_date_today: str,
+    merge_rt: bool,
+    min_confirm_hits: int,
+) -> tuple[int, int]:
+    """
+    低误报优先：
+    - 盘中触发先标记 provisional_triggered，连续命中达到阈值才确证 confirmed_triggered
+    - 非盘中（历史口径）触发直接确证
+    """
+    now = time.time()
+    provisional = 0
+    confirmed = 0
+    safe_min_hits = max(1, int(min_confirm_hits or 1))
+
+    # 清理过期缓存，防止内存无限增长
+    expired = [k for k, (_, ts) in _intraday_hit_cache.items() if now - ts > _INTRADAY_HIT_TTL_SECONDS]
+    for k in expired:
+        _intraday_hit_cache.pop(k, None)
+
+    for s in signals:
+        status = s.get("signal_status")
+        if status != "triggered":
+            continue
+        code = s.get("ts_code") or ""
+        key = f"{pool_id or ''}|{strategy_id}|{code}|{trade_date_today}"
+        if merge_rt:
+            prev_hits, _ = _intraday_hit_cache.get(key, (0, now))
+            hits = prev_hits + 1
+            _intraday_hit_cache[key] = (hits, now)
+            if hits >= safe_min_hits:
+                s["signal_status"] = INTRADAY_CONFIRMED
+                confirmed += 1
+            else:
+                s["signal_status"] = INTRADAY_PROVISIONAL
+                provisional += 1
+        else:
+            s["signal_status"] = INTRADAY_CONFIRMED
+            confirmed += 1
+    return provisional, confirmed
+
 # ---------- 主入口：扫描池内所有股票 ----------
 
-def scan_pool_buy_signals(db: Session, pool_id: str | None = None, strategy_id: str = "two_phase") -> dict:
+def scan_pool_buy_signals(
+    db: Session,
+    pool_id: str | None = None,
+    strategy_id: str = "two_phase",
+    *,
+    min_confirm_hits: int = 2,
+) -> dict:
     pid, stocks, rt_map, realtime, trade_date_today, merge_rt = _scan_context(db, pool_id)
     if not pid:
         meta = _scan_meta_fields(realtime, trade_date_today)
         return {**_empty_result(strategy_id), **meta}
     if strategy_id in TACTIC_REGISTRY:
-        return _scan_tactic(db, pid, strategy_id, stocks, rt_map, trade_date_today, merge_rt, realtime)
-    return _scan_two_phase(db, pid, stocks, rt_map, trade_date_today, merge_rt, realtime)
+        return _scan_tactic(
+            db, pid, strategy_id, stocks, rt_map, trade_date_today, merge_rt, realtime, min_confirm_hits=min_confirm_hits
+        )
+    return _scan_two_phase(
+        db, pid, stocks, rt_map, trade_date_today, merge_rt, realtime, min_confirm_hits=min_confirm_hits
+    )
 
 
 def _scan_two_phase(
@@ -813,6 +906,7 @@ def _scan_two_phase(
     trade_date_today: str,
     merge_rt: bool,
     realtime: dict,
+    min_confirm_hits: int = 2,
 ) -> dict:
     basic_cache: dict[str, StockBasic | None] = {}
     signals: list[dict] = []
@@ -885,6 +979,12 @@ def _scan_two_phase(
 
     _align_signal_latest_display_with_daily_db(db, signals, merge_rt)
     meta = _scan_meta_fields(realtime, trade_date_today)
+    provisional_cnt, confirmed_cnt = _apply_intraday_reliability_state(
+        signals, "two_phase", pool_id, trade_date_today, merge_rt, min_confirm_hits
+    )
+    meta["provisional_count"] = provisional_cnt
+    meta["confirmed_count"] = confirmed_cnt
+    meta["min_confirm_hits"] = max(1, int(min_confirm_hits or 1))
     out = _finalize(signals, "two_phase", **meta)
     _sync_buy_radar_alerts(
         db, pool_id, stocks, rt_map, merge_rt, trade_date_today, "two_phase", signals, meta
@@ -901,6 +1001,7 @@ def _scan_tactic(
     trade_date_today: str,
     merge_rt: bool,
     realtime: dict,
+    min_confirm_hits: int = 2,
 ) -> dict:
     """六大战法通用扫描器"""
     tactic = TACTIC_REGISTRY[strategy_id]
@@ -986,6 +1087,12 @@ def _scan_tactic(
 
     _align_signal_latest_display_with_daily_db(db, signals, merge_rt)
     meta = _scan_meta_fields(realtime, trade_date_today)
+    provisional_cnt, confirmed_cnt = _apply_intraday_reliability_state(
+        signals, strategy_id, pool_id, trade_date_today, merge_rt, min_confirm_hits
+    )
+    meta["provisional_count"] = provisional_cnt
+    meta["confirmed_count"] = confirmed_cnt
+    meta["min_confirm_hits"] = max(1, int(min_confirm_hits or 1))
     out = _finalize(signals, strategy_id, **meta)
     _sync_buy_radar_alerts(
         db, pool_id, stocks, rt_map, merge_rt, trade_date_today, strategy_id, signals, meta
@@ -1007,7 +1114,14 @@ def _empty_result(strategy_id: str) -> dict:
 
 
 def _finalize(signals: list[dict], strategy_id: str, **meta) -> dict:
-    status_order = {"triggered": 0, "approaching": 1, "tracking": 2, "invalidated": 3}
+    status_order = {
+        INTRADAY_CONFIRMED: 0,
+        "triggered": 0,
+        INTRADAY_PROVISIONAL: 1,
+        "approaching": 2,
+        "tracking": 3,
+        "invalidated": 4,
+    }
     signals.sort(
         key=lambda s: (
             status_order.get(s["signal_status"], 9),
@@ -1020,7 +1134,11 @@ def _finalize(signals: list[dict], strategy_id: str, **meta) -> dict:
         "signals": signals,
         "scan_time": datetime.now().isoformat(),
         "total": len(signals),
-        "triggered_count": sum(1 for s in signals if s["signal_status"] == "triggered"),
+        "triggered_count": sum(
+            1
+            for s in signals
+            if s["signal_status"] in ("triggered", INTRADAY_CONFIRMED)
+        ),
         "approaching_count": sum(1 for s in signals if s["signal_status"] == "approaching"),
         "strategy_id": strategy_id,
         "strategy_name": name,

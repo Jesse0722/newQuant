@@ -6,8 +6,11 @@ from app.database import SessionLocal
 from app.models.pool import WatchStock
 from app.models.stock import DailyQuote
 from app.models.sync_log import SyncLog
+from app.models.intraday_scan import IntradayScanConfig
 from app.services.limit_up_service import get_or_create_limit_up_pool, collect_limit_up_stocks
 from app.services.trade_date_resolver import resolve_dashboard_trade_date
+from app.services.trading_session import is_a_share_trading_session
+from app.services.buy_signal_service import scan_pool_buy_signals
 from app.services.sync_service import _sync_stock_basic_full, sync_stock_info, sync_daily
 
 
@@ -176,6 +179,100 @@ def run_5pm_sync_latest_kline_job() -> dict:
                     "failed_count": 1,
                     "skipped_count": 0,
                     "days_synced": 1,
+                    "message": str(e),
+                },
+                ensure_ascii=False,
+            )
+            db.commit()
+        raise
+    finally:
+        db.close()
+
+
+def run_intraday_scan_job() -> dict:
+    """
+    盘中轮询扫描任务：
+    - 仅在交易时段执行
+    - 按每个配置的 interval_minutes 触发
+    """
+    db = SessionLocal()
+    now = datetime.now()
+    result = {
+        "job": "intraday_scan",
+        "ran": 0,
+        "skipped": 0,
+        "errors": [],
+        "time": now.isoformat(),
+    }
+    if not is_a_share_trading_session():
+        db.close()
+        return {**result, "reason": "out_of_session"}
+
+    log_id = str(uuid.uuid4())
+    try:
+        db.add(
+            SyncLog(
+                id=log_id,
+                task_type="scheduled_intraday_scan",
+                target=None,
+                status="running",
+            )
+        )
+        db.commit()
+
+        cfgs = (
+            db.query(IntradayScanConfig)
+            .filter(IntradayScanConfig.enabled.is_(True))
+            .all()
+        )
+        for cfg in cfgs:
+            interval = max(1, int(cfg.interval_minutes or 5))
+            if now.minute % interval != 0:
+                result["skipped"] += 1
+                continue
+            try:
+                out = scan_pool_buy_signals(
+                    db,
+                    cfg.pool_id,
+                    cfg.strategy_id,
+                    min_confirm_hits=int(cfg.min_confirm_hits or 2),
+                )
+                result["ran"] += 1
+                if out.get("realtime", {}).get("error"):
+                    result["errors"].append(
+                        f"{cfg.pool_id}/{cfg.strategy_id}: {out['realtime']['error'][:100]}"
+                    )
+            except Exception as e:
+                result["errors"].append(f"{cfg.pool_id}/{cfg.strategy_id}: {str(e)[:120]}")
+
+        log = db.query(SyncLog).filter(SyncLog.id == log_id).first()
+        if log:
+            log.status = "completed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(
+                {
+                    "success_count": result["ran"],
+                    "failed_count": len(result["errors"]),
+                    "skipped_count": result["skipped"],
+                    "days_synced": 0,
+                    "message": f"盘中扫描：执行 {result['ran']}，跳过 {result['skipped']}",
+                    **result,
+                },
+                ensure_ascii=False,
+            )
+            db.commit()
+        return result
+    except Exception as e:
+        log = db.query(SyncLog).filter(SyncLog.id == log_id).first()
+        if log:
+            log.status = "failed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(
+                {
+                    "success_count": 0,
+                    "failed_count": 1,
+                    "skipped_count": 0,
+                    "days_synced": 0,
                     "message": str(e),
                 },
                 ensure_ascii=False,

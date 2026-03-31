@@ -3,12 +3,28 @@ import { useNavigate } from 'react-router-dom'
 import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip, Modal, DatePicker, Progress, Table, Row, Col, Statistic, InputNumber, Switch } from 'antd'
 import { ScanOutlined, BarChartOutlined, BellOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
-import { scanBuySignals, getBuyStrategies, submitStrategyBacktest, getStrategyBacktestResult, getTradingSession } from '../../api/strategy'
+import {
+  scanBuySignals,
+  getBuyStrategies,
+  submitStrategyBacktest,
+  getStrategyBacktestResult,
+  getTradingSession,
+  listIntradayScanConfig,
+  upsertIntradayScanConfig,
+} from '../../api/strategy'
 import { getAlertsPendingCount } from '../../api/alerts'
 import { listPools, getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import SignalList from './SignalList'
 import SignalDetail from './SignalDetail'
-import type { BuySignal, BuySignalStatus, BuySignalScanResult, BuyStrategy, Pool, StrategyBacktestResult } from '../../types'
+import type {
+  BuySignal,
+  BuySignalStatus,
+  BuySignalScanResult,
+  BuyStrategy,
+  Pool,
+  StrategyBacktestResult,
+  IntradayScanConfigItem,
+} from '../../types'
 
 type FilterStatus = 'all' | BuySignalStatus
 
@@ -38,6 +54,8 @@ const BuyRadarPage: React.FC = () => {
     return Number.isFinite(n) && n >= 1 && n <= 30 ? n : 3
   })
   const [inSession, setInSession] = useState(false)
+  const [intradayConfigs, setIntradayConfigs] = useState<IntradayScanConfigItem[]>([])
+  const [manualMinConfirmHits, setManualMinConfirmHits] = useState<number>(2)
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<FilterStatus>('all')
   const [selectedSignal, setSelectedSignal] = useState<BuySignal | null>(null)
@@ -61,6 +79,12 @@ const BuyRadarPage: React.FC = () => {
   const refreshCoreWatch = useCallback(() => {
     getCoreWatchCodes()
       .then((res) => setCoreWatchCodes(new Set(res.data.ts_codes || [])))
+      .catch(() => {})
+  }, [])
+
+  const loadIntradayConfigs = useCallback((poolId?: string) => {
+    listIntradayScanConfig(poolId)
+      .then((res) => setIntradayConfigs(res.data || []))
       .catch(() => {})
   }, [])
 
@@ -101,9 +125,19 @@ const BuyRadarPage: React.FC = () => {
       .catch(() => {})
   }, [refreshCoreWatch, activeStrategyId])
 
+  useEffect(() => {
+    if (activePoolId) {
+      loadIntradayConfigs(activePoolId)
+    } else {
+      setIntradayConfigs([])
+    }
+  }, [activePoolId, loadIntradayConfigs])
+
   const mergeAllStrategyResults = useCallback((results: BuySignalScanResult[]): BuySignalScanResult => {
     const statusOrder: Record<BuySignalStatus, number> = {
+      confirmed_triggered: 0,
       triggered: 0,
+      provisional_triggered: 1,
       approaching: 1,
       tracking: 2,
       invalidated: 3,
@@ -204,7 +238,11 @@ const BuyRadarPage: React.FC = () => {
   const filteredSignals = activeScanResult
     ? filter === 'all'
       ? activeScanResult.signals.filter((s) => s.signal_status !== 'invalidated')
-      : activeScanResult.signals.filter((s) => s.signal_status === filter)
+      : filter === 'triggered'
+        ? activeScanResult.signals.filter(
+            (s) => s.signal_status === 'triggered' || s.signal_status === 'confirmed_triggered'
+          )
+        : activeScanResult.signals.filter((s) => s.signal_status === filter)
     : []
 
   const handlePoolChange = (poolId: string) => {
@@ -237,7 +275,7 @@ const BuyRadarPage: React.FC = () => {
         const patch: Record<string, BuySignalScanResult> = {}
         for (let i = 0; i < targets.length; i++) {
           const sid = targets[i]
-          const res = await scanBuySignals(activePoolId, sid)
+          const res = await scanBuySignals(activePoolId, sid, manualMinConfirmHits)
           collected.push(res.data)
           patch[sid] = res.data
           if (i < targets.length - 1) {
@@ -255,7 +293,7 @@ const BuyRadarPage: React.FC = () => {
           setSelectedSignal(first)
         }
       } else {
-        const res = await scanBuySignals(activePoolId, activeStrategyId)
+        const res = await scanBuySignals(activePoolId, activeStrategyId, manualMinConfirmHits)
         setScanResultsByStrategy((prev) => ({ ...prev, [activeStrategyId]: res.data }))
         message.success(
           `扫描完成: ${res.data.triggered_count} 只触发, ${res.data.approaching_count} 只接近, 共 ${res.data.total} 只。待处理提醒已更新，可到买点提醒查看。`
@@ -352,7 +390,7 @@ const BuyRadarPage: React.FC = () => {
       for (let i = 0; i < enabled.length; i++) {
         const sid = enabled[i]
         try {
-          const res = await scanBuySignals(activePoolId, sid)
+          const res = await scanBuySignals(activePoolId, sid, manualMinConfirmHits)
           setScanResultsByStrategy((prev) => ({ ...prev, [sid]: res.data }))
         } catch (_) { /* 静默 */ }
         if (i < enabled.length - 1) await new Promise((r) => setTimeout(r, 200))
@@ -367,7 +405,30 @@ const BuyRadarPage: React.FC = () => {
         autoScanIntervalRef.current = null
       }
     }
-  }, [inSession, activePoolId, autoScanByStrategy, intervalMinutes, refreshPendingAlerts])
+  }, [inSession, activePoolId, autoScanByStrategy, intervalMinutes, refreshPendingAlerts, manualMinConfirmHits])
+
+  const selectedCfg = intradayConfigs.find(
+    (c) => c.pool_id === activePoolId && c.strategy_id === activeStrategyId
+  )
+
+  const handleUpdateIntradayConfig = async (patch: Partial<IntradayScanConfigItem>) => {
+    if (!activePoolId || activeStrategyId === ALL_STRATEGY_ID) return
+    const base = selectedCfg || {
+      pool_id: activePoolId,
+      strategy_id: activeStrategyId,
+      enabled: false,
+      interval_minutes: 5,
+      min_confirm_hits: 2,
+    }
+    await upsertIntradayScanConfig({
+      pool_id: base.pool_id,
+      strategy_id: base.strategy_id,
+      enabled: patch.enabled ?? base.enabled,
+      interval_minutes: patch.interval_minutes ?? base.interval_minutes,
+      min_confirm_hits: patch.min_confirm_hits ?? base.min_confirm_hits,
+    })
+    loadIntradayConfigs(activePoolId)
+  }
 
   const handleSelect = useCallback((signal: BuySignal) => {
     setSelectedSignal(signal)
@@ -473,6 +534,52 @@ const BuyRadarPage: React.FC = () => {
               />
             </Space>
           </Tooltip>
+          <Tooltip title="后端盘中轮询（服务端执行，低误报优先）">
+            <Space size={4}>
+              <span style={{ fontSize: 13, color: '#595959' }}>后端轮询</span>
+              <Switch
+                disabled={!activePoolId || activeStrategyId === ALL_STRATEGY_ID}
+                checked={!!selectedCfg?.enabled}
+                onChange={(checked) => {
+                  handleUpdateIntradayConfig({ enabled: checked }).catch(() => {
+                    message.error('更新后端轮询配置失败')
+                  })
+                }}
+              />
+            </Space>
+          </Tooltip>
+          <span style={{ fontSize: 13, color: '#595959' }}>确证次数</span>
+          <InputNumber
+            min={1}
+            max={5}
+            value={selectedCfg?.min_confirm_hits ?? manualMinConfirmHits}
+            onChange={(v) => {
+              const n = typeof v === 'number' ? v : 2
+              setManualMinConfirmHits(n)
+              if (activePoolId && activeStrategyId !== ALL_STRATEGY_ID) {
+                handleUpdateIntradayConfig({ min_confirm_hits: n }).catch(() => {})
+              }
+            }}
+            size="small"
+            style={{ width: 72 }}
+          />
+          <span style={{ fontSize: 13, color: '#595959' }}>后端间隔</span>
+          <InputNumber
+            min={1}
+            max={30}
+            value={selectedCfg?.interval_minutes ?? 5}
+            disabled={!selectedCfg?.enabled || activeStrategyId === ALL_STRATEGY_ID}
+            onChange={(v) => {
+              const n = typeof v === 'number' ? v : 5
+              if (activePoolId && activeStrategyId !== ALL_STRATEGY_ID) {
+                handleUpdateIntradayConfig({ interval_minutes: n }).catch(() => {
+                  message.error('更新后端轮询间隔失败')
+                })
+              }
+            }}
+            size="small"
+            style={{ width: 80 }}
+          />
           <span style={{ fontSize: 13, color: '#595959' }}>间隔(分)</span>
           <InputNumber min={1} max={30} value={intervalMinutes} onChange={(v) => setIntervalMinutes(typeof v === 'number' ? v : 3)} size="small" style={{ width: 64 }} />
 
@@ -504,6 +611,7 @@ const BuyRadarPage: React.FC = () => {
                 ),
                 value: 'triggered',
               },
+              { label: '盘中候选', value: 'provisional_triggered' },
               {
                 label: (
                   <Badge count={activeScanResult?.approaching_count || 0} size="small" offset={[8, -2]} color="#fa8c16">
