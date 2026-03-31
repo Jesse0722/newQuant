@@ -195,7 +195,21 @@ const PoolList: React.FC = () => {
     setChartLoading(true)
     const stock = stocks.find(s => s.ts_code === selectedCode)
     getStockChartWithMarks(selectedCode, chartPeriod, stock?.limit_up_date || undefined)
-      .then(res => setChartData(res.data))
+      .then(res => {
+        setChartData(res.data)
+        const last = res.data?.quotes?.[res.data.quotes.length - 1]
+        if (!last) return
+        setStocks(prev => prev.map(s => (
+          s.ts_code === selectedCode
+            ? {
+                ...s,
+                latest_price: typeof last.close === 'number' ? last.close : s.latest_price,
+                pct_chg: typeof last.pct_chg === 'number' ? last.pct_chg : s.pct_chg,
+                trade_date: last.date || s.trade_date,
+              }
+            : s
+        )))
+      })
       .catch(() => setChartData(null))
       .finally(() => setChartLoading(false))
   }, [selectedCode, chartPeriod])
