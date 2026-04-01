@@ -23,6 +23,17 @@ export interface ListStocksParams {
   monitor_status?: string
   limit_up_date_from?: string
   limit_up_date_to?: string
+  /** 最新收盘价区间 */
+  price_min?: number
+  price_max?: number
+  /** 估算流通市值区间（亿元） */
+  circ_mv_min?: number
+  circ_mv_max?: number
+  /** 统计涨停次数的交易日区间 */
+  limit_up_stats_from?: string
+  limit_up_stats_to?: string
+  limit_up_count_min?: number
+  limit_up_count_max?: number
   page?: number
   size?: number
   sort_by?: 'created_at' | 'limit_up_date'

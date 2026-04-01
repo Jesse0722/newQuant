@@ -80,8 +80,46 @@ const PoolList: React.FC = () => {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const limitUpDateFromStr = limitUpDateFrom ? limitUpDateFrom.format('YYYYMMDD') : ''
   const limitUpDateToStr = limitUpDateTo ? limitUpDateTo.format('YYYYMMDD') : ''
-  const filtersRef = useRef({ sortBy, sortOrder, limitUpDateFromStr, limitUpDateToStr })
-  filtersRef.current = { sortBy, sortOrder, limitUpDateFromStr, limitUpDateToStr }
+
+  const [priceMin, setPriceMin] = useState<number | null>(null)
+  const [priceMax, setPriceMax] = useState<number | null>(null)
+  const [circMvMin, setCircMvMin] = useState<number | null>(null)
+  const [circMvMax, setCircMvMax] = useState<number | null>(null)
+  const [limitUpStatsFrom, setLimitUpStatsFrom] = useState<dayjs.Dayjs | null>(null)
+  const [limitUpStatsTo, setLimitUpStatsTo] = useState<dayjs.Dayjs | null>(null)
+  const [limitUpCountMin, setLimitUpCountMin] = useState<number | null>(null)
+  const [limitUpCountMax, setLimitUpCountMax] = useState<number | null>(null)
+
+  const limitUpStatsFromStr = limitUpStatsFrom ? limitUpStatsFrom.format('YYYYMMDD') : ''
+  const limitUpStatsToStr = limitUpStatsTo ? limitUpStatsTo.format('YYYYMMDD') : ''
+  const filtersRef = useRef({
+    sortBy,
+    sortOrder,
+    limitUpDateFromStr,
+    limitUpDateToStr,
+    priceMin,
+    priceMax,
+    circMvMin,
+    circMvMax,
+    limitUpStatsFromStr,
+    limitUpStatsToStr,
+    limitUpCountMin,
+    limitUpCountMax,
+  })
+  filtersRef.current = {
+    sortBy,
+    sortOrder,
+    limitUpDateFromStr,
+    limitUpDateToStr,
+    priceMin,
+    priceMax,
+    circMvMin,
+    circMvMax,
+    limitUpStatsFromStr,
+    limitUpStatsToStr,
+    limitUpCountMin,
+    limitUpCountMax,
+  }
   const anyModalOpenRef = useRef(false)
   anyModalOpenRef.current = addModalOpen || importModalOpen || editPoolModalOpen || noteModalOpen || addRuleModalOpen
 
@@ -137,6 +175,16 @@ const PoolList: React.FC = () => {
     }
     if (f.limitUpDateFromStr) params.limit_up_date_from = f.limitUpDateFromStr
     if (f.limitUpDateToStr) params.limit_up_date_to = f.limitUpDateToStr
+    if (f.priceMin != null) params.price_min = f.priceMin
+    if (f.priceMax != null) params.price_max = f.priceMax
+    if (f.circMvMin != null) params.circ_mv_min = f.circMvMin
+    if (f.circMvMax != null) params.circ_mv_max = f.circMvMax
+    if (f.limitUpStatsFromStr) params.limit_up_stats_from = f.limitUpStatsFromStr
+    if (f.limitUpStatsToStr) params.limit_up_stats_to = f.limitUpStatsToStr
+    if (f.limitUpStatsFromStr && f.limitUpStatsToStr) {
+      if (f.limitUpCountMin != null) params.limit_up_count_min = f.limitUpCountMin
+      if (f.limitUpCountMax != null) params.limit_up_count_max = f.limitUpCountMax
+    }
     return listStocks(poolId, params)
   }
 
@@ -181,7 +229,21 @@ const PoolList: React.FC = () => {
 
   useEffect(() => {
     if (activePoolId) loadInitial(activePoolId)
-  }, [activePoolId, limitUpDateFromStr, limitUpDateToStr, sortBy, sortOrder])
+  }, [
+    activePoolId,
+    limitUpDateFromStr,
+    limitUpDateToStr,
+    sortBy,
+    sortOrder,
+    priceMin,
+    priceMax,
+    circMvMin,
+    circMvMax,
+    limitUpStatsFromStr,
+    limitUpStatsToStr,
+    limitUpCountMin,
+    limitUpCountMax,
+  ])
 
   useEffect(() => {
     const exists = stocks.some(s => s.ts_code === selectedCode)
@@ -469,17 +531,22 @@ const PoolList: React.FC = () => {
   const handleExport = async () => {
     if (!activePoolId || !activePool) return
     const f = filtersRef.current
-    const params: {
-      sort_by: 'created_at' | 'limit_up_date'
-      order: 'asc' | 'desc'
-      limit_up_date_from?: string
-      limit_up_date_to?: string
-    } = {
+    const params: Record<string, string | number> = {
       sort_by: f.sortBy,
       order: f.sortOrder,
     }
     if (f.limitUpDateFromStr) params.limit_up_date_from = f.limitUpDateFromStr
     if (f.limitUpDateToStr) params.limit_up_date_to = f.limitUpDateToStr
+    if (f.priceMin != null) params.price_min = f.priceMin
+    if (f.priceMax != null) params.price_max = f.priceMax
+    if (f.circMvMin != null) params.circ_mv_min = f.circMvMin
+    if (f.circMvMax != null) params.circ_mv_max = f.circMvMax
+    if (f.limitUpStatsFromStr) params.limit_up_stats_from = f.limitUpStatsFromStr
+    if (f.limitUpStatsToStr) params.limit_up_stats_to = f.limitUpStatsToStr
+    if (f.limitUpStatsFromStr && f.limitUpStatsToStr) {
+      if (f.limitUpCountMin != null) params.limit_up_count_min = f.limitUpCountMin
+      if (f.limitUpCountMax != null) params.limit_up_count_max = f.limitUpCountMax
+    }
     const res = await exportStocksCSV(activePoolId, params)
     const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' })
     const url = window.URL.createObjectURL(blob)
@@ -946,6 +1013,35 @@ const PoolList: React.FC = () => {
                   { value: 'created_at-asc', label: '排序：加入时间 旧→新' },
                 ]}
               />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: '#595959' }}>股价</span>
+                <InputNumber size="small" placeholder="低" min={0} value={priceMin ?? undefined} onChange={v => setPriceMin(typeof v === 'number' ? v : null)} style={{ width: 72 }} />
+                <InputNumber size="small" placeholder="高" min={0} value={priceMax ?? undefined} onChange={v => setPriceMax(typeof v === 'number' ? v : null)} style={{ width: 72 }} />
+                <Tooltip title="按最新收盘价×流通股本（万股）估算流通市值，单位亿元；需已同步日线/daily_basic 数据">
+                  <span style={{ fontSize: 12, color: '#595959', cursor: 'help' }}>市值(亿)</span>
+                </Tooltip>
+                <InputNumber size="small" placeholder="低" min={0} value={circMvMin ?? undefined} onChange={v => setCircMvMin(typeof v === 'number' ? v : null)} style={{ width: 72 }} />
+                <InputNumber size="small" placeholder="高" min={0} value={circMvMax ?? undefined} onChange={v => setCircMvMax(typeof v === 'number' ? v : null)} style={{ width: 72 }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 12, color: '#595959' }}>涨停次数（选日期区间后可填次数上下限）</span>
+                <DatePicker.RangePicker
+                  size="small"
+                  style={{ width: '100%' }}
+                  placeholder={['统计起始日', '统计截止日']}
+                  value={limitUpStatsFrom && limitUpStatsTo ? [limitUpStatsFrom, limitUpStatsTo] : null}
+                  onChange={dates => {
+                    setLimitUpStatsFrom(dates?.[0] ?? null)
+                    setLimitUpStatsTo(dates?.[1] ?? null)
+                  }}
+                  allowClear
+                />
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: '#8c8c8c' }}>次数</span>
+                  <InputNumber size="small" placeholder="最少" min={0} value={limitUpCountMin ?? undefined} onChange={v => setLimitUpCountMin(typeof v === 'number' ? v : null)} style={{ width: 80 }} />
+                  <InputNumber size="small" placeholder="最多" min={0} value={limitUpCountMax ?? undefined} onChange={v => setLimitUpCountMax(typeof v === 'number' ? v : null)} style={{ width: 80 }} />
+                </div>
+              </div>
             </Space>
           </div>
 

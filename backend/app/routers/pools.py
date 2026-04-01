@@ -1,6 +1,8 @@
 import csv
 import io
 from urllib.parse import quote
+from typing import Optional
+
 from fastapi import APIRouter, Depends, UploadFile, File, Query, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -15,12 +17,88 @@ from app.schemas.pool import (
     CoreWatchCodesOut, CoreWatchToggleBody, CoreWatchToggleOut,
 )
 from app.services.core_watch_service import list_core_watch_ts_codes, toggle_core_watch_star
+from app.services.limit_up_service import _get_limit_up_threshold
 from app.exceptions import AppError
 from app.utils import normalize_ts_code
 from app.services.sync_service import sync_single_stock
 from app.tasks.background import submit_task
 
 router = APIRouter(prefix="/api/pools", tags=["pools"])
+
+
+def _batch_latest_quotes(db: Session, ts_codes: list[str]) -> dict[str, DailyQuote]:
+    if not ts_codes:
+        return {}
+    subq = (
+        db.query(DailyQuote.ts_code, func.max(DailyQuote.trade_date).label("md"))
+        .filter(DailyQuote.ts_code.in_(ts_codes))
+        .group_by(DailyQuote.ts_code)
+        .subquery()
+    )
+    rows = (
+        db.query(DailyQuote)
+        .join(subq, (DailyQuote.ts_code == subq.c.ts_code) & (DailyQuote.trade_date == subq.c.md))
+        .all()
+    )
+    return {r.ts_code: r for r in rows}
+
+
+def _batch_stock_basics(db: Session, ts_codes: list[str]) -> dict[str, StockBasic]:
+    if not ts_codes:
+        return {}
+    rows = db.query(StockBasic).filter(StockBasic.ts_code.in_(ts_codes)).all()
+    return {r.ts_code: r for r in rows}
+
+
+def _est_circ_mv_yi(close: float | None, float_share_wan: float | None) -> float | None:
+    """
+    估算流通市值（亿元）：daily_basic 口径下 float_share 为万股，
+    流通市值约 close(元) * float_share(万股) 万元，再 /10000 得亿元。
+    """
+    if close is None or float_share_wan is None:
+        return None
+    try:
+        c = float(close)
+        fs = float(float_share_wan)
+        if c <= 0 or fs <= 0:
+            return None
+        return c * fs / 10000.0
+    except (TypeError, ValueError):
+        return None
+
+
+def _batch_limit_up_counts(
+    db: Session,
+    ts_codes: list[str],
+    d_from: str,
+    d_to: str,
+    basics: dict[str, StockBasic],
+) -> dict[str, int]:
+    if not ts_codes or d_from > d_to:
+        return {c: 0 for c in ts_codes}
+    rows = (
+        db.query(DailyQuote.ts_code, DailyQuote.pct_chg)
+        .filter(
+            DailyQuote.ts_code.in_(ts_codes),
+            DailyQuote.trade_date >= d_from,
+            DailyQuote.trade_date <= d_to,
+        )
+        .all()
+    )
+    by_code: dict[str, list[float]] = {}
+    for ts, pct in rows:
+        if pct is None:
+            continue
+        try:
+            p = float(pct)
+        except (TypeError, ValueError):
+            continue
+        by_code.setdefault(ts, []).append(p)
+    out: dict[str, int] = {}
+    for ts in ts_codes:
+        th = _get_limit_up_threshold(basics.get(ts).market if basics.get(ts) else None)
+        out[ts] = sum(1 for p in by_code.get(ts, []) if p >= th)
+    return out
 
 
 def _enrich_stock(
@@ -87,6 +165,49 @@ def _normalize_pct_for_export(db: Session, ts_code: str, pct_chg: float | None) 
     if abs(float(pct_chg) - limit_pct) <= 0.02:
         return limit_pct
     return float(pct_chg)
+
+
+def _passes_pool_advanced_filters(
+    latest: DailyQuote | None,
+    basic: StockBasic | None,
+    limit_up_hits: int,
+    *,
+    price_min: float | None,
+    price_max: float | None,
+    circ_mv_min: float | None,
+    circ_mv_max: float | None,
+    limit_up_count_min: int | None,
+    limit_up_count_max: int | None,
+    need_limit_up_stats: bool,
+) -> bool:
+    close = float(latest.close) if latest and latest.close is not None else None
+    if price_min is not None:
+        if close is None or close < price_min:
+            return False
+    if price_max is not None:
+        if close is None or close > price_max:
+            return False
+
+    fs = None
+    if latest and latest.float_share is not None:
+        fs = float(latest.float_share)
+    elif basic and basic.float_share is not None:
+        fs = float(basic.float_share)
+    mv_yi = _est_circ_mv_yi(close if latest else None, fs)
+
+    if circ_mv_min is not None:
+        if mv_yi is None or mv_yi < circ_mv_min:
+            return False
+    if circ_mv_max is not None:
+        if mv_yi is None or mv_yi > circ_mv_max:
+            return False
+
+    if need_limit_up_stats:
+        if limit_up_count_min is not None and limit_up_hits < limit_up_count_min:
+            return False
+        if limit_up_count_max is not None and limit_up_hits > limit_up_count_max:
+            return False
+    return True
 
 
 @router.get("", response_model=list[PoolOut])
@@ -247,6 +368,14 @@ def list_stocks(
     monitor_status: str = Query(None),
     limit_up_date_from: str = Query(None, description="涨停日期起 YYYYMMDD"),
     limit_up_date_to: str = Query(None, description="涨停日期止 YYYYMMDD"),
+    price_min: Optional[float] = Query(None, description="最新收盘价下限"),
+    price_max: Optional[float] = Query(None, description="最新收盘价上限"),
+    circ_mv_min: Optional[float] = Query(None, description="估算流通市值下限（亿元，收盘价×流通股本）"),
+    circ_mv_max: Optional[float] = Query(None, description="估算流通市值上限（亿元）"),
+    limit_up_stats_from: Optional[str] = Query(None, description="统计涨停次数：起始日 YYYYMMDD"),
+    limit_up_stats_to: Optional[str] = Query(None, description="统计涨停次数：截止日 YYYYMMDD"),
+    limit_up_count_min: Optional[int] = Query(None, ge=0, description="区间内涨停次数下限"),
+    limit_up_count_max: Optional[int] = Query(None, ge=0, description="区间内涨停次数上限"),
     sort_by: str = Query("created_at", description="排序字段: created_at | limit_up_date"),
     order: str = Query("desc", description="排序方向: asc | desc"),
     page: int = Query(1, ge=1),
@@ -256,6 +385,16 @@ def list_stocks(
     pool = db.query(WatchPool).filter(WatchPool.id == pool_id).first()
     if not pool:
         raise AppError(code=2001, message="观察池不存在", status_code=404)
+    if (limit_up_count_min is not None or limit_up_count_max is not None) and (
+        not limit_up_stats_from or not limit_up_stats_to
+    ):
+        raise AppError(
+            code=2003,
+            message="筛选涨停次数时需同时传入 limit_up_stats_from 与 limit_up_stats_to",
+            status_code=400,
+        )
+    if limit_up_stats_from and limit_up_stats_to and limit_up_stats_from > limit_up_stats_to:
+        raise AppError(code=2003, message="涨停统计起止日期顺序无效", status_code=400)
     q = db.query(WatchStock).filter(WatchStock.pool_id == pool_id)
     if monitor_status:
         q = q.filter(WatchStock.monitor_status == monitor_status)
@@ -264,10 +403,32 @@ def list_stocks(
     if limit_up_date_to:
         q = q.filter(WatchStock.limit_up_date <= limit_up_date_to)
     stocks = q.all()
+    ts_codes = list({s.ts_code for s in stocks})
+    latest_map = _batch_latest_quotes(db, ts_codes)
+    basic_map = _batch_stock_basics(db, ts_codes)
+    luc_map: dict[str, int] = {}
+    need_luc = limit_up_stats_from and limit_up_stats_to and (
+        limit_up_count_min is not None or limit_up_count_max is not None
+    )
+    if need_luc:
+        luc_map = _batch_limit_up_counts(db, ts_codes, limit_up_stats_from, limit_up_stats_to, basic_map)
     result = []
     for s in stocks:
         out = _enrich_stock(db, s)
         if keyword and keyword.lower() not in (s.ts_code + (out.stock_name or "")).lower():
+            continue
+        if not _passes_pool_advanced_filters(
+            latest_map.get(s.ts_code),
+            basic_map.get(s.ts_code),
+            luc_map.get(s.ts_code, 0),
+            price_min=price_min,
+            price_max=price_max,
+            circ_mv_min=circ_mv_min,
+            circ_mv_max=circ_mv_max,
+            limit_up_count_min=limit_up_count_min,
+            limit_up_count_max=limit_up_count_max,
+            need_limit_up_stats=bool(need_luc),
+        ):
             continue
         result.append(out)
     # 排序：置顶优先，再按指定字段
@@ -291,6 +452,14 @@ def export_stocks_csv(
     monitor_status: str = Query(None),
     limit_up_date_from: str = Query(None, description="涨停日期起 YYYYMMDD"),
     limit_up_date_to: str = Query(None, description="涨停日期止 YYYYMMDD"),
+    price_min: Optional[float] = Query(None),
+    price_max: Optional[float] = Query(None),
+    circ_mv_min: Optional[float] = Query(None),
+    circ_mv_max: Optional[float] = Query(None),
+    limit_up_stats_from: Optional[str] = Query(None),
+    limit_up_stats_to: Optional[str] = Query(None),
+    limit_up_count_min: Optional[int] = Query(None, ge=0),
+    limit_up_count_max: Optional[int] = Query(None, ge=0),
     sort_by: str = Query("created_at", description="排序字段: created_at | limit_up_date"),
     order: str = Query("desc", description="排序方向: asc | desc"),
     db: Session = Depends(get_db),
@@ -298,6 +467,16 @@ def export_stocks_csv(
     pool = db.query(WatchPool).filter(WatchPool.id == pool_id).first()
     if not pool:
         raise AppError(code=2001, message="观察池不存在", status_code=404)
+    if (limit_up_count_min is not None or limit_up_count_max is not None) and (
+        not limit_up_stats_from or not limit_up_stats_to
+    ):
+        raise AppError(
+            code=2003,
+            message="筛选涨停次数时需同时传入 limit_up_stats_from 与 limit_up_stats_to",
+            status_code=400,
+        )
+    if limit_up_stats_from and limit_up_stats_to and limit_up_stats_from > limit_up_stats_to:
+        raise AppError(code=2003, message="涨停统计起止日期顺序无效", status_code=400)
 
     q = db.query(WatchStock).filter(WatchStock.pool_id == pool_id)
     if monitor_status:
@@ -308,10 +487,35 @@ def export_stocks_csv(
         q = q.filter(WatchStock.limit_up_date <= limit_up_date_to)
     stocks = q.all()
 
+    ts_codes = list({s.ts_code for s in stocks})
+    latest_map = _batch_latest_quotes(db, ts_codes)
+    basic_map = _batch_stock_basics(db, ts_codes)
+    need_luc = limit_up_stats_from and limit_up_stats_to and (
+        limit_up_count_min is not None or limit_up_count_max is not None
+    )
+    luc_map = (
+        _batch_limit_up_counts(db, ts_codes, limit_up_stats_from, limit_up_stats_to, basic_map)
+        if need_luc
+        else {}
+    )
+
     result = []
     for s in stocks:
         out = _enrich_stock(db, s)
         if keyword and keyword.lower() not in (s.ts_code + (out.stock_name or "")).lower():
+            continue
+        if not _passes_pool_advanced_filters(
+            latest_map.get(s.ts_code),
+            basic_map.get(s.ts_code),
+            luc_map.get(s.ts_code, 0),
+            price_min=price_min,
+            price_max=price_max,
+            circ_mv_min=circ_mv_min,
+            circ_mv_max=circ_mv_max,
+            limit_up_count_min=limit_up_count_min,
+            limit_up_count_max=limit_up_count_max,
+            need_limit_up_stats=bool(need_luc),
+        ):
             continue
         result.append(out)
 
