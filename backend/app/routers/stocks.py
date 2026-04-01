@@ -42,6 +42,24 @@ def _nan_to_none(series: pd.Series) -> list:
     return [None if (v is None or (isinstance(v, float) and np.isnan(v))) else round(v, 4) for v in series]
 
 
+def _scalar_json_safe(v):
+    """避免 nan/inf 进入 JSON（pandas to_dict 会保留 float nan）。"""
+    if v is None:
+        return None
+    if isinstance(v, (float, np.floating)):
+        fv = float(v)
+        if not np.isfinite(fv):
+            return None
+        return fv
+    if isinstance(v, (np.integer,)) and not isinstance(v, bool):
+        return int(v)
+    return v
+
+
+def _chart_quotes_json_safe(records: list[dict]) -> list[dict]:
+    return [{k: _scalar_json_safe(val) for k, val in row.items()} for row in records]
+
+
 def _sync_stock_kline_job(ts_code: str) -> tuple[int | None, Exception | None]:
     """在独立会话中跑同步，供主请求线程做超时控制（Session 非线程安全）。"""
     from app.database import SessionLocal
@@ -189,7 +207,7 @@ def get_stock_chart(
 
     result = {
         "basic": _basic_dict(basic),
-        "quotes": df.iloc[sl].to_dict("records"),
+        "quotes": _chart_quotes_json_safe(df.iloc[sl].to_dict("records")),
         "indicators": {
             "ma5": ma5[sl],
             "ma10": ma10[sl],
@@ -227,7 +245,7 @@ def get_stock_alerts(ts_code: str, db: Session = Depends(get_db)):
             "trigger_date": a.trigger_date,
             "status": a.status,
             "snapshot": a.snapshot,
-            "created_at": a.created_at.isoformat(),
+            "created_at": a.created_at.isoformat() + "Z",
         }
         for a in alerts
     ]
