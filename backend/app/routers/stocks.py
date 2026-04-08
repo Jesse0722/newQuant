@@ -1,5 +1,4 @@
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
-from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -11,6 +10,8 @@ from app.schemas.trade import TradeDetailCreate, TradeDetailOut
 from app.services.indicator import calc_ma, calc_macd, calc_rsi
 from app.services.buy_signal_service import get_signal_marks
 from app.services.sync_service import sync_stock_info, sync_daily
+from app.services.trade_date_resolver import TradeDateResolutionError, resolve_dashboard_trade_date
+from app.services.trading_session import shanghai_trade_date_str
 from app.services.tushare_adapter import tushare_adapter
 from app.exceptions import AppError
 import pandas as pd
@@ -82,11 +83,15 @@ def _sync_stock_kline_job(ts_code: str) -> tuple[int | None, Exception | None]:
 def _ensure_latest_kline(db: Session, ts_code: str) -> dict:
     """
     详情查询前自动增量补齐该股票日线到最新可用交易日。
-    失败或超时时降级为返回本地已有数据，避免 Tushare 阻塞导致图表长时间无响应。
+    失败或超时时降级为返回本地已有数据，避免源站阻塞导致图表长时间无响应。
+    是否「已最新」与仪表盘一致：按上海时区 + 交易日历得到目标 trade_date，而非服务器本地日历日。
     """
-    today = datetime.now().strftime("%Y%m%d")
+    try:
+        target_latest = resolve_dashboard_trade_date()
+    except TradeDateResolutionError:
+        target_latest = shanghai_trade_date_str()
     latest = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
-    if latest and latest >= today:
+    if latest and latest >= target_latest:
         return {
             "auto_sync_attempted": False,
             "status": "up_to_date",
