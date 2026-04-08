@@ -9,6 +9,7 @@ from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchStock
 from app.models.sync_log import SyncLog
 from app.services.tushare_adapter import tushare_adapter
+from app.services.trading_session import shanghai_trade_date_str
 from app.tasks.background import task_registry
 
 
@@ -97,7 +98,7 @@ def sync_daily(db: Session, ts_code: str, days: int = 250):
     else:
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
 
-    end_date = datetime.now().strftime("%Y%m%d")
+    end_date = shanghai_trade_date_str()
     if start_date > end_date:
         return 0
 
