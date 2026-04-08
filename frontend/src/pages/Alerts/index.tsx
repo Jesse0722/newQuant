@@ -129,6 +129,44 @@ const Alerts: React.FC = () => {
       ),
     },
     {
+      title: '触发价格',
+      key: 'trigger_price',
+      width: 100,
+      align: 'right' as const,
+      render: (_: unknown, r: Alert) => {
+        const val = r.buy_signal?.latest_close;
+        const pct = r.buy_signal?.latest_pct_chg;
+        if (val == null) return '-';
+        if (pct == null) return (val as number).toFixed(2);
+        const color = pct >= 0 ? '#cf1322' : '#3f8600';
+        return (
+          <Space direction="vertical" size={0} style={{ width: '100%', textAlign: 'right' }}>
+            <span style={{ fontWeight: 500 }}>{(val as number).toFixed(2)}</span>
+            <span style={{ color, fontSize: 12 }}>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</span>
+          </Space>
+        );
+      },
+    },
+    {
+      title: '最新价',
+      key: 'latest_price',
+      width: 100,
+      align: 'right' as const,
+      render: (_: unknown, r: Alert) => {
+        const price = r.latest_price;
+        const pct = r.pct_chg;
+        if (price == null) return '-';
+        if (pct == null) return price.toFixed(2);
+        const color = pct >= 0 ? '#cf1322' : '#3f8600';
+        return (
+          <Space direction="vertical" size={0} style={{ width: '100%', textAlign: 'right' }}>
+            <span style={{ color, fontWeight: 500 }}>{price.toFixed(2)}</span>
+            <span style={{ color, fontSize: 12 }}>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</span>
+          </Space>
+        );
+      },
+    },
+    {
       title: '所属行业',
       key: 'industry',
       width: 100,

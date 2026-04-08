@@ -44,6 +44,8 @@ class AlertOut(BaseModel):
     ts_code: str
     stock_name: Optional[str] = None
     industry: Optional[str] = None
+    latest_price: Optional[float] = None
+    pct_chg: Optional[float] = None
     template_name: Optional[str] = None
     strategy_name: Optional[str] = None
     buy_signal: Optional[dict] = None

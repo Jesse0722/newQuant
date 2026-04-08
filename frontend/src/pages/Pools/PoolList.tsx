@@ -295,6 +295,25 @@ const PoolList: React.FC = () => {
 
       const markPoints: any[] = []
       const markLines: any[] = []
+      const addedDate = selectedStock?.added_at ? dayjs(selectedStock.added_at).format('YYYYMMDD') : ''
+      if (addedDate && dates.includes(addedDate)) {
+        const addedQuote = quotes.find(q => q.date === addedDate)
+        markPoints.push({
+          name: '加入池时间',
+          coord: [addedDate, addedQuote?.low ?? addedQuote?.close ?? 0],
+          symbol: 'circle',
+          symbolSize: 12,
+          itemStyle: { color: '#1677ff' },
+          label: {
+            show: true,
+            formatter: '自',
+            position: 'bottom',
+            fontSize: 10,
+            color: '#1677ff',
+            fontWeight: 'bold',
+          },
+        })
+      }
       if (signal_marks) {
         for (const mark of signal_marks) {
           if (mark.type === 'life_line' && mark.value != null) {
@@ -385,7 +404,7 @@ const PoolList: React.FC = () => {
       }, true)
     }, 80)
     return () => clearTimeout(timer)
-  }, [chartData, subIndicator, selectedCode])
+  }, [chartData, subIndicator, selectedCode, selectedStock?.added_at])
 
   useEffect(() => {
     const onResize = () => chartInstance.current?.resize()

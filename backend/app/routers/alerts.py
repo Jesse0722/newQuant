@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.monitor import Alert, MonitorRule
-from app.models.stock import StockBasic
+from app.models.stock import StockBasic, DailyQuote
 from app.models.trade import TradePlan, TradePlanStock
 from app.schemas.monitor import AlertOut, AlertUpdate, AlertPagination, AlertBatchCountOut
 from app.services.monitor_engine import TEMPLATE_INFO
@@ -28,7 +28,11 @@ def _plan_note_from_buy_signal(sig: dict) -> str | None:
 def _enrich_alert(db: Session, alert: Alert) -> AlertOut:
     out = AlertOut.model_validate(alert)
     basic = db.query(StockBasic).filter(StockBasic.ts_code == alert.ts_code).first()
+    latest = db.query(DailyQuote).filter(DailyQuote.ts_code == alert.ts_code).order_by(DailyQuote.trade_date.desc()).first()
     out.stock_name = basic.name if basic else None
+    if latest:
+        out.latest_price = latest.close
+        out.pct_chg = latest.pct_chg
     snap = alert.snapshot if isinstance(alert.snapshot, dict) else {}
     sig = snap.get("signal")
     meta = snap.get("scan_meta")

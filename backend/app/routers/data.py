@@ -50,8 +50,8 @@ def get_sync_history(task_type: str = "all", limit: int = 20, db: Session = Depe
             "id": r.id,
             "task_type": r.task_type,
             "status": r.status,
-            "started_at": r.started_at.isoformat() if r.started_at else None,
-            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+            "started_at": r.started_at.isoformat() + "Z" if r.started_at else None,
+            "completed_at": r.completed_at.isoformat() + "Z" if r.completed_at else None,
         }
         if r.result:
             try:
