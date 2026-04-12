@@ -153,7 +153,7 @@ def _ensure_chart_depth_kline(db: Session, ts_code: str, period: int) -> dict | 
     若本地日线条数不足以覆盖当前周期 + 指标预热（period+60），则向更早日期实时拉取补齐。
     """
     need = period + 60
-    cnt = db.query(func.count(DailyQuote.id)).filter(DailyQuote.ts_code == ts_code).scalar() or 0
+    cnt = db.query(DailyQuote).filter(DailyQuote.ts_code == ts_code).count()
     if cnt >= need:
         return None
 
@@ -175,7 +175,7 @@ def _ensure_chart_depth_kline(db: Session, ts_code: str, period: int) -> dict | 
 
     if err is not None:
         db.expire_all()
-        cnt_after = db.query(func.count(DailyQuote.id)).filter(DailyQuote.ts_code == ts_code).scalar() or 0
+        cnt_after = db.query(DailyQuote).filter(DailyQuote.ts_code == ts_code).count()
         return {
             "chart_depth_attempted": True,
             "status": "failed",
@@ -186,7 +186,7 @@ def _ensure_chart_depth_kline(db: Session, ts_code: str, period: int) -> dict | 
         }
 
     db.expire_all()
-    cnt_after = db.query(func.count(DailyQuote.id)).filter(DailyQuote.ts_code == ts_code).scalar() or 0
+    cnt_after = db.query(DailyQuote).filter(DailyQuote.ts_code == ts_code).count()
     return {
         "chart_depth_attempted": True,
         "status": "updated" if (added or 0) > 0 else "unchanged",

@@ -4,7 +4,6 @@ import json
 import time
 import uuid
 from datetime import datetime, timedelta
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from app.database import SessionLocal
@@ -132,7 +131,7 @@ def sync_daily_backward(db: Session, ts_code: str, target_min_rows: int) -> int:
     total_added = 0
     max_rounds = 8
     for _ in range(max_rounds):
-        cnt = db.query(func.count(DailyQuote.id)).filter(DailyQuote.ts_code == ts_code).scalar() or 0
+        cnt = db.query(DailyQuote).filter(DailyQuote.ts_code == ts_code).count()
         if cnt >= target_min_rows:
             break
 
