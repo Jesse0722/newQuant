@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import DATABASE_URL

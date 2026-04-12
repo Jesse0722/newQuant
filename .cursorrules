@@ -19,16 +19,22 @@
 3. 生成实施计划 → 保存到 `docs/plans/YYYY-MM-DD-xxx-plan.md`
 4. 选择执行方式：subagent 驱动 / 手动逐步
 
-## 部署
+## 部署与收尾（每次改代码后必做）
 
-每次实现功能后必须完成部署：
-1. **提交代码**：`git add` + `git commit`，提交信息需简要说明本次改动
-2. **重启服务**：确保后端、前端服务使用最新代码运行（若已在运行则重启）。**在本仓库的开发环境里，只要助手能执行 shell，就必须由助手亲自完成重启与探活，禁止仅用「请自行重启」「记得重启」等话术收尾。**
+每轮代码改动结束前，按顺序完成 **部署（重启）→ 测试验证 → 提交**，缺一不可。
 
-### 后端代码变更后（强制）
-
-- **凡在本会话中修改了 `backend/` 下任意代码**（含 `app/`、`scripts/` 迁移等），在结束该轮改动前 **必须重启后端**（结束占用 `8000` 的 `uvicorn` 并重新启动 `uvicorn app.main:app`），并用 `GET /api/health` 或等价路径确认服务已起来。
-- 若仅改前端，按需重启前端 dev server（或依赖 HMR）；**改了后端则必须重启后端**，且由助手执行。
+1. **测试验证**
+   - 后端：在 `backend/` 下执行  
+     `pip install -r requirements-dev.txt`（首次或 CI）后  
+     `python -m pytest tests/ -q --ignore=tests/tushare_connect_test.py`  
+     （`tushare_connect_test.py` 为联网探测脚本，默认不参与自动化。）
+   - 前端：按需 `npm run build` / `npm run lint`（若环境有 Node）。
+2. **部署（重启服务）**
+   - **凡修改了 `backend/` 下任意代码**，必须重启后端（结束占用 `8000` 的 `uvicorn` 并重新启动 `uvicorn app.main:app`），并用 `GET /api/health` 确认已起来。
+   - 仅改前端时，按需重启或依赖 HMR。
+   - **在本仓库开发环境中，只要助手能执行 shell，必须由助手亲自完成重启与探活**，禁止仅用「请自行重启」收尾。
+3. **提交代码**
+   - `git add` 后 `git commit`，提交信息用完整句子简要说明**改动内容与原因**；勿提交 `.env`、本地 `quant.db` 运行时产生的 `-wal`/`-shm`（已在 `.gitignore`）。
 
 ## 文档
 

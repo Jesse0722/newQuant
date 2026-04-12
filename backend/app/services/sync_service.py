@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import json
 import time
 import uuid
 from datetime import datetime, timedelta
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from app.database import SessionLocal
@@ -119,6 +122,76 @@ def sync_daily(db: Session, ts_code: str, days: int = 250):
     _backfill_turnover_rate(db, ts_code, start_date, end_date)
 
     return added_count
+
+
+def sync_daily_backward(db: Session, ts_code: str, target_min_rows: int) -> int:
+    """
+    从当前最早交易日向前增量拉取日线，直至本地条数 >= target_min_rows，或已无更早数据 / 触及上市日。
+    用于 K 线周期选择（如 250 日）时本地历史不足的场景。
+    """
+    total_added = 0
+    max_rounds = 8
+    for _ in range(max_rounds):
+        cnt = db.query(func.count(DailyQuote.id)).filter(DailyQuote.ts_code == ts_code).scalar() or 0
+        if cnt >= target_min_rows:
+            break
+
+        oldest_row = (
+            db.query(DailyQuote.trade_date)
+            .filter(DailyQuote.ts_code == ts_code)
+            .order_by(DailyQuote.trade_date.asc())
+            .first()
+        )
+        if not oldest_row:
+            break
+        oldest = str(oldest_row[0])
+        if len(oldest) != 8:
+            break
+
+        basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+        list_date_str = (basic.list_date or "19900101") if basic else "19900101"
+        if len(list_date_str) != 8:
+            list_date_str = "19900101"
+        try:
+            list_dt = datetime.strptime(list_date_str, "%Y%m%d")
+        except ValueError:
+            list_dt = datetime(1990, 1, 1)
+
+        missing = target_min_rows - cnt
+        calendar_span = max(90, min(int(missing * 2.2) + 80, 1500))
+
+        end_dt = datetime.strptime(oldest, "%Y%m%d") - timedelta(days=1)
+        end_date = end_dt.strftime("%Y%m%d")
+        start_dt = end_dt - timedelta(days=calendar_span)
+        if start_dt < list_dt:
+            start_dt = list_dt
+        start_date = start_dt.strftime("%Y%m%d")
+
+        if start_date > end_date:
+            break
+
+        df = tushare_adapter.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        if df is None or df.empty:
+            break
+
+        round_added = 0
+        for _, row in df.iterrows():
+            existing = db.query(DailyQuote).filter(
+                DailyQuote.ts_code == row["ts_code"],
+                DailyQuote.trade_date == row["trade_date"],
+            ).first()
+            if not existing:
+                db.add(DailyQuote(**row.to_dict()))
+                round_added += 1
+
+        if round_added == 0:
+            break
+
+        _commit_with_retry(db)
+        total_added += round_added
+        _backfill_turnover_rate(db, ts_code, start_date, end_date)
+
+    return total_added
 
 
 def _backfill_turnover_rate(db: Session, ts_code: str, start_date: str, end_date: str):

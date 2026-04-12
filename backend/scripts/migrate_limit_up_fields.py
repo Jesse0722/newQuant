@@ -2,6 +2,8 @@
 迁移脚本：为 watch_stock 添加 limit_up_date，为 watch_pool 添加 trigger_target_pool_id。
 运行：cd backend && python -m scripts.migrate_limit_up_fields
 """
+
+from __future__ import annotations
 import os
 import sys
 

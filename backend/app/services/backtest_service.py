@@ -1,6 +1,8 @@
 """
 涨停回调策略回测：基于历史涨停股数据模拟买点触发，计算买入后次日涨跌幅。
 """
+
+from __future__ import annotations
 import types
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session

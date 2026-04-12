@@ -2,6 +2,8 @@
 迁移脚本：将 risk_level、trigger_strategy、event_note、action_suggestion 从计划级下放到股票级。
 运行：cd backend && python -m scripts.migrate_plan_stock_fields
 """
+
+from __future__ import annotations
 import os
 import sys
 

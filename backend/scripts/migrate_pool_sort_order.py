@@ -2,6 +2,8 @@
 迁移脚本：为 watch_pool 添加 sort_order 列。
 运行：cd backend && python -m scripts.migrate_pool_sort_order
 """
+
+from __future__ import annotations
 import os
 import sys
 

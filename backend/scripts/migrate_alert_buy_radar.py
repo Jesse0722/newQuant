@@ -1,4 +1,6 @@
 """Alert 表：source、buy_strategy_id、rule_id 可空（SQLite 必要时整表重建）。"""
+
+from __future__ import annotations
 import logging
 import sqlite3
 

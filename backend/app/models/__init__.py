@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchPool, WatchStock
 from app.models.monitor import MonitorRule, Alert

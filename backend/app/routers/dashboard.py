@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import APIRouter, HTTPException, Query
 
 from app.services.limit_market_board_service import get_limit_market_board_payload

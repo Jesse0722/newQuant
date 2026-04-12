@@ -61,6 +61,16 @@ export interface StockChartData {
     latest_trade_date?: string | null
     added_count?: number
   }
+  /** 本地历史不足时向前补齐日线的结果（与所选周期 period+60 条有关） */
+  chart_depth_meta?: {
+    chart_depth_attempted: boolean
+    status: 'updated' | 'unchanged' | 'failed' | 'timeout'
+    message: string
+    rows_before?: number
+    rows_after?: number
+    added_count?: number
+    need_rows?: number
+  }
   indicators: {
     ma5: (number | null)[]
     ma10: (number | null)[]

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime
 from fastapi import APIRouter, Depends, Query
@@ -10,7 +12,7 @@ from app.models.trade import TradeDetail
 from app.schemas.trade import TradeDetailCreate, TradeDetailOut
 from app.services.indicator import calc_ma, calc_macd, calc_rsi
 from app.services.buy_signal_service import get_signal_marks
-from app.services.sync_service import sync_stock_info, sync_daily
+from app.services.sync_service import sync_stock_info, sync_daily, sync_daily_backward
 from app.services.tushare_adapter import tushare_adapter
 from app.exceptions import AppError
 import pandas as pd
@@ -128,6 +130,74 @@ def _ensure_latest_kline(db: Session, ts_code: str) -> dict:
     }
 
 
+def _sync_backward_job(ts_code: str, target_min_rows: int) -> tuple[int | None, Exception | None]:
+    """独立会话中向前补齐历史日线，供主线程超时控制。"""
+    from app.database import SessionLocal
+
+    s = SessionLocal()
+    try:
+        added = sync_daily_backward(s, ts_code, target_min_rows)
+        return (int(added or 0), None)
+    except Exception as e:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return (None, e)
+    finally:
+        s.close()
+
+
+def _ensure_chart_depth_kline(db: Session, ts_code: str, period: int) -> dict | None:
+    """
+    若本地日线条数不足以覆盖当前周期 + 指标预热（period+60），则向更早日期实时拉取补齐。
+    """
+    need = period + 60
+    cnt = db.query(func.count(DailyQuote.id)).filter(DailyQuote.ts_code == ts_code).scalar() or 0
+    if cnt >= need:
+        return None
+
+    ex = ThreadPoolExecutor(max_workers=1)
+    try:
+        fut = ex.submit(_sync_backward_job, ts_code, need)
+        try:
+            added, err = fut.result(timeout=40.0)
+        except FutureTimeout:
+            return {
+                "chart_depth_attempted": True,
+                "status": "timeout",
+                "message": f"历史K线补齐超时（建议约 {need} 条，当前 {cnt} 条），已返回本地已有数据",
+                "rows_before": cnt,
+                "need_rows": need,
+            }
+    finally:
+        ex.shutdown(wait=False)
+
+    if err is not None:
+        db.expire_all()
+        cnt_after = db.query(func.count(DailyQuote.id)).filter(DailyQuote.ts_code == ts_code).scalar() or 0
+        return {
+            "chart_depth_attempted": True,
+            "status": "failed",
+            "message": f"历史K线补齐失败：{str(err)[:120]}",
+            "rows_before": cnt,
+            "rows_after": cnt_after,
+            "need_rows": need,
+        }
+
+    db.expire_all()
+    cnt_after = db.query(func.count(DailyQuote.id)).filter(DailyQuote.ts_code == ts_code).scalar() or 0
+    return {
+        "chart_depth_attempted": True,
+        "status": "updated" if (added or 0) > 0 else "unchanged",
+        "message": f"历史K线已补齐，新增 {added or 0} 条（当前共 {cnt_after} 条）",
+        "rows_before": cnt,
+        "rows_after": cnt_after,
+        "added_count": int(added or 0),
+        "need_rows": need,
+    }
+
+
 @router.get("/{ts_code}/chart")
 def get_stock_chart(
     ts_code: str,
@@ -142,8 +212,12 @@ def get_stock_chart(
         raise AppError(code=5001, message="股票不存在", status_code=404)
 
     sync_meta = None
+    depth_meta = None
     if auto_sync_latest:
         sync_meta = _ensure_latest_kline(db, ts_code)
+        depth_meta = _ensure_chart_depth_kline(db, ts_code, period)
+        if sync_meta or depth_meta:
+            db.expire_all()
 
     quotes = (
         db.query(DailyQuote)
@@ -223,6 +297,8 @@ def get_stock_chart(
 
     if sync_meta:
         result["sync_meta"] = sync_meta
+    if depth_meta:
+        result["chart_depth_meta"] = depth_meta
 
     if mark_signals:
         result["signal_marks"] = get_signal_marks(db, ts_code, limit_up_date)

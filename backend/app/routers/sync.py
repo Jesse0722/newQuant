@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import APIRouter, Query
 from app.services.sync_service import sync_pool, sync_single_stock, sync_full_market
 from app.tasks.background import submit_task, get_task_status

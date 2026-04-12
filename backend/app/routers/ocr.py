@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import APIRouter, UploadFile, File
 from app.services.ocr_service import extract_text, parse_trade_from_text
 

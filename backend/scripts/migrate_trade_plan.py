@@ -2,6 +2,8 @@
 迁移脚本：交易计划从单股改为多股，交易明细从关联计划改为关联股票。
 运行：cd backend && python -m scripts.migrate_trade_plan
 """
+
+from __future__ import annotations
 import os
 import sys
 

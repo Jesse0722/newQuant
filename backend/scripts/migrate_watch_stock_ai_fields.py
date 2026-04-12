@@ -2,6 +2,8 @@
 迁移脚本：为 watch_stock 添加 AI 分析相关字段。
 运行：cd backend && python -m scripts.migrate_watch_stock_ai_fields
 """
+
+from __future__ import annotations
 import os
 import sys
 

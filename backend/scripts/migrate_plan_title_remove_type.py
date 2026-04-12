@@ -2,6 +2,8 @@
 迁移脚本：添加 title、移除 plan_type；移除 trade_plan_stock 的 event_note、action_suggestion。
 运行：cd backend && python -m scripts.migrate_plan_title_remove_type
 """
+
+from __future__ import annotations
 import os
 import sys
 

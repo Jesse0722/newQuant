@@ -10,3 +10,4 @@ pytesseract>=0.3.10
 Pillow>=10.0.0
 openai>=1.0.0
 dashscope>=1.14.0
+eval-type-backport>=0.2.0

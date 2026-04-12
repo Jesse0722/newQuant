@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from sqlalchemy import Column, String, Boolean, JSON, DateTime, ForeignKey
 from app.database import Base

@@ -1,0 +1,2 @@
+# 开发/CI 测试依赖（pip install -r requirements-dev.txt）
+pytest>=7.0.0

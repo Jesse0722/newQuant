@@ -2,6 +2,8 @@
 涨停回调买入策略：筛选涨停股加入观察池，打涨停日期标签。
 不依赖本地全量同步，直接调用 Tushare API 获取日线筛选涨停，再自动同步涨停股 60 日 K 线。
 """
+
+from __future__ import annotations
 import time
 from datetime import datetime, timedelta
 import pandas as pd

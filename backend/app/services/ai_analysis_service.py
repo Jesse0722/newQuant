@@ -1,4 +1,6 @@
 """股票 AI 智能分析服务。"""
+
+from __future__ import annotations
 import json
 import re
 from datetime import datetime

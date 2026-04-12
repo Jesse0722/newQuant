@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from sqlalchemy import Column, String, Float
 from app.database import Base
 

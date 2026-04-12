@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import tushare as ts
 #tushare版本 1.4.24
 token = "03c062d104650b5c32f4048a99c9a7ab63bcc01beb0d39613f6b6b8bdf00"

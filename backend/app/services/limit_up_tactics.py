@@ -15,6 +15,8 @@
 5. 均线金叉 — 回调缩量后 MA5 金叉 MA10
 6. 搓揉线买入 — 长上影+长下影洗盘后突破起涨
 """
+
+from __future__ import annotations
 import numpy as np
 import pandas as pd
 

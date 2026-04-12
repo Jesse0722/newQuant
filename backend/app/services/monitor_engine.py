@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.stock import DailyQuote
