@@ -60,13 +60,7 @@ const Dashboard: React.FC = () => {
     { title: '连板', dataIndex: 'nums', key: 'nums', width: 72 },
     { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
     { title: '代码', dataIndex: 'ts_code', key: 'ts_code', width: 120 },
-    {
-      title: '概念板块',
-      dataIndex: 'ths_concepts',
-      key: 'ths_concepts',
-      ellipsis: true,
-      render: (v: string[] | undefined) => (v && v.length ? v.join('、') : '—'),
-    },
+    { title: '所属行业', dataIndex: 'industry', key: 'industry', ellipsis: true, render: (v: string | null | undefined) => v || '—' },
   ]
 
   if (loading && !data && !error) {
@@ -125,15 +119,7 @@ const Dashboard: React.FC = () => {
           />
         </Card>
 
-        <Card
-          title="连板天梯（limit_step + 同花顺概念）"
-          bordered={false}
-          extra={
-            <Typography.Text type="secondary" style={{ fontSize: 12, maxWidth: 420 }} ellipsis>
-              概念由 ths_index 与 ths_member(板块指数) 反查生成，见本地缓存文件
-            </Typography.Text>
-          }
-        >
+        <Card title="连板天梯（limit_step）" bordered={false}>
           <Table
             loading={loading}
             dataSource={data?.ladder ?? []}
@@ -141,7 +127,7 @@ const Dashboard: React.FC = () => {
             rowKey={(r) => `${r.ts_code}-${r.trade_date}`}
             pagination={false}
             size="small"
-            scroll={{ x: 960 }}
+            scroll={{ x: 900 }}
           />
         </Card>
       </Space>

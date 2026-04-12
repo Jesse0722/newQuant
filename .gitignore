@@ -5,7 +5,6 @@ backend/venv/
 backend/data/quant.db
 backend/data/quant.db-wal
 backend/data/quant.db-shm
-backend/data/ths_stock_concepts.json
 **/.env
 *.egg-info/
 dist/
