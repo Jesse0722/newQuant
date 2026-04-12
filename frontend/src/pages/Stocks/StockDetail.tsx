@@ -2,12 +2,13 @@ import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Card, Tag, Table, Button, Tabs, Space, Statistic, Row, Col, Segmented,
-  Modal, Form, Input, InputNumber, Select, DatePicker, message, Upload, Popconfirm,
+  Modal, Form, Input, InputNumber, Select, DatePicker, message, Upload, Popconfirm, Tooltip,
 } from 'antd'
 import dayjs from 'dayjs'
-import { ArrowLeftOutlined, ThunderboltOutlined, PlusOutlined, InboxOutlined, EditOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, ThunderboltOutlined, PlusOutlined, InboxOutlined, EditOutlined, StarOutlined, StarFilled } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import { getStockChart, getStockAlerts, getStockDetails, createStockDetail } from '../../api/stocks'
+import { getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import { updateDetail, deleteDetail } from '../../api/plans'
 import { extractTradeFromImage } from '../../api/ocr'
 import type { StockChartData, StockAlertItem, TradeDetail } from '../../types'
@@ -41,6 +42,8 @@ const StockDetail: React.FC = () => {
   const [editingDetail, setEditingDetail] = useState<TradeDetail | null>(null)
   const [ocrLoading, setOcrLoading] = useState(false)
   const [ocrRawText, setOcrRawText] = useState<string>('')
+  const [coreStarred, setCoreStarred] = useState(false)
+  const [coreStarLoading, setCoreStarLoading] = useState(false)
   const [quickRecordForm] = Form.useForm()
   const [detailForm] = Form.useForm()
   const [editDetailForm] = Form.useForm()
@@ -165,6 +168,41 @@ const StockDetail: React.FC = () => {
     getStockAlerts(tsCode).then((res) => setAlerts(res.data))
     fetchDetails()
   }, [tsCode, period])
+
+  useEffect(() => {
+    if (!tsCode) {
+      setCoreStarred(false)
+      return
+    }
+    let cancelled = false
+    getCoreWatchCodes()
+      .then((res) => {
+        if (cancelled) return
+        const codes = res.data.ts_codes ?? []
+        setCoreStarred(codes.includes(tsCode))
+      })
+      .catch(() => {
+        if (!cancelled) setCoreStarred(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tsCode])
+
+  const handleCoreStarToggle = async () => {
+    if (!tsCode || coreStarLoading) return
+    setCoreStarLoading(true)
+    try {
+      const next = !coreStarred
+      await toggleCoreWatch({ ts_code: tsCode, starred: next, source: 'stock_detail' })
+      setCoreStarred(next)
+      message.success(next ? '已加入核心股票池「核心关注」' : '已从核心股票池移除')
+    } catch {
+      message.error('操作失败，请稍后重试')
+    } finally {
+      setCoreStarLoading(false)
+    }
+  }
 
   const renderChart = useCallback(() => {
     if (!chartRef.current || !chartData || chartData.quotes.length === 0) return
@@ -382,6 +420,17 @@ const StockDetail: React.FC = () => {
           style={{ marginBottom: 16 }}
           extra={
             <Space>
+              <Tooltip title={coreStarred ? '已在核心股票池（与观察池「核心关注」同步），点击取消' : '加星加入核心股票池（核心关注）'}>
+                <Button
+                  type="text"
+                  size="small"
+                  loading={coreStarLoading}
+                  icon={coreStarred ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
+                  onClick={handleCoreStarToggle}
+                >
+                  {coreStarred ? '已加星' : '加星'}
+                </Button>
+              </Tooltip>
               <Button size="small" icon={<ThunderboltOutlined />} onClick={openQuickRecordModal}>
                 快速记录
               </Button>

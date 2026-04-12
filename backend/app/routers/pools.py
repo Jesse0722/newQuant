@@ -272,13 +272,14 @@ def get_core_watch_codes(db: Session = Depends(get_db)):
 
 @router.post("/core-watch/toggle", response_model=CoreWatchToggleOut)
 def core_watch_toggle(body: CoreWatchToggleBody, db: Session = Depends(get_db)):
-    """买点雷达特别关注：加星加入核心关注池，取消星标则移除"""
+    """加星加入「核心关注」池 / 取消星标移除（买点雷达与股票详情等共用）"""
     try:
         result = toggle_core_watch_star(
             db,
             body.ts_code,
             body.starred,
             limit_up_date=body.limit_up_date,
+            source=(body.source or "buy_radar"),
         )
         return CoreWatchToggleOut(**result)
     except ValueError as e:

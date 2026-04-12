@@ -97,6 +97,8 @@ export const toggleCoreWatch = (data: {
   ts_code: string
   starred: boolean
   limit_up_date?: string | null
+  /** 加入来源，如 stock_detail */
+  source?: string
 }) =>
   client.post<{ starred: boolean; pool_id: string | null; stock_id?: string; ts_code: string }>(
     '/pools/core-watch/toggle',

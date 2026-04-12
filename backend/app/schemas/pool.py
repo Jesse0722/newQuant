@@ -103,6 +103,10 @@ class CoreWatchToggleBody(BaseModel):
     ts_code: str
     starred: bool
     limit_up_date: Optional[str] = Field(None, description="涨停日 YYYYMMDD，与买点雷达一致")
+    source: Optional[str] = Field(
+        None,
+        description="加入来源：buy_radar | stock_detail 等，写入 watch_stock.source",
+    )
 
 
 class CoreWatchToggleOut(BaseModel):

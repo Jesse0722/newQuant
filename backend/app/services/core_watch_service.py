@@ -52,6 +52,7 @@ def toggle_core_watch_star(
     starred: bool,
     *,
     limit_up_date: str | None = None,
+    source: str = "buy_radar",
 ) -> dict:
     """加星加入核心关注 / 取消星标移除"""
     code = normalize_ts_code(ts_code.strip())
@@ -78,7 +79,7 @@ def toggle_core_watch_star(
         stock = WatchStock(
             pool_id=pool.id,
             ts_code=code,
-            source="buy_radar",
+            source=source or "buy_radar",
             limit_up_date=limit_up_date,
             # 不设默认备注：避免与「扫描改了我备注」的误解；池子说明已体现「买点雷达加星」
         )
