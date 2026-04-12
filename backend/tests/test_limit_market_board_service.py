@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
@@ -13,6 +13,8 @@ class TestLimitMarketBoardService(unittest.TestCase):
     def setUp(self):
         lmb._cache.clear()
 
+    @patch.object(lmb, "_get_ths_stock_concept_map_resolved", new=lambda: {})
+    @patch.object(lmb, "_maybe_schedule_ths_map_refresh", new=lambda *a, **k: None)
     def test_sort_sectors_and_ladder(self):
         adapter = MagicMock()
         adapter.get_sse_open_dates.return_value = ["20250327", "20250328"]
@@ -39,6 +41,8 @@ class TestLimitMarketBoardService(unittest.TestCase):
         ladder_nums = [r["nums"] for r in out["ladder"]]
         self.assertEqual(ladder_nums, ["11", "11", "2"])
 
+    @patch.object(lmb, "_get_ths_stock_concept_map_resolved", new=lambda: {})
+    @patch.object(lmb, "_maybe_schedule_ths_map_refresh", new=lambda *a, **k: None)
     def test_cache_same_trade_date(self):
         adapter = MagicMock()
         adapter.get_sse_open_dates.return_value = ["20250327", "20250328"]

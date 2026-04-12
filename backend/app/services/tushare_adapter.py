@@ -85,7 +85,7 @@ class TushareAdapter:
         return self.pro.ths_index(**kwargs)
 
     def get_ths_member(self, ts_code: str | None = None, con_code: str | None = None) -> pd.DataFrame:
-        """同花顺概念板块成分；可按板块 ts_code 或单股 con_code 查询。"""
+        """同花顺概念板块成分。常规用法：ths_member(ts_code='885xxx.TI') 按板块指数查成分股。"""
         p: dict = {}
         if ts_code:
             p["ts_code"] = ts_code

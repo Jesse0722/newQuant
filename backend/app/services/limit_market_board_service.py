@@ -1,31 +1,34 @@
 """涨停情绪仪表盘：limit_cpt_list + limit_step 聚合与短 TTL 缓存。"""
 from __future__ import annotations
 
+import json
 import math
 import threading
 import time as time_module
+from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from app.config import DATA_DIR
 from app.services.trade_date_resolver import resolve_dashboard_trade_date
 from app.services.tushare_adapter import TushareAdapter, tushare_adapter
 
 DASHBOARD_LIMIT_BOARD_CACHE_TTL_SEC = 60
-THS_INDEX_MAP_TTL_SEC = 3600
-STOCK_THS_CONCEPT_TTL_SEC = 1800
+# 同花顺：ths_index 拉概念指数列表，ths_member(ts_code=板块指数) 拉成分；反向映射文件缓存
+THS_STOCK_CONCEPT_FILE_TTL_SEC = 86400
+THS_MEMBER_MIN_INTERVAL_SEC = 0.31  # 约 200 次/分钟上限内节流
 
 _cache_lock = threading.Lock()
 # trade_date -> (expires_at_epoch, (sectors, ladder))
 _cache: dict[str, tuple[float, tuple[list[dict], list[dict]]]] = {}
 
-_ths_index_map_lock = threading.Lock()
-# (expires_at, index_ts_code -> 概念名称)
-_ths_index_map_cache: tuple[float, dict[str, str]] | None = None
-
-_stock_concept_lock = threading.Lock()
-# con_code -> (expires_at, 概念名称列表)
-_stock_concept_cache: dict[str, tuple[float, list[str]]] = {}
+_ths_map_refresh_lock = threading.Lock()
+_ths_map_refresh_thread: threading.Thread | None = None
+# 内存镜像：避免每请求读盘；与文件同步更新
+_ths_stock_concept_map_mem: dict[str, list[str]] | None = None
+_ths_stock_concept_map_mtime: float = 0.0
 
 
 def _parse_rank(s: Any) -> tuple[int, int]:
@@ -92,88 +95,136 @@ def _sort_ladder(records: list[dict]) -> list[dict]:
     return sorted(records, key=_ladder_sort_key)
 
 
-def _get_ths_concept_index_name_map(ad: TushareAdapter) -> dict[str, str]:
-    """同花顺概念指数列表（ths_index type=N），带缓存。"""
-    global _ths_index_map_cache
-    now = time_module.time()
-    with _ths_index_map_lock:
-        if _ths_index_map_cache and _ths_index_map_cache[0] > now:
-            return _ths_index_map_cache[1]
-    try:
-        df = ad.get_ths_index(type="N")
-    except Exception:
-        with _ths_index_map_lock:
-            _ths_index_map_cache = (now + 120.0, {})
+def _ths_concept_cache_path() -> Path:
+    return DATA_DIR / "ths_stock_concepts.json"
+
+
+def _load_ths_stock_concept_map_from_disk() -> dict[str, list[str]]:
+    """读取本地缓存：股票 ts_code -> 同花顺概念名称列表。"""
+    path = _ths_concept_cache_path()
+    if not path.is_file():
         return {}
-    m: dict[str, str] = {}
-    if df is not None and not df.empty:
-        for _, row in df.iterrows():
-            code = row.get("ts_code")
-            name = row.get("name")
-            if code is None or pd.isna(code):
-                continue
-            if name is None or (isinstance(name, float) and pd.isna(name)):
-                continue
-            m[str(code).strip()] = str(name).strip()
-    ttl = 60.0 if not m else float(THS_INDEX_MAP_TTL_SEC)
-    with _ths_index_map_lock:
-        _ths_index_map_cache = (now + ttl, m)
-    return m
-
-
-def _concepts_for_stock(
-    ad: TushareAdapter,
-    con_code: str,
-    index_name_map: dict[str, str],
-) -> list[str]:
-    """单股所属同花顺概念（ths_member con_code=），名称由 ths_index 映射，带单股缓存。"""
-    now = time_module.time()
-    with _stock_concept_lock:
-        hit = _stock_concept_cache.get(con_code)
-        if hit and hit[0] > now:
-            return hit[1]
     try:
-        df = ad.get_ths_member(con_code=con_code)
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        m = raw.get("map")
+        if not isinstance(m, dict):
+            return {}
+        out: dict[str, list[str]] = {}
+        for k, v in m.items():
+            if isinstance(v, list):
+                out[str(k)] = [str(x) for x in v if x is not None]
+        return out
     except Exception:
-        with _stock_concept_lock:
-            _stock_concept_cache[con_code] = (now + STOCK_THS_CONCEPT_TTL_SEC, [])
-        return []
-    if df is None or df.empty:
-        with _stock_concept_lock:
-            _stock_concept_cache[con_code] = (now + STOCK_THS_CONCEPT_TTL_SEC, [])
-        return []
-    seen: set[str] = set()
-    out: list[str] = []
-    for _, row in df.iterrows():
-        idx = row.get("ts_code")
-        if idx is None or pd.isna(idx):
+        return {}
+
+
+def _get_ths_stock_concept_map_resolved() -> dict[str, list[str]]:
+    """带内存缓存的读盘。"""
+    global _ths_stock_concept_map_mem, _ths_stock_concept_map_mtime
+    path = _ths_concept_cache_path()
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    if _ths_stock_concept_map_mem is not None and mtime == _ths_stock_concept_map_mtime:
+        return _ths_stock_concept_map_mem
+    _ths_stock_concept_map_mem = _load_ths_stock_concept_map_from_disk()
+    _ths_stock_concept_map_mtime = mtime
+    return _ths_stock_concept_map_mem
+
+
+def _save_ths_stock_concept_map(m: dict[str, list[str]]) -> None:
+    global _ths_stock_concept_map_mem, _ths_stock_concept_map_mtime
+    path = _ths_concept_cache_path()
+    payload = {
+        "version": 1,
+        "updated_at": int(time_module.time()),
+        "map": m,
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=0), encoding="utf-8")
+    _ths_stock_concept_map_mem = m
+    _ths_stock_concept_map_mtime = path.stat().st_mtime
+
+
+def build_ths_stock_concept_map(ad: TushareAdapter) -> dict[str, list[str]]:
+    """
+    按官方用法：ths_index(type=N) 取概念指数，再对每个指数 ths_member(ts_code=指数代码) 取成分，
+    合并为「股票 -> 所属概念名称」反向表（不调用 con_code=个股）。
+    """
+    stock_to_names: dict[str, set[str]] = defaultdict(set)
+    try:
+        df_idx = ad.get_ths_index(type="N")
+    except Exception:
+        return {}
+    if df_idx is None or df_idx.empty:
+        return {}
+    n = 0
+    for _, row in df_idx.iterrows():
+        idx_ts = row.get("ts_code")
+        cname = row.get("name")
+        if idx_ts is None or pd.isna(idx_ts) or cname is None or (isinstance(cname, float) and pd.isna(cname)):
             continue
-        idx_s = str(idx).strip()
-        label = index_name_map.get(idx_s) if index_name_map else None
-        if not label:
-            label = idx_s
-        if label not in seen:
-            seen.add(label)
-            out.append(label)
-    out.sort()
-    out = out[:12]
-    with _stock_concept_lock:
-        _stock_concept_cache[con_code] = (now + STOCK_THS_CONCEPT_TTL_SEC, out)
+        idx_s = str(idx_ts).strip()
+        label = str(cname).strip()
+        if n > 0:
+            time_module.sleep(THS_MEMBER_MIN_INTERVAL_SEC)
+        n += 1
+        try:
+            df_m = ad.get_ths_member(ts_code=idx_s)
+        except Exception:
+            continue
+        if df_m is None or df_m.empty:
+            continue
+        for _, mr in df_m.iterrows():
+            cc = mr.get("con_code")
+            if cc is None or pd.isna(cc):
+                continue
+            stock_to_names[str(cc).strip()].add(label)
+    out: dict[str, list[str]] = {}
+    for k, vset in stock_to_names.items():
+        names = sorted(vset)
+        out[k] = names[:20]
     return out
 
 
+def _maybe_schedule_ths_map_refresh(ad: TushareAdapter) -> None:
+    """文件不存在或过期时，后台线程重建反向表（首次可能需数分钟）。"""
+    global _ths_map_refresh_thread
+    path = _ths_concept_cache_path()
+    if path.is_file():
+        age = time_module.time() - path.stat().st_mtime
+        if age < THS_STOCK_CONCEPT_FILE_TTL_SEC:
+            return
+    with _ths_map_refresh_lock:
+        if _ths_map_refresh_thread and _ths_map_refresh_thread.is_alive():
+            return
+
+        def _job():
+            try:
+                m = build_ths_stock_concept_map(ad)
+                if m:
+                    _save_ths_stock_concept_map(m)
+            except Exception:
+                pass
+
+        _ths_map_refresh_thread = threading.Thread(target=_job, daemon=True, name="ths-concept-map-refresh")
+        _ths_map_refresh_thread.start()
+
+
 def _enrich_ladder_ths_concepts(ladder: list[dict], ad: TushareAdapter) -> None:
-    """为连板天梯每行补充 ths_concepts（同花顺概念板块名称列表）。"""
+    """为连板天梯每行补充 ths_concepts（来自本地反向映射缓存）。"""
     if not ladder:
         return
-    index_name_map = _get_ths_concept_index_name_map(ad)
+    _maybe_schedule_ths_map_refresh(ad)
+    cmap = _get_ths_stock_concept_map_resolved()
     for row in ladder:
         code = row.get("ts_code")
         if not code:
             row["ths_concepts"] = []
             continue
         try:
-            row["ths_concepts"] = _concepts_for_stock(ad, str(code), index_name_map)
+            names = cmap.get(str(code), [])
+            row["ths_concepts"] = names[:12]
         except Exception:
             row["ths_concepts"] = []
 

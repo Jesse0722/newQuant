@@ -125,7 +125,15 @@ const Dashboard: React.FC = () => {
           />
         </Card>
 
-        <Card title="连板天梯（limit_step + 同花顺概念）" bordered={false}>
+        <Card
+          title="连板天梯（limit_step + 同花顺概念）"
+          bordered={false}
+          extra={
+            <Typography.Text type="secondary" style={{ fontSize: 12, maxWidth: 420 }} ellipsis>
+              概念由 ths_index 与 ths_member(板块指数) 反查生成，见本地缓存文件
+            </Typography.Text>
+          }
+        >
           <Table
             loading={loading}
             dataSource={data?.ladder ?? []}
