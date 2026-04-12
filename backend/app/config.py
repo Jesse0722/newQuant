@@ -16,6 +16,12 @@ DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'quant.db'}")
 TUSHARE_TOKEN = (os.getenv("TUSHARE_TOKEN") or "").strip()
 # 代理地址原样使用，不自动追加路径（不同代理路由规则不同）
 TUSHARE_API_URL = (os.getenv("TUSHARE_API_URL") or "").strip().rstrip("/")
+DATA_PROVIDER = (os.getenv("DATA_PROVIDER") or "composite").strip().lower()
+COMPOSITE_ORDER = [
+    x.strip().lower()
+    for x in (os.getenv("COMPOSITE_ORDER") or "akshare,tushare").split(",")
+    if x.strip()
+]
 
 if not TUSHARE_TOKEN:
     logger.warning("TUSHARE_TOKEN 未配置，数据同步功能将不可用。请在 .env 文件中设置 TUSHARE_TOKEN")

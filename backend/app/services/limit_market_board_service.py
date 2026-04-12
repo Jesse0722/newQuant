@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 
 from app.services.trade_date_resolver import resolve_dashboard_trade_date
-from app.services.tushare_adapter import TushareAdapter, tushare_adapter
+from app.services.tushare_adapter import MarketDataProvider, tushare_adapter
 
 DASHBOARD_LIMIT_BOARD_CACHE_TTL_SEC = 60
 
@@ -84,7 +84,7 @@ def _sort_ladder(records: list[dict]) -> list[dict]:
 
 def get_limit_market_board_payload(
     trade_date: str | None = None,
-    adapter: TushareAdapter | None = None,
+    adapter: MarketDataProvider | None = None,
 ) -> dict:
     ad = adapter or tushare_adapter
     if trade_date:

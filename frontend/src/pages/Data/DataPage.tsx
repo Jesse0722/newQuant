@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Descriptions, Button, Progress, message, Spin, InputNumber, Space, Row, Col, Statistic, Table, Tag } from 'antd'
+import { Card, Descriptions, Button, Progress, message, Spin, InputNumber, Space, Row, Col, Statistic, Table, Tag, Select } from 'antd'
 import { SyncOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { getDataSummary, getSyncHistory, checkTushare, getSyncOverview } from '../../api/data'
+import { getDataSummary, getSyncHistory, checkTushare, getSyncOverview, getDataProvider, setDataProvider } from '../../api/data'
 import { syncFullMarket, getTaskStatus } from '../../api/sync'
 import { collectLimitUp } from '../../api/strategy'
 import type { DataSummary, SyncHistoryItem, SyncOverview } from '../../types'
@@ -39,7 +39,10 @@ const DataPage: React.FC = () => {
     proxy_configured: boolean
     api_test: string
     rows_returned?: number
+    data_provider?: 'tushare' | 'akshare' | 'composite'
   } | null>(null)
+  const [dataProvider, setDataProviderState] = useState<'tushare' | 'akshare' | 'composite'>('composite')
+  const [switchingProvider, setSwitchingProvider] = useState(false)
 
   const handleCheckTushare = async () => {
     try {
@@ -77,10 +80,34 @@ const DataPage: React.FC = () => {
     }
   }
 
+  const fetchDataProvider = async () => {
+    try {
+      const res = await getDataProvider()
+      setDataProviderState(res.data.provider)
+    } catch {
+      // noop
+    }
+  }
+
   useEffect(() => {
     fetchSummary()
     fetchSyncHistory()
+    fetchDataProvider()
   }, [])
+
+  const handleSwitchProvider = async (provider: 'tushare' | 'akshare' | 'composite') => {
+    setSwitchingProvider(true)
+    try {
+      await setDataProvider(provider)
+      setDataProviderState(provider)
+      message.success(`主数据源已切换为 ${provider}`)
+      await handleCheckTushare()
+    } catch (e: any) {
+      message.error(e.response?.data?.message || '切换数据源失败')
+    } finally {
+      setSwitchingProvider(false)
+    }
+  }
 
   useEffect(() => {
     if (!taskId) return
@@ -153,8 +180,23 @@ const DataPage: React.FC = () => {
         title="数据管理"
         extra={
           <Space>
+            <Space>
+              <span>主数据源</span>
+              <Select<'tushare' | 'akshare' | 'composite'>
+                size="small"
+                style={{ width: 140 }}
+                value={dataProvider}
+                loading={switchingProvider}
+                onChange={handleSwitchProvider}
+                options={[
+                  { value: 'tushare', label: 'tushare' },
+                  { value: 'akshare', label: 'akshare' },
+                  { value: 'composite', label: 'composite' },
+                ]}
+              />
+            </Space>
             <Button size="small" onClick={handleCheckTushare}>
-              检查 Tushare 连接
+              检查连接
             </Button>
             <Space>
               <span>同步最近</span>
@@ -223,7 +265,8 @@ const DataPage: React.FC = () => {
 
         {tushareCheck && (
           <div style={{ marginTop: 16, padding: 12, background: tushareCheck.api_test === 'ok' ? '#f6ffed' : '#fff2f0', border: '1px solid', borderColor: tushareCheck.api_test === 'ok' ? '#b7eb8f' : '#ffccc7', borderRadius: 8 }}>
-            <p><strong>Tushare 诊断</strong></p>
+            <p><strong>{(tushareCheck.data_provider || dataProvider).toUpperCase()} 诊断</strong></p>
+            <p>当前主数据源：{tushareCheck.data_provider || dataProvider}</p>
             <p>Token 已配置：{tushareCheck.token_configured ? '是' : '否'}</p>
             <p>代理已配置：{tushareCheck.proxy_configured ? '是' : '否'}</p>
             <p>接口测试：{tushareCheck.api_test}</p>
