@@ -60,6 +60,13 @@ const Dashboard: React.FC = () => {
     { title: '连板', dataIndex: 'nums', key: 'nums', width: 72 },
     { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
     { title: '代码', dataIndex: 'ts_code', key: 'ts_code', width: 120 },
+    {
+      title: '概念板块',
+      dataIndex: 'ths_concepts',
+      key: 'ths_concepts',
+      ellipsis: true,
+      render: (v: string[] | undefined) => (v && v.length ? v.join('、') : '—'),
+    },
   ]
 
   if (loading && !data && !error) {
@@ -118,7 +125,7 @@ const Dashboard: React.FC = () => {
           />
         </Card>
 
-        <Card title="连板天梯（limit_step）" bordered={false}>
+        <Card title="连板天梯（limit_step + 同花顺概念）" bordered={false}>
           <Table
             loading={loading}
             dataSource={data?.ladder ?? []}
@@ -126,6 +133,7 @@ const Dashboard: React.FC = () => {
             rowKey={(r) => `${r.ts_code}-${r.trade_date}`}
             pagination={false}
             size="small"
+            scroll={{ x: 960 }}
           />
         </Card>
       </Space>

@@ -43,7 +43,8 @@ def get_dashboard(
                 "message": msg,
                 "hint": (
                     "请检查 backend 环境变量 TUSHARE_TOKEN 与积分权限"
-                    "（limit_cpt_list / limit_step 约需 8000 积分）。"
+                    "（limit_cpt_list / limit_step 约需 8000 积分；"
+                    "连板概念板块依赖 ths_index / ths_member 约需 6000 积分）。"
                     "详见 https://tushare.pro/document/2"
                 ),
             },

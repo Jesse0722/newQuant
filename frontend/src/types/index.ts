@@ -214,6 +214,8 @@ export interface DashboardLimitLadderRow {
   name: string
   trade_date: string
   nums: string
+  /** 同花顺概念板块名称（ths_index + ths_member） */
+  ths_concepts?: string[]
 }
 
 export interface DashboardData {

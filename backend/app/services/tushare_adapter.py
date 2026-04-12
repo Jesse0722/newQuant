@@ -80,5 +80,18 @@ class TushareAdapter:
     def get_limit_step(self, trade_date: str) -> pd.DataFrame:
         return self.pro.limit_step(trade_date=trade_date)
 
+    def get_ths_index(self, **kwargs) -> pd.DataFrame:
+        """同花顺板块指数；常用 type='N' 表示概念指数。详见 ths_index 文档。"""
+        return self.pro.ths_index(**kwargs)
+
+    def get_ths_member(self, ts_code: str | None = None, con_code: str | None = None) -> pd.DataFrame:
+        """同花顺概念板块成分；可按板块 ts_code 或单股 con_code 查询。"""
+        p: dict = {}
+        if ts_code:
+            p["ts_code"] = ts_code
+        if con_code:
+            p["con_code"] = con_code
+        return self.pro.ths_member(**p)
+
 
 tushare_adapter = TushareAdapter()
