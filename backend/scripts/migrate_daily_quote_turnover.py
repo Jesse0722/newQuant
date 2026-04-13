@@ -11,6 +11,9 @@ def migrate():
     cur = conn.cursor()
     cur.execute("PRAGMA table_info(daily_quote)")
     cols = [row[1] for row in cur.fetchall()]
+    if not cols:
+        conn.close()
+        return
     if "turnover_rate" not in cols:
         cur.execute("ALTER TABLE daily_quote ADD COLUMN turnover_rate REAL")
         conn.commit()
