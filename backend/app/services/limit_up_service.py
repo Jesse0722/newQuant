@@ -2,11 +2,13 @@
 涨停回调买入策略：筛选涨停股加入观察池，打涨停日期标签。
 不依赖本地全量同步，直接调用 Tushare API 获取日线筛选涨停，再自动同步涨停股 60 日 K 线。
 """
+
+from __future__ import annotations
 import time
 from datetime import datetime, timedelta
 import pandas as pd
 from sqlalchemy.orm import Session
-from app.models.stock import StockBasic
+from app.models.stock import DailyQuote, StockBasic
 from app.models.pool import WatchPool, WatchStock
 from app.models.monitor import MonitorRule
 from app.services.tushare_adapter import tushare_adapter
@@ -113,6 +115,57 @@ def fetch_limit_up_stocks_in_range(
                     result[ts_code] = trade_date
         except Exception:
             pass
+    return result
+
+
+def fetch_limit_up_stocks_from_db(
+    db: Session,
+    trade_date_from: str,
+    trade_date_to: str,
+    exclude_one_word_limit: bool = True,
+) -> dict[str, str]:
+    """
+    从本地 daily_quote 筛涨停股（不访问外网），供回测构造 universe。
+    返回 ts_code -> 区间内最近一次涨停日（与 fetch_limit_up_stocks_in_range 一致）。
+    """
+    result: dict[str, str] = {}
+    if trade_date_from > trade_date_to:
+        return result
+
+    dqs = (
+        db.query(DailyQuote)
+        .filter(
+            DailyQuote.trade_date >= trade_date_from,
+            DailyQuote.trade_date <= trade_date_to,
+        )
+        .all()
+    )
+    if not dqs:
+        return result
+
+    codes = list({d.ts_code for d in dqs})
+    basics = {
+        b.ts_code: b
+        for b in db.query(StockBasic).filter(StockBasic.ts_code.in_(codes)).all()
+    }
+
+    for dq in dqs:
+        basic = basics.get(dq.ts_code)
+        if _is_stock_st(basic.name if basic else None):
+            continue
+        threshold = _get_limit_up_threshold(basic.market if basic else None)
+        pct = dq.pct_chg
+        if pct is None or pd.isna(pct) or float(pct) < threshold:
+            continue
+        if exclude_one_word_limit:
+            h, low = dq.high, dq.low
+            if h is not None and low is not None and float(h) == float(low):
+                continue
+        ts_code = dq.ts_code
+        td = dq.trade_date
+        prev = result.get(ts_code)
+        if not prev or td > prev:
+            result[ts_code] = td
     return result
 
 

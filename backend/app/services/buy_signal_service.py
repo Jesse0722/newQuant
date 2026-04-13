@@ -3,8 +3,10 @@
 
 策略注册表：
 - two_phase: 二阶段买点识别（冲高回落企稳反转，统一加权评分）
-- next_day_shrink / ma5_pullback / three_yin / half_volume / ma_golden_cross / rubbing_line: 涨停回调六大战法
+- next_day_shrink / ma5_pullback / three_yin / half_volume / ma_golden_cross / rubbing_line / ma5_hold_pullback: 涨停回调七大战法
 """
+
+from __future__ import annotations
 import numpy as np
 import pandas as pd
 import time

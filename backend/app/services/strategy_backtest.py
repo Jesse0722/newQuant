@@ -15,7 +15,12 @@ from app.services.buy_signal_service import (
     _validate_life_line,
     _analyze_stock,
 )
-from app.services.limit_up_service import LIMIT_UP_POOL_NAME, _get_limit_up_threshold
+from app.services.limit_up_service import (
+    LIMIT_UP_POOL_NAME,
+    _get_limit_up_threshold,
+    fetch_limit_up_stocks_from_db,
+    fetch_limit_up_stocks_in_range,
+)
 from app.services.limit_up_tactics import TACTIC_REGISTRY, common_pre_filter
 from app.tasks.background import task_registry
 
@@ -100,14 +105,64 @@ def run_strategy_backtest(
     trade_date_to: str,
     pool_id: str | None = None,
     progress_cb: Callable[[float, str], None] | None = None,
+    *,
+    codes: list[str] | None = None,
+    use_limit_up_universe: bool = False,
+    universe_from_local_db: bool = True,
 ) -> dict:
     if strategy_id not in {"two_phase", *TACTIC_REGISTRY.keys()}:
         raise ValueError(f"不支持的策略: {strategy_id}")
     if trade_date_from > trade_date_to:
         raise ValueError("开始日期不能大于结束日期")
 
-    resolved_pool_id = _get_pool_id(db, pool_id)
-    if not resolved_pool_id:
+    if use_limit_up_universe:
+        if universe_from_local_db:
+            uni = fetch_limit_up_stocks_from_db(db, trade_date_from, trade_date_to)
+        else:
+            uni = fetch_limit_up_stocks_in_range(db, trade_date_from, trade_date_to)
+        codes = list(uni.keys())
+    elif codes is None:
+        resolved_pool_id = _get_pool_id(db, pool_id)
+        if not resolved_pool_id:
+            return {
+                "strategy_id": strategy_id,
+                "trade_date_from": trade_date_from,
+                "trade_date_to": trade_date_to,
+                "total_signals": 0,
+                "win_rate_1d": 0.0,
+                "win_rate_3d": 0.0,
+                "win_rate_5d": 0.0,
+                "avg_return_1d": 0.0,
+                "avg_return_3d": 0.0,
+                "avg_return_5d": 0.0,
+                "max_drawdown": 0.0,
+                "profit_factor": 0.0,
+                "signals": [],
+            }
+
+        stocks = db.query(WatchStock).filter(WatchStock.pool_id == resolved_pool_id).all()
+        if not stocks:
+            return {
+                "strategy_id": strategy_id,
+                "trade_date_from": trade_date_from,
+                "trade_date_to": trade_date_to,
+                "total_signals": 0,
+                "win_rate_1d": 0.0,
+                "win_rate_3d": 0.0,
+                "win_rate_5d": 0.0,
+                "avg_return_1d": 0.0,
+                "avg_return_3d": 0.0,
+                "avg_return_5d": 0.0,
+                "max_drawdown": 0.0,
+                "profit_factor": 0.0,
+                "signals": [],
+            }
+
+        codes = [s.ts_code for s in stocks]
+    else:
+        codes = list(codes)
+
+    if not codes:
         return {
             "strategy_id": strategy_id,
             "trade_date_from": trade_date_from,
@@ -123,26 +178,6 @@ def run_strategy_backtest(
             "profit_factor": 0.0,
             "signals": [],
         }
-
-    stocks = db.query(WatchStock).filter(WatchStock.pool_id == resolved_pool_id).all()
-    if not stocks:
-        return {
-            "strategy_id": strategy_id,
-            "trade_date_from": trade_date_from,
-            "trade_date_to": trade_date_to,
-            "total_signals": 0,
-            "win_rate_1d": 0.0,
-            "win_rate_3d": 0.0,
-            "win_rate_5d": 0.0,
-            "avg_return_1d": 0.0,
-            "avg_return_3d": 0.0,
-            "avg_return_5d": 0.0,
-            "max_drawdown": 0.0,
-            "profit_factor": 0.0,
-            "signals": [],
-        }
-
-    codes = [s.ts_code for s in stocks]
     basics = (
         db.query(StockBasic.ts_code, StockBasic.market, StockBasic.name)
         .filter(StockBasic.ts_code.in_(codes))
@@ -156,13 +191,11 @@ def run_strategy_backtest(
     ret_1d_vals: list[float] = []
     ret_3d_vals: list[float] = []
     ret_5d_vals: list[float] = []
-    total = len(stocks)
+    total = len(codes)
 
-    for idx_s, ws in enumerate(stocks):
+    for idx_s, ts_code in enumerate(codes):
         if progress_cb:
-            progress_cb(idx_s / max(total, 1), f"回测中 {idx_s + 1}/{total}: {ws.ts_code}")
-
-        ts_code = ws.ts_code
+            progress_cb(idx_s / max(total, 1), f"回测中 {idx_s + 1}/{total}: {ts_code}")
         df = _build_backtest_df(db, ts_code)
         if df.empty or len(df) < 30:
             continue
