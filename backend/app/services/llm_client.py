@@ -1,4 +1,6 @@
 """LLM 调用统一封装：支持 OpenAI 兼容、通义千问、Ollama。"""
+
+from __future__ import annotations
 import os
 
 

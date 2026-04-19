@@ -1,6 +1,8 @@
 """
 核心关注（买点雷达加星）：单例股票池「核心关注」
 """
+
+from __future__ import annotations
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 

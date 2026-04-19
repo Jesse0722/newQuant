@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 
 _TS_CODE_RE = re.compile(r"^\d{6}\.[A-Z]{2}$")

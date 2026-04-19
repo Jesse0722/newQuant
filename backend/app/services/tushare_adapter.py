@@ -340,6 +340,15 @@ class AkshareAdapter:
         return out.dropna(subset=["trade_date"]).sort_values("trade_date", ascending=False).reset_index(drop=True)
 
     def get_daily_by_date(self, trade_date: str) -> pd.DataFrame:
+        # AkShare 无法像 Tushare 一样直接按历史日期返回“全市场日线”。
+        # 这里若强行使用实时快照并打上历史 trade_date，会污染数据库（同一快照被写入多天）。
+        today = datetime.now().strftime("%Y%m%d")
+        if trade_date != today:
+            logger.warning(
+                "AkShare get_daily_by_date 不支持历史日期(%s)，返回空结果避免写入错误历史K线",
+                trade_date,
+            )
+            return self._empty_daily()
         try:
             df = self._spot_df()
         except Exception as e:
@@ -359,9 +368,26 @@ class AkshareAdapter:
         out["pre_close"] = pd.to_numeric(df.get("昨收"), errors="coerce")
         out["change"] = out["close"] - out["pre_close"]
         out["pct_chg"] = pd.to_numeric(df.get("涨跌幅"), errors="coerce")
-        out["vol"] = pd.to_numeric(df.get("成交量"), errors="coerce")
-        out["amount"] = pd.to_numeric(df.get("成交额"), errors="coerce")
-        return out[(out["ts_code"].notna()) & (out["ts_code"] != "")].reset_index(drop=True)
+        # 与 Tushare 对齐：vol=手，amount=千元
+        out["vol"] = pd.to_numeric(df.get("成交量"), errors="coerce") / 100.0
+        out["amount"] = pd.to_numeric(df.get("成交额"), errors="coerce") / 1000.0
+
+        # 过滤停牌/异常快照：AkShare spot 里存在 open/high/low=0、close 有值的行。
+        # 若直接写入 daily_quote 会导致 K 线图严重失真（长时间贴地或畸形）。
+        valid = (
+            (out["ts_code"].notna())
+            & (out["ts_code"] != "")
+            & (out["close"] > 0)
+            & (out["open"] > 0)
+            & (out["high"] > 0)
+            & (out["low"] > 0)
+            & (out["high"] >= out["low"])
+            & (out["high"] >= out["open"])
+            & (out["high"] >= out["close"])
+            & (out["low"] <= out["open"])
+            & (out["low"] <= out["close"])
+        )
+        return out.loc[valid].reset_index(drop=True)
 
     def get_rt_k(self, ts_code: str) -> pd.DataFrame:
         try:

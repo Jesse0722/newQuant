@@ -1,4 +1,6 @@
 """策略选股服务：指标组合选股、涨停回调买点选股"""
+
+from __future__ import annotations
 import types
 from datetime import datetime, timedelta
 import time

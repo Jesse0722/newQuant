@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -12,10 +14,11 @@ from app.services.buy_signal_service import get_signal_marks
 from app.services.sync_service import sync_stock_info, sync_daily
 from app.services.trade_date_resolver import TradeDateResolutionError, resolve_dashboard_trade_date
 from app.services.trading_session import shanghai_trade_date_str
-from app.services.tushare_adapter import tushare_adapter
+from app.services.tushare_adapter import tushare_adapter, TushareAdapter, AkshareAdapter
 from app.exceptions import AppError
 import pandas as pd
 import numpy as np
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
 
@@ -59,6 +62,111 @@ def _scalar_json_safe(v):
 
 def _chart_quotes_json_safe(records: list[dict]) -> list[dict]:
     return [{k: _scalar_json_safe(val) for k, val in row.items()} for row in records]
+
+
+def _filter_valid_ohlc(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    out = df.copy()
+    out["open"] = pd.to_numeric(out["open"], errors="coerce")
+    out["high"] = pd.to_numeric(out["high"], errors="coerce")
+    out["low"] = pd.to_numeric(out["low"], errors="coerce")
+    out["close"] = pd.to_numeric(out["close"], errors="coerce")
+    valid = (
+        out["open"].gt(0)
+        & out["high"].gt(0)
+        & out["low"].gt(0)
+        & out["close"].gt(0)
+        & out["high"].ge(out["low"])
+        & out["high"].ge(out["open"])
+        & out["high"].ge(out["close"])
+        & out["low"].le(out["open"])
+        & out["low"].le(out["close"])
+    )
+    return out.loc[valid].copy()
+
+
+def _max_calendar_gap_days(df: pd.DataFrame) -> int:
+    if df is None or df.empty or "date" not in df.columns or len(df) < 2:
+        return 0
+    d = pd.to_datetime(df["date"], format="%Y%m%d", errors="coerce").dropna().sort_values()
+    if len(d) < 2:
+        return 0
+    gaps = d.diff().dt.days.dropna()
+    return int(gaps.max()) if not gaps.empty else 0
+
+
+def _backfill_sparse_chart_from_remote(db: Session, ts_code: str, base_df: pd.DataFrame, period: int) -> pd.DataFrame:
+    """
+    当本地行情过少时，尝试临时拉取远程历史并回填库，避免K线仅1-2根导致显示异常。
+    """
+    if not base_df.empty and len(base_df) >= max(30, period // 2):
+        return base_df
+
+    start_date = (datetime.now() - timedelta(days=max(420, period * 4))).strftime("%Y%m%d")
+    end_date = shanghai_trade_date_str()
+    # 优先强制 Tushare（历史日线稳定），其次路由源，再降级 AkShare。
+    providers = [TushareAdapter(), tushare_adapter, AkshareAdapter()]
+    remote = pd.DataFrame()
+    for p in providers:
+        try:
+            r = p.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+            if r is not None and not r.empty:
+                remote = r.copy()
+                break
+        except Exception:
+            continue
+
+    if remote.empty:
+        return base_df
+
+    remote = remote.rename(columns={"trade_date": "date"})
+    for col in ("vol", "amount", "pct_chg", "turnover_rate"):
+        if col not in remote.columns:
+            remote[col] = None
+    remote = remote[["date", "open", "high", "low", "close", "vol", "amount", "pct_chg", "turnover_rate"]]
+    remote["date"] = remote["date"].astype(str)
+    remote = _filter_valid_ohlc(remote)
+    if remote.empty:
+        return base_df
+
+    # 尝试回写数据库（仅新增），后续请求可直接命中本地。
+    try:
+        existing_dates = {
+            x[0]
+            for x in db.query(DailyQuote.trade_date).filter(DailyQuote.ts_code == ts_code).all()
+        }
+        add_count = 0
+        for _, row in remote.iterrows():
+            td = str(row["date"])
+            if td in existing_dates:
+                continue
+            db.add(DailyQuote(
+                ts_code=ts_code,
+                trade_date=td,
+                open=float(row["open"]),
+                high=float(row["high"]),
+                low=float(row["low"]),
+                close=float(row["close"]),
+                pre_close=None,
+                change=None,
+                pct_chg=float(row["pct_chg"]) if row.get("pct_chg") is not None and pd.notna(row.get("pct_chg")) else None,
+                vol=float(row["vol"]) if row.get("vol") is not None and pd.notna(row.get("vol")) else None,
+                amount=float(row["amount"]) if row.get("amount") is not None and pd.notna(row.get("amount")) else None,
+                turnover_rate=float(row["turnover_rate"]) if row.get("turnover_rate") is not None and pd.notna(row.get("turnover_rate")) else None,
+            ))
+            add_count += 1
+        if add_count > 0:
+            db.commit()
+    except Exception:
+        db.rollback()
+
+    if base_df.empty:
+        merged = remote
+    else:
+        merged = pd.concat([base_df, remote], ignore_index=True)
+    merged = merged.drop_duplicates(subset=["date"], keep="last").sort_values("date").reset_index(drop=True)
+    return _filter_valid_ohlc(merged)
 
 
 def _sync_stock_kline_job(ts_code: str) -> tuple[int | None, Exception | None]:
@@ -167,6 +275,13 @@ def get_stock_chart(
         "vol": q.vol, "amount": q.amount, "pct_chg": q.pct_chg,
         "turnover_rate": q.turnover_rate,
     } for q in quotes])
+    df = _filter_valid_ohlc(df)
+    # 除“条数过少”外，若存在明显时间断层也触发远程回填（例如中间缺失一大段交易日）。
+    gap_days = _max_calendar_gap_days(df)
+    if len(df) < max(30, period // 2) or gap_days >= 12:
+        df = _backfill_sparse_chart_from_remote(db, ts_code, df, period)
+    if df.empty:
+        return {"basic": _basic_dict(basic), "quotes": [], "indicators": {}}
 
     def _fetch_daily_basic_bounded() -> pd.DataFrame:
         start_date = str(df["date"].iloc[0])

@@ -1,4 +1,6 @@
 """AI 智能选股服务：支持 OpenAI、通义千问、Ollama"""
+
+from __future__ import annotations
 import re
 from sqlalchemy.orm import Session
 

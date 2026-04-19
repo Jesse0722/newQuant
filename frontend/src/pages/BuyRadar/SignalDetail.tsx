@@ -78,7 +78,7 @@ const SignalDetail: React.FC<Props> = ({
             label: { formatter: `{b|${mark.label}} {c|${mark.value.toFixed(2)}}`, rich: { b: { color: '#722ed1', fontSize: 11 }, c: { color: '#722ed1', fontSize: 11 } } },
           })
         }
-        if (mark.type === 'phase2_high' && dateIdx >= 0) {
+        if (mark.type === 'phase2_high' && dateIdx >= 0 && Number.isFinite(mark.value) && mark.value > 0) {
           markPoints.push({
             name: mark.label,
             coord: [mark.date, mark.value],
@@ -89,7 +89,7 @@ const SignalDetail: React.FC<Props> = ({
             label: { show: true, formatter: mark.label, position: 'top', fontSize: 10, color: '#faad14' },
           })
         }
-        if (mark.type === 'buy_signal' && dateIdx >= 0) {
+        if (mark.type === 'buy_signal' && dateIdx >= 0 && Number.isFinite(mark.value) && mark.value > 0) {
           markPoints.push({
             name: mark.label,
             coord: [mark.date, mark.value],

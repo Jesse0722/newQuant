@@ -657,13 +657,28 @@ def analyze_rubbing_line(df: pd.DataFrame, limit_up_idx: int) -> dict:
 # ================================================================
 
 MA5_HOLD_PULLBACK_CONDS = {
+    "board_vol_1p5": {
+        "label": "首板成交量≥5日均量1.5倍",
+        "weight": 1.2,
+        "core": True,
+    },
+    "board_turnover_5_20": {
+        "label": "首板换手率在5%~20%",
+        "weight": 1.0,
+        "core": True,
+    },
+    "board_mkt_40_120": {
+        "label": "首板市值在40~120亿",
+        "weight": 1.0,
+        "core": True,
+    },
     "time_3_5": {
         "label": "涨停后第3~5个交易日",
         "weight": 1.2,
         "core": True,
     },
-    "pullback_8_15": {
-        "label": "回调深度8%~15%（相对首板涨停收盘）",
+    "pullback_5_10": {
+        "label": "回调深度5%~10%（相对首板涨停收盘）",
         "weight": 1.5,
         "core": True,
     },
@@ -738,8 +753,8 @@ def _shrink_near_ma5_or_ma10(latest: pd.Series, lu_vol: float) -> bool:
 
 def analyze_ma5_hold_pullback(df: pd.DataFrame, limit_up_idx: int) -> dict:
     """
-    五日均线不破：首板涨停后第3~5个交易日，回调幅度（相对首板涨停收盘）8%~15%，
-    当日缩量至首板一半以下，不破首板最低价且收盘在MA5之上，
+    五日均线不破：首板满足放量/换手/市值后，涨停后第3~5个交易日，
+    回调幅度（相对首板涨停收盘）5%~10%，当日缩量至首板一半以下，不破首板最低价且收盘在MA5之上，
     并满足企稳形态（缩量十字星/阳包阴/两日收盘持平）或缩量回踩5/10日线确认。
     """
     latest_idx = len(df) - 1
@@ -752,12 +767,34 @@ def analyze_ma5_hold_pullback(df: pd.DataFrame, limit_up_idx: int) -> dict:
 
     c: dict[str, bool] = {}
 
+    lu_vol_ma5 = lu.get("vol_ma5")
+    if lu_vol_ma5 is not None and not pd.isna(lu_vol_ma5) and float(lu_vol_ma5) > 0:
+        c["board_vol_1p5"] = lu_vol >= float(lu_vol_ma5) * 1.5
+    else:
+        c["board_vol_1p5"] = False
+
+    lu_turnover = lu.get("turnover_rate")
+    if lu_turnover is not None and not pd.isna(lu_turnover):
+        tr = float(lu_turnover)
+        c["board_turnover_5_20"] = 5.0 <= tr <= 20.0
+    else:
+        c["board_turnover_5_20"] = False
+
+    lu_float_share = lu.get("float_share")
+    if lu_float_share is not None and not pd.isna(lu_float_share) and lu_close > 0:
+        # float_share 单位为“万股”：市值(亿) = float_share * close / 10000
+        mkt_cap_yi = float(lu_float_share) * lu_close / 10000.0
+        c["board_mkt_40_120"] = 40.0 <= mkt_cap_yi <= 120.0
+    else:
+        mkt_cap_yi = None
+        c["board_mkt_40_120"] = False
+
     c["time_3_5"] = 3 <= days_since <= 5
 
     post = df.iloc[limit_up_idx + 1 : latest_idx + 1]
     min_low = float(post["low"].min()) if len(post) > 0 else lu_close
     pullback_pct = (lu_close - min_low) / lu_close * 100 if lu_close > 0 else 0.0
-    c["pullback_8_15"] = 8.0 <= pullback_pct <= 15.0
+    c["pullback_5_10"] = 5.0 <= pullback_pct <= 10.0
 
     c["vol_half"] = float(latest["vol"]) <= lu_vol * 0.5 + 1e-9
 
@@ -779,6 +816,9 @@ def analyze_ma5_hold_pullback(df: pd.DataFrame, limit_up_idx: int) -> dict:
     m = _metrics(df, limit_up_idx)
     m["pullback_pct_board"] = round(pullback_pct, 2)
     m["days_since_limit_up"] = int(days_since)
+    m["board_turnover_rate"] = round(float(lu_turnover), 3) if lu_turnover is not None and not pd.isna(lu_turnover) else None
+    m["board_mkt_cap_yi"] = round(float(mkt_cap_yi), 2) if mkt_cap_yi is not None else None
+    m["board_vol_ratio_ma5"] = round(lu_vol / float(lu_vol_ma5), 3) if lu_vol_ma5 is not None and not pd.isna(lu_vol_ma5) and float(lu_vol_ma5) > 0 else None
     detail_bits: list[str] = []
     if doji_ok:
         detail_bits.append("缩量十字星")
@@ -842,7 +882,7 @@ TACTIC_REGISTRY: dict[str, dict] = {
     },
     "ma5_hold_pullback": {
         "name": "五日均线不破",
-        "description": "首板后3~5日、回调8%~15%、缩量≤首板一半、不破首板低且站稳MA5，企稳或回踩均线",
+        "description": "首板需放量+换手+市值过滤；3~5日回调5%~10%、缩量≤首板一半、不破首板低且站稳MA5，企稳或回踩均线",
         "analyze_fn": analyze_ma5_hold_pullback,
         "cond_defs": MA5_HOLD_PULLBACK_CONDS,
         "max_days": 5,

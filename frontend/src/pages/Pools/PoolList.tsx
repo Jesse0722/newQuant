@@ -298,9 +298,11 @@ const PoolList: React.FC = () => {
       const addedDate = selectedStock?.added_at ? dayjs(selectedStock.added_at).format('YYYYMMDD') : ''
       if (addedDate && dates.includes(addedDate)) {
         const addedQuote = quotes.find(q => q.date === addedDate)
+        const addedY = addedQuote?.low ?? addedQuote?.close
+        if (typeof addedY === 'number' && Number.isFinite(addedY) && addedY > 0) {
         markPoints.push({
           name: '加入池时间',
-          coord: [addedDate, addedQuote?.low ?? addedQuote?.close ?? 0],
+          coord: [addedDate, addedY],
           symbol: 'circle',
           symbolSize: 12,
           itemStyle: { color: '#1677ff' },
@@ -313,6 +315,7 @@ const PoolList: React.FC = () => {
             fontWeight: 'bold',
           },
         })
+        }
       }
       if (signal_marks) {
         for (const mark of signal_marks) {
@@ -323,7 +326,7 @@ const PoolList: React.FC = () => {
               label: { formatter: `${mark.label} ${mark.value.toFixed(2)}`, color: '#722ed1', fontSize: 11 },
             })
           }
-          if (mark.type === 'phase2_high' && dates.includes(mark.date)) {
+          if (mark.type === 'phase2_high' && dates.includes(mark.date) && Number.isFinite(mark.value) && mark.value > 0) {
             markPoints.push({
               name: mark.label, coord: [mark.date, mark.value],
               symbol: 'triangle', symbolSize: 10, symbolRotate: 180,
@@ -331,7 +334,7 @@ const PoolList: React.FC = () => {
               label: { show: true, formatter: mark.label, position: 'top', fontSize: 10, color: '#faad14' },
             })
           }
-          if (mark.type === 'buy_signal' && dates.includes(mark.date)) {
+          if (mark.type === 'buy_signal' && dates.includes(mark.date) && Number.isFinite(mark.value) && mark.value > 0) {
             markPoints.push({
               name: mark.label, coord: [mark.date, mark.value],
               symbol: 'triangle', symbolSize: 12,

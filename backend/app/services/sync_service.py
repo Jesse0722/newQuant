@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import json
 import time
 import uuid
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
+from sqlalchemy import func
 from app.database import SessionLocal
 from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchStock
@@ -89,11 +92,19 @@ def sync_stock_info(db: Session, ts_code: str):
 
 def sync_daily(db: Session, ts_code: str, days: int = 250):
     """增量同步日线行情"""
+    hist_count = (
+        db.query(func.count(DailyQuote.trade_date))
+        .filter(DailyQuote.ts_code == ts_code)
+        .scalar()
+        or 0
+    )
     latest = db.query(DailyQuote.trade_date).filter(
         DailyQuote.ts_code == ts_code
     ).order_by(DailyQuote.trade_date.desc()).first()
 
-    if latest:
+    # 历史过稀（例如曾写入异常快照后被清理）时，改为回填窗口，避免只做“向前增量”导致K线长期缺失。
+    sparse_threshold = max(20, min(80, days // 3))
+    if latest and hist_count >= sparse_threshold:
         start_date = (datetime.strptime(latest[0], "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
     else:
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")

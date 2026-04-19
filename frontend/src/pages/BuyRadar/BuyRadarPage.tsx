@@ -172,7 +172,9 @@ const BuyRadarPage: React.FC = () => {
       signals,
       scan_time: latestScanTime,
       total: signals.length,
-      triggered_count: signals.filter((s) => s.signal_status === 'triggered').length,
+      triggered_count: signals.filter(
+        (s) => s.signal_status === 'triggered' || s.signal_status === 'confirmed_triggered'
+      ).length,
       approaching_count: signals.filter((s) => s.signal_status === 'approaching').length,
       strategy_id: ALL_STRATEGY_ID,
       strategy_name: '所有策略',
