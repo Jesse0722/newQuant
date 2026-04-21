@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   Card,
   Table,
@@ -40,20 +40,34 @@ const Alerts: React.FC = () => {
   const [showTip, setShowTip] = useState(() => localStorage.getItem(LS_TIP) !== '1')
   const navigate = useNavigate()
 
-  const fetchAlerts = (status?: string, p?: number) => {
-    setLoading(true)
-    listAlerts({ status: status || tab, page: p || page, size: 20, source: 'buy_radar' })
+  const requestAlerts = useCallback((status: string, currentPage: number) => {
+    listAlerts({ status, page: currentPage, size: 20, source: 'buy_radar' })
       .then((res) => {
         setAlerts(res.data.items)
         setTotal(res.data.total)
       })
       .finally(() => setLoading(false))
-  }
+  }, [])
 
   useEffect(() => {
-    fetchAlerts(tab, 1)
+    requestAlerts(tab, page)
+  }, [page, requestAlerts, tab])
+
+  const refreshAlerts = useCallback((status = tab, currentPage = page) => {
+    setLoading(true)
+    requestAlerts(status, currentPage)
+  }, [page, requestAlerts, tab])
+
+  const handleTabChange = (nextTab: string) => {
+    setLoading(true)
+    setTab(nextTab)
     setPage(1)
-  }, [tab])
+  }
+
+  const handlePageChange = (nextPage: number) => {
+    setLoading(true)
+    setPage(nextPage)
+  }
 
   const dismissTip = () => {
     localStorage.setItem(LS_TIP, '1')
@@ -63,25 +77,25 @@ const Alerts: React.FC = () => {
   const handleDismiss = async (id: string) => {
     await updateAlert(id, { status: 'dismissed' })
     message.success('已忽略')
-    fetchAlerts()
+    refreshAlerts()
   }
 
   const handleCreatePlan = async (id: string) => {
     await createPlanFromAlert(id)
     message.success('交易计划已创建')
-    fetchAlerts()
+    refreshAlerts()
   }
 
   const handleBatchDismiss = async () => {
     const res = await batchDismissPendingAlerts({ source: 'buy_radar' })
     message.success(`已忽略 ${res.data.count} 条待处理提醒`)
-    fetchAlerts()
+    refreshAlerts()
   }
 
   const handleBatchDelete = async () => {
     const res = await batchDeleteDismissedAlerts({ source: 'buy_radar' })
     message.success(`已删除 ${res.data.count} 条已忽略记录`)
-    fetchAlerts()
+    refreshAlerts()
   }
 
   const riskSummary = (r: Alert) => {
@@ -287,7 +301,7 @@ const Alerts: React.FC = () => {
       )}
       <Tabs
         activeKey={tab}
-        onChange={setTab}
+        onChange={handleTabChange}
         items={[
           { key: 'pending', label: '待处理' },
           { key: 'processed', label: '已处理' },
@@ -304,10 +318,7 @@ const Alerts: React.FC = () => {
           current: page,
           total,
           pageSize: 20,
-          onChange: (p) => {
-            setPage(p)
-            fetchAlerts(tab, p)
-          },
+          onChange: handlePageChange,
         }}
         locale={{
           emptyText:

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip, Modal, DatePicker, Progress, Table, Row, Col, Statistic, InputNumber, Switch } from 'antd'
 import { ScanOutlined, BarChartOutlined, BellOutlined } from '@ant-design/icons'
@@ -190,13 +190,17 @@ const BuyRadarPage: React.FC = () => {
   useEffect(() => {
     try {
       localStorage.setItem(LS_AUTO, JSON.stringify(autoScanByStrategy))
-    } catch (_) {}
+    } catch {
+      // 本地存储不可用时忽略持久化失败
+    }
   }, [autoScanByStrategy])
 
   useEffect(() => {
     try {
       localStorage.setItem(LS_INTERVAL, String(intervalMinutes))
-    } catch (_) {}
+    } catch {
+      // 本地存储不可用时忽略持久化失败
+    }
   }, [intervalMinutes])
 
   useEffect(() => {
@@ -237,15 +241,18 @@ const BuyRadarPage: React.FC = () => {
     }
   }
 
-  const filteredSignals = activeScanResult
-    ? filter === 'all'
-      ? activeScanResult.signals.filter((s) => s.signal_status !== 'invalidated')
-      : filter === 'triggered'
-        ? activeScanResult.signals.filter(
-            (s) => s.signal_status === 'triggered' || s.signal_status === 'confirmed_triggered'
-          )
-        : activeScanResult.signals.filter((s) => s.signal_status === filter)
-    : []
+  const filteredSignals = useMemo(() => {
+    if (!activeScanResult) return []
+    if (filter === 'all') {
+      return activeScanResult.signals.filter((s) => s.signal_status !== 'invalidated')
+    }
+    if (filter === 'triggered') {
+      return activeScanResult.signals.filter(
+        (s) => s.signal_status === 'triggered' || s.signal_status === 'confirmed_triggered'
+      )
+    }
+    return activeScanResult.signals.filter((s) => s.signal_status === filter)
+  }, [activeScanResult, filter])
 
   const handlePoolChange = (poolId: string) => {
     setActivePoolId(poolId)
@@ -394,7 +401,9 @@ const BuyRadarPage: React.FC = () => {
         try {
           const res = await scanBuySignals(activePoolId, sid, manualMinConfirmHits)
           setScanResultsByStrategy((prev) => ({ ...prev, [sid]: res.data }))
-        } catch (_) { /* 静默 */ }
+        } catch {
+          // 后台轮询单次失败不打断整个自动扫描周期
+        }
         if (i < enabled.length - 1) await new Promise((r) => setTimeout(r, 200))
       }
       refreshPendingAlerts()

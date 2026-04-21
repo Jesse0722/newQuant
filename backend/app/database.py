@@ -18,6 +18,17 @@ if "sqlite" in DATABASE_URL:
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+MIGRATION_RUNNERS = (
+    ("trade_plan", "scripts.migrate_trade_plan", "migrate"),
+    ("plan_stock_fields", "scripts.migrate_plan_stock_fields", "migrate"),
+    ("plan_title_remove_type", "scripts.migrate_plan_title_remove_type", "migrate"),
+    ("pool_sort_order", "scripts.migrate_pool_sort_order", "migrate"),
+    ("limit_up_fields", "scripts.migrate_limit_up_fields", "migrate"),
+    ("watch_stock_ai_fields", "scripts.migrate_watch_stock_ai_fields", "migrate"),
+    ("daily_quote_turnover", "scripts.migrate_daily_quote_turnover", "migrate"),
+    ("float_share", "scripts.migrate_float_share", "migrate"),
+    ("alert_buy_radar", "scripts.migrate_alert_buy_radar", "migrate"),
+)
 
 def get_db():
     db = SessionLocal()
@@ -26,28 +37,24 @@ def get_db():
     finally:
         db.close()
 
-def init_db():
-    from scripts.migrate_trade_plan import migrate as migrate_trade_plan
-    migrate_trade_plan()
-    from scripts.migrate_plan_stock_fields import migrate as migrate_plan_stock_fields
-    migrate_plan_stock_fields()
-    from scripts.migrate_plan_title_remove_type import migrate as migrate_plan_title_remove_type
-    migrate_plan_title_remove_type()
-    from scripts.migrate_pool_sort_order import migrate as migrate_pool_sort_order
-    migrate_pool_sort_order()
-    from scripts.migrate_limit_up_fields import migrate as migrate_limit_up_fields
-    migrate_limit_up_fields()
-    from scripts.migrate_watch_stock_ai_fields import migrate as migrate_watch_stock_ai_fields
-    migrate_watch_stock_ai_fields()
-    from scripts.migrate_daily_quote_turnover import migrate as migrate_daily_quote_turnover
-    migrate_daily_quote_turnover()
-    from scripts.migrate_float_share import migrate as migrate_float_share
-    migrate_float_share()
-    from scripts.migrate_alert_buy_radar import migrate as migrate_alert_buy_radar
-    migrate_alert_buy_radar()
+def run_startup_migrations():
+    from importlib import import_module
+
+    for _name, module_name, attr_name in MIGRATION_RUNNERS:
+        getattr(import_module(module_name), attr_name)()
+
+
+def create_schema():
     import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)
     _ensure_alert_buy_radar_columns(engine)
+
+
+def init_db(run_migrations: bool = True, create_tables: bool = True):
+    if run_migrations:
+        run_startup_migrations()
+    if create_tables:
+        create_schema()
 
 
 def _ensure_alert_buy_radar_columns(engine):

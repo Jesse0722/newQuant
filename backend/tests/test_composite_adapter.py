@@ -1,5 +1,9 @@
 """CompositeAdapter：异常或空结果时换源。"""
 
+from __future__ import annotations
+
+from typing import Optional
+
 import pandas as pd
 import pytest
 
@@ -7,13 +11,23 @@ from app.services.tushare_adapter import CompositeAdapter
 
 
 class _EmptyDaily:
-    def get_daily(self, ts_code: str, start_date: str | None = None, end_date: str | None = None):
+    def get_daily(
+        self,
+        ts_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ):
         return pd.DataFrame()
 
-    def get_stock_basic(self, ts_code: str | None = None):
+    def get_stock_basic(self, ts_code: Optional[str] = None):
         return pd.DataFrame()
 
-    def get_daily_basic(self, ts_code: str, start_date: str | None = None, end_date: str | None = None):
+    def get_daily_basic(
+        self,
+        ts_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ):
         return pd.DataFrame()
 
     def get_daily_by_date(self, trade_date: str):
@@ -33,12 +47,22 @@ class _EmptyDaily:
 
 
 class _Boom:
-    def get_daily(self, ts_code: str, start_date: str | None = None, end_date: str | None = None):
+    def get_daily(
+        self,
+        ts_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ):
         raise ConnectionError("upstream down")
 
 
 class _OkDaily:
-    def get_daily(self, ts_code: str, start_date: str | None = None, end_date: str | None = None):
+    def get_daily(
+        self,
+        ts_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ):
         return pd.DataFrame([{"ts_code": ts_code, "trade_date": "20240102", "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0}])
 
 

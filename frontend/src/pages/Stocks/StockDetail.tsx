@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Card, Tag, Table, Button, Tabs, Space, Statistic, Row, Col, Segmented,
@@ -10,7 +10,7 @@ import * as echarts from 'echarts'
 import { getStockChart, getStockAlerts, getStockDetails, createStockDetail } from '../../api/stocks'
 import { updateDetail, deleteDetail } from '../../api/plans'
 import { extractTradeFromImage } from '../../api/ocr'
-import type { StockChartData, StockAlertItem, TradeDetail } from '../../types'
+import type { JsonObject, StockChartData, StockAlertItem, TradeDetail } from '../../types'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const statusColors: Record<string, string> = {
@@ -24,6 +24,21 @@ interface PoolNavStock {
   latest_price?: number
   pct_chg?: number
   limit_up_date?: string
+}
+
+interface StockDetailLocationState {
+  stockList?: PoolNavStock[]
+  poolName?: string
+}
+
+interface DetailFormValues {
+  trade_date?: dayjs.Dayjs
+  trade_time?: string
+  direction?: 'buy' | 'sell'
+  price?: number
+  quantity?: number
+  commission?: number
+  exec_note?: string
 }
 
 const StockDetail: React.FC = () => {
@@ -46,21 +61,23 @@ const StockDetail: React.FC = () => {
   const [editDetailForm] = Form.useForm()
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
-  const poolNavStocks: PoolNavStock[] = Array.isArray((location.state as any)?.stockList)
-    ? (location.state as any).stockList
-    : []
-  const poolName: string | undefined = (location.state as any)?.poolName
+  const locationState = (location.state as StockDetailLocationState | null) ?? null
+  const poolNavStocks = useMemo<PoolNavStock[]>(
+    () => (Array.isArray(locationState?.stockList) ? locationState.stockList : []),
+    [locationState?.stockList]
+  )
+  const poolName = locationState?.poolName
   const currentNavIndex = poolNavStocks.findIndex((s) => s.ts_code === tsCode)
 
-  const jumpToStock = (idx: number) => {
+  const jumpToStock = useCallback((idx: number) => {
     if (idx < 0 || idx >= poolNavStocks.length) return
     const target = poolNavStocks[idx]
     navigate(`/stocks/${target.ts_code}`, { state: location.state })
-  }
+  }, [location.state, navigate, poolNavStocks])
 
-  const fetchDetails = () => {
+  const fetchDetails = useCallback(() => {
     if (tsCode) getStockDetails(tsCode).then((res) => setDetails(res.data))
-  }
+  }, [tsCode])
 
   const openDetailModal = () => {
     detailForm.resetFields()
@@ -83,7 +100,7 @@ const StockDetail: React.FC = () => {
       } else {
         setOcrRawText(res.data.raw_text)
         const p = res.data.parsed || {}
-        const values: Record<string, any> = {}
+        const values: DetailFormValues = {}
         if (p.trade_date) values.trade_date = dayjs(p.trade_date, 'YYYYMMDD')
         if (p.trade_time) values.trade_time = p.trade_time
         if (p.direction) values.direction = p.direction
@@ -164,7 +181,7 @@ const StockDetail: React.FC = () => {
     getStockChart(tsCode, period).then((res) => setChartData(res.data))
     getStockAlerts(tsCode).then((res) => setAlerts(res.data))
     fetchDetails()
-  }, [tsCode, period])
+  }, [tsCode, period, fetchDetails])
 
   const renderChart = useCallback(() => {
     if (!chartRef.current || !chartData || chartData.quotes.length === 0) return
@@ -187,7 +204,7 @@ const StockDetail: React.FC = () => {
     const gridVol = { left: 60, right: 20, top: '58%', height: '12%' }
     const gridSub = { left: 60, right: 20, top: '74%', height: '18%' }
 
-    const series: any[] = [
+    const series: Array<Record<string, unknown>> = [
       {
         name: 'K线', type: 'candlestick', data: ohlc, xAxisIndex: 0, yAxisIndex: 0,
         itemStyle: { color: '#ec0000', color0: '#00da3c', borderColor: '#ec0000', borderColor0: '#00da3c' },
@@ -272,7 +289,7 @@ const StockDetail: React.FC = () => {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [poolNavStocks, currentNavIndex])
+  }, [poolNavStocks.length, currentNavIndex, jumpToStock])
 
   const basic = chartData?.basic
   const latestQuote = chartData?.quotes?.length ? chartData.quotes[chartData.quotes.length - 1] : null
@@ -281,7 +298,14 @@ const StockDetail: React.FC = () => {
   const alertColumns = [
     { title: '触发日期', dataIndex: 'trigger_date', key: 'trigger_date' },
     { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={statusColors[s]}>{s}</Tag> },
-    { title: '收盘价', key: 'close', render: (_: any, r: StockAlertItem) => r.snapshot?.close?.toFixed(2) ?? '-' },
+    {
+      title: '收盘价',
+      key: 'close',
+      render: (_: unknown, r: StockAlertItem) => {
+        const snapshot = r.snapshot as (JsonObject & { close?: number }) | undefined
+        return snapshot?.close?.toFixed(2) ?? '-'
+      },
+    },
     { title: '时间', dataIndex: 'created_at', key: 'created_at', render: (v: string) => v?.slice(0, 10) },
   ]
 
@@ -300,7 +324,7 @@ const StockDetail: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, r: TradeDetail) => (
+      render: (_: unknown, r: TradeDetail) => (
         <Space>
           <a onClick={() => openEditDetailModal(r)}><EditOutlined /> 编辑</a>
           <Popconfirm title="确定删除？" onConfirm={() => handleDeleteDetail(r.id)}>

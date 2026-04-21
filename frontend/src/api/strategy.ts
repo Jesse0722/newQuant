@@ -1,15 +1,15 @@
 import client from './client'
-import type { AiAnalysisResult } from '../types'
+import type { AiAnalysisResult, JsonObject } from '../types'
 
 export interface ScreenTemplate {
   id: string
   name: string
-  default_params: Record<string, any>
+  default_params: JsonObject
 }
 
 export interface ScreenCondition {
   template_id: string
-  params: Record<string, any>
+  params: JsonObject
 }
 
 export interface ScreenResult {

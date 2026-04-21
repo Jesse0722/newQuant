@@ -2,7 +2,12 @@ __pycache__/
 *.pyc
 *.pyo
 backend/venv/
-backend/data/quant.db
+backend/data/*.db
+backend/data/*.db-*
+backend/data/*.bak
+backend/data/*.bak-*
+backend/.pytest_cache/
+frontend/node_modules/
 **/.env
 *.egg-info/
 dist/

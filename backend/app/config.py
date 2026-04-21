@@ -14,6 +14,13 @@ DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'quant.db'}")
 TUSHARE_TOKEN = (os.getenv("TUSHARE_TOKEN") or "").strip()
 # 代理地址原样使用，不自动追加路径（不同代理路由规则不同）
@@ -24,6 +31,17 @@ COMPOSITE_ORDER = [
     for x in (os.getenv("COMPOSITE_ORDER") or "akshare,tushare").split(",")
     if x.strip()
 ]
+APP_ENV = (os.getenv("APP_ENV") or "development").strip().lower()
+AUTO_INIT_DB = env_flag("AUTO_INIT_DB", True)
+RUN_STARTUP_MIGRATIONS = env_flag("RUN_STARTUP_MIGRATIONS", True)
+AUTO_START_SCHEDULER = env_flag("AUTO_START_SCHEDULER", False)
+SCHEDULER_ENABLED = env_flag("SCHEDULER_ENABLED", True)
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in (os.getenv("CORS_ORIGINS") or "http://localhost:5173,http://127.0.0.1:5173").split(",")
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = env_flag("CORS_ALLOW_CREDENTIALS", True)
 
 if DATA_PROVIDER in ("tushare", "composite") and not TUSHARE_TOKEN:
     logger.warning(

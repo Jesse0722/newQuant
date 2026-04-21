@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, AutoComplete, Tag, Space, Popconfirm, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
@@ -16,6 +16,23 @@ const statusMap: Record<string, { label: string; color: string }> = {
   cancelled: { label: '已取消', color: 'red' },
 }
 
+interface CreatePlanFormStock {
+  ts_code: string
+  risk_level?: number
+  trigger_strategy?: string
+  planned_buy_price?: number
+  target_price?: number
+  stop_loss_price?: number
+  position_plan?: string
+  note?: string
+}
+
+interface CreatePlanFormValues {
+  title: string
+  note?: string
+  stocks: CreatePlanFormStock[]
+}
+
 const PlanList: React.FC = () => {
   const [plans, setPlans] = useState<TradePlan[]>([])
   const [total, setTotal] = useState(0)
@@ -27,32 +44,41 @@ const PlanList: React.FC = () => {
   const [form] = Form.useForm()
   const [searchParams] = useSearchParams()
   const expandId = searchParams.get('expand')
-  const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([])
+  const [manualExpandedRowKeys, setManualExpandedRowKeys] = useState<string[] | null>(null)
 
   const toggleExpand = (id: string) => {
-    setExpandedRowKeys((prev) =>
-      prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]
-    )
+    setManualExpandedRowKeys((prev) => {
+      const current = prev ?? []
+      return (
+        current.includes(id) ? current.filter((k) => k !== id) : [...current, id]
+      )
+    })
   }
 
-  const fetchPlans = (status?: string, p?: number) => {
-    setLoading(true)
-    listPlans({ status: status || tab || undefined, page: p || page, size: 20 })
+  const requestPlans = useCallback((status: string, currentPage: number) => {
+    listPlans({ status: status || undefined, page: currentPage, size: 20 })
       .then((res) => {
         setPlans(res.data.items)
         setTotal(res.data.total)
       })
       .finally(() => setLoading(false))
-  }
+  }, [])
 
-  useEffect(() => { fetchPlans(tab, 1); setPage(1) }, [tab])
-
-  const planIds = plans.map((p) => p.id).join(',')
   useEffect(() => {
+    requestPlans(tab, page)
+  }, [page, requestPlans, tab])
+
+  const fallbackExpandedRowKeys = useMemo(() => {
     if (plans.length === 0) return
     const targetId = expandId && plans.some((p) => p.id === expandId) ? expandId : plans[0].id
-    setExpandedRowKeys([targetId])
-  }, [planIds, expandId])
+    return [targetId]
+  }, [expandId, plans])
+
+  const expandedRowKeys = useMemo(() => {
+    if (!manualExpandedRowKeys?.length) return fallbackExpandedRowKeys ?? []
+    const validKeys = manualExpandedRowKeys.filter((key) => plans.some((plan) => plan.id === key))
+    return validKeys.length > 0 ? validKeys : (fallbackExpandedRowKeys ?? [])
+  }, [fallbackExpandedRowKeys, manualExpandedRowKeys, plans])
 
   useEffect(() => {
     if (modalOpen) {
@@ -60,17 +86,35 @@ const PlanList: React.FC = () => {
     }
   }, [modalOpen])
 
+  const refreshPlans = useCallback((status = tab, currentPage = page) => {
+    setLoading(true)
+    requestPlans(status, currentPage)
+  }, [page, requestPlans, tab])
+
+  const handleTabChange = (nextTab: string) => {
+    setLoading(true)
+    setManualExpandedRowKeys(null)
+    setTab(nextTab)
+    setPage(1)
+  }
+
+  const handlePageChange = (nextPage: number) => {
+    setLoading(true)
+    setManualExpandedRowKeys(null)
+    setPage(nextPage)
+  }
+
   const handleCreate = async () => {
-    const values = await form.validateFields()
-    const stocks = values.stocks.map((s: any) => ({
-      ts_code: s.ts_code,
-      risk_level: s.risk_level ?? 2,
-      trigger_strategy: s.trigger_strategy,
-      planned_buy_price: s.planned_buy_price,
-      target_price: s.target_price,
-      stop_loss_price: s.stop_loss_price,
-      position_plan: s.position_plan,
-      note: s.note,
+    const values = await form.validateFields() as CreatePlanFormValues
+    const stocks = values.stocks.map((stock) => ({
+      ts_code: stock.ts_code,
+      risk_level: stock.risk_level ?? 2,
+      trigger_strategy: stock.trigger_strategy,
+      planned_buy_price: stock.planned_buy_price,
+      target_price: stock.target_price,
+      stop_loss_price: stock.stop_loss_price,
+      position_plan: stock.position_plan,
+      note: stock.note,
     }))
     await createPlan({
       title: values.title,
@@ -80,13 +124,13 @@ const PlanList: React.FC = () => {
     message.success('创建成功')
     setModalOpen(false)
     form.resetFields()
-    fetchPlans()
+    refreshPlans()
   }
 
   const handleDelete = async (id: string) => {
     await deletePlan(id)
     message.success('已删除')
-    fetchPlans()
+    refreshPlans()
   }
 
   const stockOptions = allStocks.map((s) => ({
@@ -114,7 +158,7 @@ const PlanList: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, r: TradePlan) => (
+      render: (_: unknown, r: TradePlan) => (
         <Space>
           <a onClick={() => toggleExpand(r.id)}>详情</a>
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(r.id)}>
@@ -132,7 +176,7 @@ const PlanList: React.FC = () => {
     >
       <Tabs
         activeKey={tab}
-        onChange={setTab}
+        onChange={handleTabChange}
         items={[
           { key: '', label: '全部' },
           { key: 'pending', label: '待触发' },
@@ -146,11 +190,11 @@ const PlanList: React.FC = () => {
         columns={columns}
         rowKey="id"
         loading={loading}
-        pagination={{ current: page, total, pageSize: 20, onChange: (p) => { setPage(p); fetchPlans(tab, p) } }}
+        pagination={{ current: page, total, pageSize: 20, onChange: handlePageChange }}
         expandable={{
           expandedRowKeys,
-          onExpandedRowsChange: (keys) => setExpandedRowKeys(keys as string[]),
-          expandedRowRender: (r) => <PlanDetailRow planId={r.id} onRefresh={fetchPlans} />,
+          onExpandedRowsChange: (keys) => setManualExpandedRowKeys(keys as string[]),
+          expandedRowRender: (r) => <PlanDetailRow planId={r.id} onRefresh={refreshPlans} />,
         }}
       />
 

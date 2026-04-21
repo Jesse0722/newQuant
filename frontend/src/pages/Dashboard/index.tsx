@@ -27,12 +27,11 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ message: string; hint?: string } | null>(null)
 
-  const load = useCallback(() => {
-    setLoading(true)
-    setError(null)
+  const requestDashboard = useCallback(() => {
     getDashboard()
       .then((res) => {
         setData(res.data)
+        setError(null)
       })
       .catch((e) => {
         setData(null)
@@ -42,8 +41,14 @@ const Dashboard: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    load()
-  }, [load])
+    requestDashboard()
+  }, [requestDashboard])
+
+  const handleRefresh = () => {
+    setLoading(true)
+    setError(null)
+    requestDashboard()
+  }
 
   const sectorColumns = [
     { title: '排名', dataIndex: 'rank', key: 'rank', width: 72 },
@@ -80,7 +85,7 @@ const Dashboard: React.FC = () => {
           description={error.hint}
         />
         <div style={{ marginTop: 16 }}>
-          <Button type="primary" onClick={load}>
+          <Button type="primary" onClick={handleRefresh}>
             重试
           </Button>
         </div>
@@ -101,7 +106,7 @@ const Dashboard: React.FC = () => {
               {data?.resolved_by === 'query' ? '（指定日期）' : '（默认最近已完成交易日）'}
             </Typography.Text>
           </div>
-          <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
+          <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={loading}>
             刷新
           </Button>
         </Space>

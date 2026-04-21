@@ -76,10 +76,10 @@ export function makeKlineAxisTooltipFormatter(quotes: QuoteItem[]) {
         }
         lines.push(`${marker}<span style="font-weight:500">${name}</span>`)
         lines.push(
-          `开盘: ${fmtPrice(q.open)}　收盘: ${fmtPrice(q.close)}　最低: ${fmtPrice(q.low)}　最高: ${fmtPrice(q.high)}`
+          `开盘: ${fmtPrice(q.open)} 收盘: ${fmtPrice(q.close)} 最低: ${fmtPrice(q.low)} 最高: ${fmtPrice(q.high)}`
         )
         lines.push(
-          `成交量: ${fmtIntLike(q.vol)}　成交额: ${fmtAmountLike(q.amount)}`
+          `成交量: ${fmtIntLike(q.vol)} 成交额: ${fmtAmountLike(q.amount)}`
         )
         const pct = resolvePctChg(quotes, idx)
         if (pct != null) {

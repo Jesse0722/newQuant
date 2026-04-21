@@ -1,16 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
-  Button, Modal, Form, Input, InputNumber, Space, Card,
-  Tag, Upload, message, Popconfirm, Select, AutoComplete,
-  Segmented, Spin, Empty, Dropdown,
-  DatePicker, Tooltip, Progress,
+  Button, Modal, Form, Input, InputNumber,
+  Upload, message, Popconfirm, Select, AutoComplete,
 } from 'antd'
-import {
-  PlusOutlined, UploadOutlined, SyncOutlined, ReloadOutlined,
-  PushpinFilled, PushpinOutlined, HolderOutlined,
-  DownOutlined, StarFilled, StarOutlined,
-  EditOutlined, DeleteOutlined, RobotOutlined,
-} from '@ant-design/icons'
 import dayjs from 'dayjs'
 import * as echarts from 'echarts'
 import {
@@ -24,11 +16,22 @@ import { syncPool, getTaskStatus } from '../../api/sync'
 import { getPoolRules, createPoolRule, deleteRule, listTemplates } from '../../api/monitor'
 import type {
   Pool, WatchStock, MonitorRule, MonitorTemplate,
-  StockChartDataWithMarks, AiAnalysisResult,
+  StockChartDataWithMarks,
 } from '../../types'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
+import PoolStockDetailPanel from './PoolStockDetailPanel'
+import PoolStockListItem from './PoolStockListItem'
+import PoolSidebar from './PoolSidebar'
+import PoolToolbar from './PoolToolbar'
 
 const PAGE_SIZE = 50
+type ChartMark = Record<string, unknown>
+type ChartSeries = Record<string, unknown>
+
+interface CsvImportResult {
+  imported: number
+  skipped: number
+}
 
 const PoolList: React.FC = () => {
   const [pools, setPools] = useState<Pool[]>([])
@@ -139,11 +142,11 @@ const PoolList: React.FC = () => {
       .catch(() => {})
   }, [])
 
-  const fetchPools = async () => {
+  const fetchPools = useCallback(async () => {
     const res = await listPools()
     setPools(res.data)
     return res.data
-  }
+  }, [])
 
   const handleToggleCoreWatch = async (stock: WatchStock, starred: boolean) => {
     setCoreWatchBusyTsCode(stock.ts_code)
@@ -188,7 +191,7 @@ const PoolList: React.FC = () => {
     return listStocks(poolId, params)
   }
 
-  const loadInitial = async (poolId: string) => {
+  const loadInitial = useCallback(async (poolId: string) => {
     if (!poolId) { setStocks([]); setTotal(0); return }
     pageRef.current = 1
     setLoading(true)
@@ -200,7 +203,7 @@ const PoolList: React.FC = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   const loadMore = useCallback(async () => {
     if (loadingMore || loading || stocks.length >= total || !activePoolId) return
@@ -225,12 +228,13 @@ const PoolList: React.FC = () => {
         initialLoaded.current = true
       }
     })
-  }, [refreshCoreWatch])
+  }, [fetchPools, refreshCoreWatch])
 
   useEffect(() => {
     if (activePoolId) loadInitial(activePoolId)
   }, [
     activePoolId,
+    loadInitial,
     limitUpDateFromStr,
     limitUpDateToStr,
     sortBy,
@@ -274,7 +278,7 @@ const PoolList: React.FC = () => {
       })
       .catch(() => setChartData(null))
       .finally(() => setChartLoading(false))
-  }, [selectedCode, chartPeriod])
+  }, [selectedCode, chartPeriod, stocks])
 
   // Chart rendering with signal marks
   useEffect(() => {
@@ -293,8 +297,8 @@ const PoolList: React.FC = () => {
         itemStyle: { color: q.close >= q.open ? '#ec0000' : '#00da3c' },
       }))
 
-      const markPoints: any[] = []
-      const markLines: any[] = []
+      const markPoints: ChartMark[] = []
+      const markLines: ChartMark[] = []
       const addedDate = selectedStock?.added_at ? dayjs(selectedStock.added_at).format('YYYYMMDD') : ''
       if (addedDate && dates.includes(addedDate)) {
         const addedQuote = quotes.find(q => q.date === addedDate)
@@ -345,14 +349,14 @@ const PoolList: React.FC = () => {
         }
       }
 
-      const candleSeries: any = {
+      const candleSeries: ChartSeries = {
         name: 'K线', type: 'candlestick', data: ohlc, xAxisIndex: 0, yAxisIndex: 0,
         itemStyle: { color: '#ec0000', color0: '#00da3c', borderColor: '#ec0000', borderColor0: '#00da3c' },
       }
       if (markPoints.length > 0) candleSeries.markPoint = { data: markPoints }
       if (markLines.length > 0) candleSeries.markLine = { data: markLines, silent: true, symbol: 'none' }
 
-      const series: any[] = [
+      const series: ChartSeries[] = [
         candleSeries,
         { name: 'MA5', type: 'line', data: indicators.ma5, xAxisIndex: 0, yAxisIndex: 0, smooth: true, lineStyle: { width: 1 }, symbol: 'none' },
         { name: 'MA10', type: 'line', data: indicators.ma10, xAxisIndex: 0, yAxisIndex: 0, smooth: true, lineStyle: { width: 1 }, symbol: 'none' },
@@ -542,7 +546,7 @@ const PoolList: React.FC = () => {
 
   const handleImport = async (file: File) => {
     const res = await importCSV(activePoolId, file)
-    const r = res.data as any
+    const r = res.data as CsvImportResult
     message.success(`导入 ${r.imported} 只，跳过 ${r.skipped} 只`)
     setImportModalOpen(false)
     loadInitial(activePoolId)
@@ -641,8 +645,9 @@ const PoolList: React.FC = () => {
           : s
       )))
       message.success('AI 分析完成')
-    } catch (e: any) {
-      const msg = e?.response?.data?.message || 'AI 分析失败，请稍后重试'
+    } catch (error: unknown) {
+      const maybeResponse = (error as { response?: { data?: { message?: string } } }).response
+      const msg = maybeResponse?.data?.message || 'AI 分析失败，请稍后重试'
       message.error(msg)
     } finally {
       setAiAnalyzingStockId(null)
@@ -667,261 +672,22 @@ const PoolList: React.FC = () => {
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 300) loadMore()
   }, [hasMore, loadingMore, loading, loadMore])
 
-  const fmtLimitDate = (d?: string) => d ? `${d.slice(4, 6)}-${d.slice(6)}` : ''
-  const parseAiAnalysis = (raw?: string): AiAnalysisResult | null => {
-    if (!raw) return null
-    try {
-      return JSON.parse(raw) as AiAnalysisResult
-    } catch {
-      return null
-    }
-  }
-
-  const trendColor = (trend?: string) => {
-    if (trend === '上涨') return 'green'
-    if (trend === '下跌') return 'red'
-    return 'default'
-  }
-
-  /* ===== Render: Left panel stock item ===== */
-
   const renderStockItem = (stock: WatchStock) => {
     const isSelected = stock.ts_code === selectedCode
-    const borderColor = isSelected ? '#1677ff' : 'transparent'
     const starred = coreWatchCodes.has(stock.ts_code)
-    const starBusy = coreWatchBusyTsCode === stock.ts_code
+    const selectedRef = isSelected ? selectedItemRef : undefined
 
     return (
-      <div
+      <PoolStockListItem
         key={stock.id}
-        ref={isSelected ? selectedItemRef : undefined}
-        onClick={() => setSelectedCode(stock.ts_code)}
-        tabIndex={0}
-        style={{
-          padding: '10px 14px',
-          cursor: 'pointer',
-          borderLeft: `3px solid ${borderColor}`,
-          background: isSelected ? '#f0f5ff' : 'transparent',
-          borderBottom: '1px solid #f0f0f0',
-          transition: 'background 0.15s',
-        }}
-        onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = '#fafafa' }}
-        onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = isSelected ? '#f0f5ff' : 'transparent' }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 14 }}>
-            <Tooltip title={starred ? '取消特别关注（从核心关注移除）' : '加入核心关注'}>
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={e => {
-                  e.stopPropagation()
-                  if (!starBusy) handleToggleCoreWatch(stock, !starred)
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    if (!starBusy) handleToggleCoreWatch(stock, !starred)
-                  }
-                }}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  color: starred ? '#faad14' : '#d9d9d9',
-                  cursor: starBusy ? 'wait' : 'pointer',
-                  opacity: starBusy ? 0.5 : 1,
-                }}
-              >
-                {starred ? <StarFilled /> : <StarOutlined />}
-              </span>
-            </Tooltip>
-            {stock.stock_name || '-'}
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {stock.pinned && <PushpinFilled style={{ color: '#faad14', fontSize: 12 }} />}
-          </span>
-        </div>
-
-        <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>
-          {stock.ts_code} {stock.industry ? `· ${stock.industry}` : ''}
-          {stock.limit_up_date && <span style={{ marginLeft: 6 }}>涨停 {fmtLimitDate(stock.limit_up_date)}</span>}
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#595959' }}>
-          <span style={{ fontFamily: "'Menlo', monospace", fontWeight: 600 }}>
-            {stock.latest_price != null ? stock.latest_price.toFixed(2) : '-'}
-          </span>
-          {stock.pct_chg != null && (
-            <span style={{ fontWeight: 600, color: stock.pct_chg > 0 ? '#cf1322' : stock.pct_chg < 0 ? '#3f8600' : '#666' }}>
-              {stock.pct_chg > 0 ? '+' : ''}{stock.pct_chg.toFixed(2)}%
-            </span>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  /* ===== Render: Right detail panel ===== */
-
-  const renderDetailPanel = () => {
-    if (!selectedStock) {
-      return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#bfbfbf' }}>
-        <Empty description="从左侧列表选择一只股票" />
-      </div>
-    }
-
-    const ai = parseAiAnalysis(selectedStock.ai_analysis)
-
-    return (
-      <div style={{ overflowY: 'auto', height: '100%', padding: '0 0 16px' }}>
-        {/* Info header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Tooltip title={coreWatchCodes.has(selectedStock.ts_code) ? '取消特别关注' : '加入核心关注'}>
-              <Button
-                type="text"
-                size="large"
-                loading={coreWatchBusyTsCode === selectedStock.ts_code}
-                icon={
-                  coreWatchCodes.has(selectedStock.ts_code)
-                    ? <StarFilled style={{ color: '#faad14', fontSize: 22 }} />
-                    : <StarOutlined style={{ fontSize: 22, color: '#bfbfbf' }} />
-                }
-                onClick={() =>
-                  coreWatchBusyTsCode !== selectedStock.ts_code &&
-                  handleToggleCoreWatch(selectedStock, !coreWatchCodes.has(selectedStock.ts_code))
-                }
-                style={{ padding: '4px 8px' }}
-              />
-            </Tooltip>
-            <span style={{ fontSize: 18, fontWeight: 700 }}>{selectedStock.stock_name || selectedStock.ts_code}</span>
-            <span style={{ fontSize: 14, color: '#8c8c8c' }}>{selectedStock.ts_code}</span>
-            {selectedStock.industry && <Tag>{selectedStock.industry}</Tag>}
-          </div>
-          <Space size={4}>
-            <Tooltip title={selectedStock.pinned ? '取消置顶' : '置顶'}>
-              <Button
-                type="text"
-                size="small"
-                icon={selectedStock.pinned ? <PushpinFilled style={{ color: '#faad14' }} /> : <PushpinOutlined />}
-                onClick={() => handleTogglePin(selectedStock)}
-              />
-            </Tooltip>
-            <Tooltip title="从本池移除">
-              <Popconfirm title="确定从本池移除该股票？" onConfirm={() => handleDeleteStock(selectedStock.id)}>
-                <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-              </Popconfirm>
-            </Tooltip>
-          </Space>
-        </div>
-
-        {/* K-line chart */}
-        <Card size="small" style={{ marginBottom: 12 }} extra={
-          <Space>
-            <Segmented size="small" options={[{ label: '60日', value: 60 }, { label: '120日', value: 120 }, { label: '250日', value: 250 }]}
-              value={chartPeriod} onChange={v => setChartPeriod(v as number)} />
-            <Segmented size="small" options={[{ label: 'MACD', value: 'macd' }, { label: 'RSI', value: 'rsi' }]}
-              value={subIndicator} onChange={v => setSubIndicator(v as 'macd' | 'rsi')} />
-          </Space>
-        }>
-          {chartLoading && !chartData ? (
-            <div style={{ height: 440, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin /></div>
-          ) : (
-            <div ref={chartDivRef} style={{ width: '100%', height: 440, opacity: chartLoading ? 0.4 : 1, transition: 'opacity 0.2s' }} />
-          )}
-        </Card>
-
-        {/* 股票备注 */}
-        <Card
-          size="small"
-          title={<span style={{ fontWeight: 600, fontSize: 14, color: '#262626' }}>股票备注</span>}
-          extra={
-            <Tooltip title="编辑备注">
-              <Button type="text" size="small" icon={<EditOutlined />} onClick={openNoteModal} />
-            </Tooltip>
-          }
-          style={{
-            marginTop: 12,
-            background: '#fff',
-            border: '1px solid #f0f0f0',
-            borderRadius: 8,
-            boxShadow: 'none',
-          }}
-          styles={{ body: { paddingTop: 12 } }}
-        >
-          <div
-            style={{
-              minHeight: 80,
-              whiteSpace: 'pre-wrap',
-              lineHeight: 1.6,
-              fontSize: 14,
-              color: selectedStock.note?.trim() ? '#262626' : '#bfbfbf',
-            }}
-          >
-            {selectedStock.note?.trim() ? selectedStock.note : '暂无备注'}
-          </div>
-        </Card>
-
-        <Card
-          size="small"
-          title={<span style={{ fontWeight: 600, fontSize: 14, color: '#262626' }}>AI 智能分析</span>}
-          extra={
-            <Tooltip title="分析当前股票">
-              <Button
-                type="text"
-                size="small"
-                icon={<RobotOutlined />}
-                loading={aiAnalyzingStockId === selectedStock.id}
-                onClick={handleAnalyzeStock}
-              />
-            </Tooltip>
-          }
-          style={{
-            marginTop: 12,
-            background: '#fff',
-            border: '1px solid #f0f0f0',
-            borderRadius: 8,
-            boxShadow: 'none',
-          }}
-          styles={{ body: { paddingTop: 12 } }}
-        >
-          {!ai ? (
-            <div style={{ color: '#8c8c8c', minHeight: 80, lineHeight: 1.8 }}>
-              点击右上角按钮进行 AI 分析，结果将独立保存，不覆盖手动备注。
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Progress
-                  type="dashboard"
-                  size={72}
-                  percent={Math.max(0, Math.min(100, (Number(ai.score) || 0) * 10))}
-                  format={() => `${ai.score || 0}/10`}
-                />
-                <div>
-                  <div style={{ marginBottom: 4 }}>
-                    <Tag color={trendColor(ai.trend)}>{ai.trend || '震荡'}</Tag>
-                  </div>
-                  <div style={{ color: '#8c8c8c', fontSize: 12 }}>
-                    分析时间：{selectedStock.ai_analyzed_at ? dayjs(selectedStock.ai_analyzed_at).format('YYYY-MM-DD HH:mm:ss') : '-'}
-                  </div>
-                </div>
-              </div>
-              <div style={{ lineHeight: 1.8, fontSize: 14 }}>
-                <div><span style={{ color: '#8c8c8c' }}>技术面：</span>{ai.技术面 || '-'}</div>
-                <div><span style={{ color: '#8c8c8c' }}>基本面：</span>{ai.基本面 || '-'}</div>
-                <div><span style={{ color: '#8c8c8c' }}>量能：</span>{ai.量能 || '-'}</div>
-                <div><span style={{ color: '#8c8c8c' }}>风险提示：</span>{ai.风险提示 || '-'}</div>
-                <div><span style={{ color: '#8c8c8c' }}>操作建议：</span>{ai.操作建议 || '-'}</div>
-              </div>
-              <div style={{ fontWeight: 600, color: '#262626' }}>
-                总结：{ai.summary || '-'}
-              </div>
-            </div>
-          )}
-        </Card>
-      </div>
+        stock={stock}
+        isSelected={isSelected}
+        isStarred={starred}
+        isStarBusy={coreWatchBusyTsCode === stock.ts_code}
+        onSelect={setSelectedCode}
+        onToggleCoreWatch={handleToggleCoreWatch}
+        selectedItemRef={selectedRef}
+      />
     )
   }
 
@@ -929,175 +695,89 @@ const PoolList: React.FC = () => {
 
   return (
     <div style={{ height: 'calc(100vh - 112px)', display: 'flex', flexDirection: 'column' }}>
-      {/* Top bar: pool tabs + toolbar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexShrink: 0 }}>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1, minWidth: 0 }}
-          onDragEnd={handleTabDragEnd} onDragLeave={handleTabDragLeave}>
-          {pools.map((p, i) => (
-            <div key={p.id} draggable onDragStart={e => handleTabDragStart(e, i)} onDragOver={e => handleTabDragOver(e, i)}
-              onDrop={e => handleTabDrop(e, i)} onClick={() => setActivePoolId(p.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: 13,
-                cursor: 'pointer', userSelect: 'none', borderRadius: 6,
-                background: activePoolId === p.id ? '#1677ff' : dragOverIndex === i ? '#e6f7ff' : '#f5f5f5',
-                color: activePoolId === p.id ? '#fff' : '#333',
-                fontWeight: activePoolId === p.id ? 600 : 400, transition: 'all 0.15s',
-              }}>
-              <HolderOutlined style={{ fontSize: 10, opacity: 0.4, cursor: 'grab' }} />
-              <span>{p.name}</span>
-              <span style={{ opacity: 0.6, fontSize: 12 }}>({p.stock_count})</span>
-              <span onClick={e => { e.stopPropagation(); handleDeletePool(p.id) }}
-                style={{ marginLeft: 2, cursor: 'pointer', opacity: 0.4, fontSize: 11, lineHeight: 1 }}>×</span>
-            </div>
-          ))}
-          <div onClick={handleAddPool} style={{ padding: '4px 10px', fontSize: 13, cursor: 'pointer', borderRadius: 6, border: '1px dashed #d9d9d9', color: '#999' }}>+ 新建</div>
-        </div>
-        {activePool && (
-          <Space size="small" style={{ flexShrink: 0, marginLeft: 8 }}>
-            <Button size="small" icon={<SyncOutlined spin={syncing} />} loading={syncing} onClick={handleSync}>同步</Button>
-            <Button size="small" onClick={openEditPoolModal}>编辑池</Button>
-            <Button size="small" icon={<ReloadOutlined />} onClick={() => loadInitial(activePoolId)} />
-          </Space>
-        )}
-      </div>
+      <PoolToolbar
+        activePool={activePool}
+        activePoolId={activePoolId}
+        dragOverIndex={dragOverIndex}
+        onAddPool={handleAddPool}
+        onDeletePool={handleDeletePool}
+        onDragEnd={handleTabDragEnd}
+        onDragLeave={handleTabDragLeave}
+        onDragOver={handleTabDragOver}
+        onDragStart={handleTabDragStart}
+        onDrop={handleTabDrop}
+        onEditPool={openEditPoolModal}
+        onReload={() => loadInitial(activePoolId)}
+        onSelectPool={setActivePoolId}
+        onSync={handleSync}
+        pools={pools}
+        syncing={syncing}
+      />
 
       {/* Main body: left-right split */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, border: '1px solid #f0f0f0', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
-        {/* Left panel: filters + stock list */}
-        <div style={{ width: 340, minWidth: 280, maxWidth: 380, flexShrink: 0, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column' }}>
-          {/* 股票筛选：独立区域 */}
-          <div
-            style={{
-              flexShrink: 0,
-              padding: '10px 12px 12px',
-              background: '#fafafa',
-              borderBottom: '1px solid #f0f0f0',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#262626' }}>股票筛选</span>
-              <Dropdown
-                trigger={['click']}
-                menu={{
-                  items: [
-                    {
-                      key: 'add',
-                      label: '添加股票',
-                      icon: <PlusOutlined />,
-                      onClick: () => setAddModalOpen(true),
-                    },
-                    {
-                      key: 'import',
-                      label: 'CSV 批量导入',
-                      icon: <UploadOutlined />,
-                      onClick: () => setImportModalOpen(true),
-                    },
-                    {
-                      key: 'export',
-                      label: '导出 CSV',
-                      onClick: handleExport,
-                    },
-                  ],
-                }}
-              >
-                <Button size="small">
-                  操作 <DownOutlined style={{ fontSize: 10 }} />
-                </Button>
-              </Dropdown>
-            </div>
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
-              {(activePool?.name?.includes('涨停') ?? false) && (
-                <DatePicker.RangePicker
-                  size="small"
-                  style={{ width: '100%' }}
-                  placeholder={['涨停起始日', '涨停截止日']}
-                  value={limitUpDateFrom && limitUpDateTo ? [limitUpDateFrom, limitUpDateTo] : null}
-                  onChange={dates => {
-                    setLimitUpDateFrom(dates?.[0] ?? null)
-                    setLimitUpDateTo(dates?.[1] ?? null)
-                  }}
-                  allowClear
-                />
-              )}
-              <Select
-                size="small"
-                value={`${sortBy}-${sortOrder}`}
-                onChange={v => {
-                  const [s, o] = v.split('-') as ['created_at' | 'limit_up_date', 'asc' | 'desc']
-                  setSortBy(s)
-                  setSortOrder(o)
-                }}
-                style={{ width: '100%' }}
-                options={[
-                  { value: 'limit_up_date-desc', label: '排序：涨停日 新→旧' },
-                  { value: 'limit_up_date-asc', label: '排序：涨停日 旧→新' },
-                  { value: 'created_at-desc', label: '排序：加入时间 新→旧' },
-                  { value: 'created_at-asc', label: '排序：加入时间 旧→新' },
-                ]}
-              />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: '#595959' }}>股价</span>
-                <InputNumber size="small" placeholder="低" min={0} value={priceMin ?? undefined} onChange={v => setPriceMin(typeof v === 'number' ? v : null)} style={{ width: 72 }} />
-                <InputNumber size="small" placeholder="高" min={0} value={priceMax ?? undefined} onChange={v => setPriceMax(typeof v === 'number' ? v : null)} style={{ width: 72 }} />
-                <Tooltip title="按最新收盘价×流通股本（万股）估算流通市值，单位亿元；需已同步日线/daily_basic 数据">
-                  <span style={{ fontSize: 12, color: '#595959', cursor: 'help' }}>市值(亿)</span>
-                </Tooltip>
-                <InputNumber size="small" placeholder="低" min={0} value={circMvMin ?? undefined} onChange={v => setCircMvMin(typeof v === 'number' ? v : null)} style={{ width: 72 }} />
-                <InputNumber size="small" placeholder="高" min={0} value={circMvMax ?? undefined} onChange={v => setCircMvMax(typeof v === 'number' ? v : null)} style={{ width: 72 }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 12, color: '#595959' }}>涨停次数（选日期区间后可填次数上下限）</span>
-                <DatePicker.RangePicker
-                  size="small"
-                  style={{ width: '100%' }}
-                  placeholder={['统计起始日', '统计截止日']}
-                  value={limitUpStatsFrom && limitUpStatsTo ? [limitUpStatsFrom, limitUpStatsTo] : null}
-                  onChange={dates => {
-                    setLimitUpStatsFrom(dates?.[0] ?? null)
-                    setLimitUpStatsTo(dates?.[1] ?? null)
-                  }}
-                  allowClear
-                />
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, color: '#8c8c8c' }}>次数</span>
-                  <InputNumber size="small" placeholder="最少" min={0} value={limitUpCountMin ?? undefined} onChange={v => setLimitUpCountMin(typeof v === 'number' ? v : null)} style={{ width: 80 }} />
-                  <InputNumber size="small" placeholder="最多" min={0} value={limitUpCountMax ?? undefined} onChange={v => setLimitUpCountMax(typeof v === 'number' ? v : null)} style={{ width: 80 }} />
-                </div>
-              </div>
-            </Space>
-          </div>
-
-          {/* Stock count */}
-          <div style={{
-            padding: '8px 14px', borderBottom: '1px solid #f0f0f0',
-            fontSize: 13, color: '#8c8c8c', flexShrink: 0,
-          }}>
-            {stocks.length} 只股票
-            <span style={{ float: 'right', color: '#bfbfbf', fontSize: 12 }}>↑↓ 切换</span>
-          </div>
-
-          {/* Stock list */}
-          <div ref={listRef} onScroll={onListScroll} style={{ flex: 1, overflowY: 'auto' }}>
-            {loading ? (
-              <div style={{ padding: 48, textAlign: 'center' }}><Spin /></div>
-            ) : stocks.length === 0 ? (
-              <Empty description={activePool ? '暂无匹配股票' : '请选择或创建观察池'} style={{ padding: 48 }} />
-            ) : (
-              <>
-                {stocks.map(s => renderStockItem(s))}
-                {hasMore && (
-                  <div style={{ textAlign: 'center', padding: 10 }}>
-                    {loadingMore ? <Spin size="small" /> : <Button type="link" size="small" onClick={loadMore}>加载更多 ({stocks.length}/{total})</Button>}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
+        <PoolSidebar
+          activePool={activePool}
+          circMvMax={circMvMax}
+          circMvMin={circMvMin}
+          hasMore={hasMore}
+          limitUpCountMax={limitUpCountMax}
+          limitUpCountMin={limitUpCountMin}
+          limitUpDateFrom={limitUpDateFrom}
+          limitUpDateTo={limitUpDateTo}
+          limitUpStatsFrom={limitUpStatsFrom}
+          limitUpStatsTo={limitUpStatsTo}
+          listRef={listRef}
+          loading={loading}
+          loadingMore={loadingMore}
+          onAddStock={() => setAddModalOpen(true)}
+          onExport={handleExport}
+          onImport={() => setImportModalOpen(true)}
+          onListScroll={onListScroll}
+          onLoadMore={loadMore}
+          onRenderStockItem={renderStockItem}
+          onSetCircMvMax={setCircMvMax}
+          onSetCircMvMin={setCircMvMin}
+          onSetLimitUpCountMax={setLimitUpCountMax}
+          onSetLimitUpCountMin={setLimitUpCountMin}
+          onSetLimitUpDateFrom={setLimitUpDateFrom}
+          onSetLimitUpDateTo={setLimitUpDateTo}
+          onSetLimitUpStatsFrom={setLimitUpStatsFrom}
+          onSetLimitUpStatsTo={setLimitUpStatsTo}
+          onSetPriceMax={setPriceMax}
+          onSetPriceMin={setPriceMin}
+          onSetSort={(nextSortBy, nextSortOrder) => {
+            setSortBy(nextSortBy)
+            setSortOrder(nextSortOrder)
+          }}
+          priceMax={priceMax}
+          priceMin={priceMin}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          stocks={stocks}
+          total={total}
+        />
 
         {/* Right panel: detail */}
         <div style={{ flex: 1, minWidth: 0, padding: '12px 16px', overflowY: 'auto' }}>
-          {renderDetailPanel()}
+          <PoolStockDetailPanel
+            aiAnalyzingStockId={aiAnalyzingStockId}
+            chartData={chartData}
+            chartLoading={chartLoading}
+            chartPeriod={chartPeriod}
+            chartRef={chartDivRef}
+            coreWatchBusyTsCode={coreWatchBusyTsCode}
+            coreWatchCodes={coreWatchCodes}
+            onAnalyzeStock={handleAnalyzeStock}
+            onDeleteStock={handleDeleteStock}
+            onEditNote={openNoteModal}
+            onSetChartPeriod={setChartPeriod}
+            onSetSubIndicator={setSubIndicator}
+            onToggleCoreWatch={handleToggleCoreWatch}
+            onTogglePin={handleTogglePin}
+            selectedStock={selectedStock}
+            subIndicator={subIndicator}
+          />
         </div>
       </div>
 

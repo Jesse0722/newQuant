@@ -1,8 +1,14 @@
+export type JsonPrimitive = string | number | boolean | null
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[]
+export interface JsonObject {
+  [key: string]: JsonValue
+}
+
 export interface Pool {
   id: string
   name: string
   description?: string
-  default_monitor_rule?: Record<string, any>
+  default_monitor_rule?: JsonObject
   trigger_target_pool_id?: string
   stock_count: number
   created_at: string
@@ -78,7 +84,7 @@ export interface StockAlertItem {
   id: string
   trigger_date: string
   status: string
-  snapshot?: Record<string, any>
+  snapshot?: JsonObject & { close?: number }
   created_at: string
 }
 
@@ -95,7 +101,7 @@ export interface MonitorTemplate {
   id: string
   name: string
   description: string
-  default_params: Record<string, any>
+  default_params: JsonObject
 }
 
 export interface MonitorRule {
@@ -104,7 +110,7 @@ export interface MonitorRule {
   stock_id?: string
   template_id?: string
   template_name?: string
-  params?: Record<string, any>
+  params?: JsonObject
   logic: string
   is_active: boolean
   created_at: string
@@ -123,12 +129,12 @@ export interface Alert {
   strategy_name?: string
   latest_price?: number
   pct_chg?: number
-  buy_signal?: Record<string, any>
-  scan_meta?: Record<string, any>
+  buy_signal?: Partial<BuySignal>
+  scan_meta?: JsonObject & { intraday_provisional?: boolean }
   trigger_date: string
   status: string
   plan_id?: string
-  snapshot?: Record<string, any>
+  snapshot?: JsonObject & { close?: number }
   created_at: string
 }
 

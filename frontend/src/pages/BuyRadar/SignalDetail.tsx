@@ -16,6 +16,9 @@ const STATUS_LABELS: Record<string, { text: string; color: string }> = {
   invalidated: { text: '已失效', color: '#bfbfbf' },
 }
 
+type ChartMark = Record<string, unknown>
+type ChartSeries = Record<string, unknown>
+
 interface Props {
   signal: BuySignal | null
   coreWatchCodes: Set<string>
@@ -41,7 +44,7 @@ const SignalDetail: React.FC<Props> = ({
     getStockChartWithMarks(signal.ts_code, period, signal.life_line_date || undefined).then((res) =>
       setChartData(res.data)
     )
-  }, [signal?.ts_code, signal?.life_line_date, period])
+  }, [signal, period])
 
   const renderChart = useCallback(() => {
     if (!chartRef.current || !chartData || chartData.quotes.length === 0) return
@@ -64,8 +67,8 @@ const SignalDetail: React.FC<Props> = ({
     const gridSub = { left: 60, right: 20, top: '74%', height: '18%' }
 
     // K线标注
-    const markPoints: any[] = []
-    const markLines: any[] = []
+    const markPoints: ChartMark[] = []
+    const markLines: ChartMark[] = []
 
     if (signal_marks) {
       for (const mark of signal_marks) {
@@ -102,14 +105,14 @@ const SignalDetail: React.FC<Props> = ({
       }
     }
 
-    const candleSeries: any = {
+    const candleSeries: ChartSeries = {
       name: 'K线', type: 'candlestick', data: ohlc, xAxisIndex: 0, yAxisIndex: 0,
       itemStyle: { color: '#ec0000', color0: '#00da3c', borderColor: '#ec0000', borderColor0: '#00da3c' },
     }
     if (markPoints.length > 0) candleSeries.markPoint = { data: markPoints }
     if (markLines.length > 0) candleSeries.markLine = { data: markLines, silent: true, symbol: 'none' }
 
-    const series: any[] = [
+    const series: ChartSeries[] = [
       candleSeries,
       { name: 'MA5', type: 'line', data: indicators.ma5, xAxisIndex: 0, yAxisIndex: 0, smooth: true, lineStyle: { width: 1 }, symbol: 'none' },
       { name: 'MA10', type: 'line', data: indicators.ma10, xAxisIndex: 0, yAxisIndex: 0, smooth: true, lineStyle: { width: 1 }, symbol: 'none' },

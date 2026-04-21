@@ -7,6 +7,14 @@ import { syncFullMarket, getTaskStatus } from '../../api/sync'
 import { collectLimitUp } from '../../api/strategy'
 import type { DataSummary, SyncHistoryItem, SyncOverview } from '../../types'
 
+interface ApiErrorLike {
+  response?: {
+    data?: {
+      message?: string
+    }
+  }
+}
+
 const DataPage: React.FC = () => {
   const [summary, setSummary] = useState<DataSummary | null>(null)
   const [loading, setLoading] = useState(false)
@@ -48,8 +56,9 @@ const DataPage: React.FC = () => {
     try {
       const res = await checkTushare()
       setTushareCheck(res.data)
-    } catch (e: any) {
-      message.error(e.response?.data?.message || '检查失败')
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '检查失败')
     }
   }
 
@@ -102,8 +111,9 @@ const DataPage: React.FC = () => {
       setDataProviderState(provider)
       message.success(`主数据源已切换为 ${provider}`)
       await handleCheckTushare()
-    } catch (e: any) {
-      message.error(e.response?.data?.message || '切换数据源失败')
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '切换数据源失败')
     } finally {
       setSwitchingProvider(false)
     }
@@ -146,9 +156,10 @@ const DataPage: React.FC = () => {
     try {
       const res = await syncFullMarket(fullMarketDays)
       setTaskId(res.data.task_id)
-    } catch (e: any) {
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
       setSyncing(false)
-      message.error(e.response?.data?.message || '启动同步失败')
+      message.error(apiError.response?.data?.message || '启动同步失败')
     }
   }
 
@@ -164,8 +175,9 @@ const DataPage: React.FC = () => {
         dates_processed: res.data.dates_processed || [],
       })
       message.success(`涨停筛选完成：新增 ${res.data.added} 只，更新 ${res.data.updated} 只`)
-    } catch (e: any) {
-      message.error(e.response?.data?.message || '涨停筛选失败')
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '涨停筛选失败')
     } finally {
       setLimitUpCollecting(false)
     }
@@ -369,22 +381,22 @@ const DataPage: React.FC = () => {
             {
               title: '成功',
               key: 'success_count',
-              render: (_: any, r: SyncHistoryItem) => (r.result?.success_count ?? 0).toLocaleString(),
+              render: (_: unknown, r: SyncHistoryItem) => (r.result?.success_count ?? 0).toLocaleString(),
             },
             {
               title: '失败',
               key: 'failed_count',
-              render: (_: any, r: SyncHistoryItem) => (r.result?.failed_count ?? 0).toLocaleString(),
+              render: (_: unknown, r: SyncHistoryItem) => (r.result?.failed_count ?? 0).toLocaleString(),
             },
             {
               title: '跳过',
               key: 'skipped_count',
-              render: (_: any, r: SyncHistoryItem) => (r.result?.skipped_count ?? 0).toLocaleString(),
+              render: (_: unknown, r: SyncHistoryItem) => (r.result?.skipped_count ?? 0).toLocaleString(),
             },
             {
               title: '任务说明',
               key: 'message',
-              render: (_: any, r: SyncHistoryItem) => r.result?.message || '-',
+              render: (_: unknown, r: SyncHistoryItem) => r.result?.message || '-',
             },
             {
               title: '完成时间',

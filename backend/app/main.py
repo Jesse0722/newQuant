@@ -3,23 +3,22 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import init_db
-from app.tasks.scheduler import start_scheduler, stop_scheduler
+from app.bootstrap import initialize_application, shutdown_application
+from app.config import CORS_ALLOW_CREDENTIALS, CORS_ORIGINS
 from app.exceptions import AppError, app_error_handler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    start_scheduler()
+    initialize_application()
     yield
-    stop_scheduler()
+    shutdown_application()
 
 app = FastAPI(title="量化交易系统", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
