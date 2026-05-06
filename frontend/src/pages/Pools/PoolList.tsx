@@ -133,6 +133,7 @@ const PoolList: React.FC = () => {
   const selectedStock = stocks.find(s => s.ts_code === selectedCode) || null
   const selectedIndex = stocks.findIndex(s => s.ts_code === selectedCode)
   const hasMore = stocks.length > 0 && stocks.length < total
+  const selectedLimitUpDate = selectedStock?.limit_up_date || undefined
 
   /* ===== Data Fetching ===== */
 
@@ -259,26 +260,13 @@ const PoolList: React.FC = () => {
   useEffect(() => {
     if (!selectedCode) return
     setChartLoading(true)
-    const stock = stocks.find(s => s.ts_code === selectedCode)
-    getStockChartWithMarks(selectedCode, chartPeriod, stock?.limit_up_date || undefined)
+    getStockChartWithMarks(selectedCode, chartPeriod, selectedLimitUpDate)
       .then(res => {
         setChartData(res.data)
-        const last = res.data?.quotes?.[res.data.quotes.length - 1]
-        if (!last) return
-        setStocks(prev => prev.map(s => (
-          s.ts_code === selectedCode
-            ? {
-                ...s,
-                latest_price: typeof last.close === 'number' ? last.close : s.latest_price,
-                pct_chg: typeof last.pct_chg === 'number' ? last.pct_chg : s.pct_chg,
-                trade_date: last.date || s.trade_date,
-              }
-            : s
-        )))
       })
       .catch(() => setChartData(null))
       .finally(() => setChartLoading(false))
-  }, [selectedCode, chartPeriod, stocks])
+  }, [selectedCode, chartPeriod, selectedLimitUpDate])
 
   // Chart rendering with signal marks
   useEffect(() => {

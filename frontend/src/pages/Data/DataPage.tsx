@@ -47,9 +47,9 @@ const DataPage: React.FC = () => {
     proxy_configured: boolean
     api_test: string
     rows_returned?: number
-    data_provider?: 'tushare' | 'akshare' | 'composite'
+    data_provider?: 'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite'
   } | null>(null)
-  const [dataProvider, setDataProviderState] = useState<'tushare' | 'akshare' | 'composite'>('composite')
+  const [dataProvider, setDataProviderState] = useState<'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite'>('composite')
   const [switchingProvider, setSwitchingProvider] = useState(false)
 
   const handleCheckTushare = async () => {
@@ -104,7 +104,7 @@ const DataPage: React.FC = () => {
     fetchDataProvider()
   }, [])
 
-  const handleSwitchProvider = async (provider: 'tushare' | 'akshare' | 'composite') => {
+  const handleSwitchProvider = async (provider: 'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite') => {
     setSwitchingProvider(true)
     try {
       await setDataProvider(provider)
@@ -194,13 +194,15 @@ const DataPage: React.FC = () => {
           <Space>
             <Space>
               <span>主数据源</span>
-              <Select<'tushare' | 'akshare' | 'composite'>
+              <Select<'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite'>
                 size="small"
                 style={{ width: 140 }}
                 value={dataProvider}
                 loading={switchingProvider}
                 onChange={handleSwitchProvider}
                 options={[
+                  { value: 'tencent', label: 'tencent' },
+                  { value: 'baostock', label: 'baostock' },
                   { value: 'tushare', label: 'tushare' },
                   { value: 'akshare', label: 'akshare' },
                   { value: 'composite', label: 'composite' },

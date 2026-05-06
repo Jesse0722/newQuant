@@ -58,7 +58,7 @@ python scripts/run_scheduler.py
 
 后端配置请参考 [backend/.env.example](/Users/lijiajun/ai-coding/newQuant/backend/.env.example)。
 
-- `DATA_PROVIDER`: `akshare`、`tushare` 或 `composite`
+- `DATA_PROVIDER`: `tencent`、`baostock`、`akshare`、`tushare` 或 `composite`
 - `TUSHARE_TOKEN`: 使用 Tushare 时必填
 - `TUSHARE_API_URL`: 代理或镜像地址，可选
 - `DATABASE_URL`: 数据库连接串

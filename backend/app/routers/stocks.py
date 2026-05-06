@@ -12,9 +12,8 @@ from app.schemas.trade import TradeDetailCreate, TradeDetailOut
 from app.services.indicator import calc_ma, calc_macd, calc_rsi
 from app.services.buy_signal_service import get_signal_marks
 from app.services.sync_service import sync_stock_info, sync_daily
-from app.services.trade_date_resolver import TradeDateResolutionError, resolve_dashboard_trade_date
-from app.services.trading_session import shanghai_trade_date_str
-from app.services.tushare_adapter import tushare_adapter, TushareAdapter, AkshareAdapter
+from app.services.trading_session import shanghai_trade_date_str, latest_daily_k_trade_date_str
+from app.services.tushare_adapter import tushare_adapter, TencentAdapter, BaoStockAdapter, AkshareAdapter
 from app.exceptions import AppError
 import pandas as pd
 import numpy as np
@@ -105,8 +104,8 @@ def _backfill_sparse_chart_from_remote(db: Session, ts_code: str, base_df: pd.Da
 
     start_date = (datetime.now() - timedelta(days=max(420, period * 4))).strftime("%Y%m%d")
     end_date = shanghai_trade_date_str()
-    # 优先强制 Tushare（历史日线稳定），其次路由源，再降级 AkShare。
-    providers = [TushareAdapter(), tushare_adapter, AkshareAdapter()]
+    # 优先免费源：腾讯日K直连，其次当前路由源，再降级 BaoStock/AkShare。
+    providers = [TencentAdapter(), tushare_adapter, BaoStockAdapter(), AkshareAdapter()]
     remote = pd.DataFrame()
     for p in providers:
         try:
@@ -191,13 +190,11 @@ def _sync_stock_kline_job(ts_code: str) -> tuple[int | None, Exception | None]:
 def _ensure_latest_kline(db: Session, ts_code: str) -> dict:
     """
     详情查询前自动增量补齐该股票日线到最新可用交易日。
-    失败或超时时降级为返回本地已有数据，避免源站阻塞导致图表长时间无响应。
-    是否「已最新」与仪表盘一致：按上海时区 + 交易日历得到目标 trade_date，而非服务器本地日历日。
+    仅同步日线，不再额外做实时/日内K线补数。
     """
-    try:
-        target_latest = resolve_dashboard_trade_date()
-    except TradeDateResolutionError:
-        target_latest = shanghai_trade_date_str()
+    # 这里不再依赖远端交易日历判断“是否最新”。
+    # 当上游日历源异常或滞后时，会误把旧日期认成最新，导致自动补齐完全不触发。
+    target_latest = latest_daily_k_trade_date_str()
     latest = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
     if latest and latest >= target_latest:
         return {
@@ -216,11 +213,10 @@ def _ensure_latest_kline(db: Session, ts_code: str) -> dict:
             return {
                 "auto_sync_attempted": True,
                 "status": "sync_failed",
-                "message": "自动补齐超时，已返回本地已有 K 线（可稍后在数据页全量同步）",
+                "message": "自动补齐超时，已返回本地已有 K 线",
                 "latest_trade_date": latest_after or latest,
             }
     finally:
-        # 勿用 with ThreadPoolExecutor：退出时 shutdown(wait=True) 会在超时后仍等待后台线程，请求永久挂起
         ex.shutdown(wait=False)
 
     if err is not None:
@@ -232,6 +228,16 @@ def _ensure_latest_kline(db: Session, ts_code: str) -> dict:
             "latest_trade_date": latest_after or latest,
         }
     latest_after = db.query(func.max(DailyQuote.trade_date)).filter(DailyQuote.ts_code == ts_code).scalar()
+    if (added or 0) <= 0 and (latest_after or latest or "") < target_latest:
+        stale_date = latest_after or latest
+        return {
+            "auto_sync_attempted": True,
+            "status": "sync_failed",
+            "message": "自动补齐未拿到新数据，当前数据仍未更新到最新交易日",
+            "latest_trade_date": stale_date,
+            "target_trade_date": target_latest,
+            "added_count": int(added or 0),
+        }
     return {
         "auto_sync_attempted": True,
         "status": "updated" if (added or 0) > 0 else "up_to_date",
@@ -247,7 +253,7 @@ def get_stock_chart(
     period: int = Query(120, ge=10, le=500),
     mark_signals: bool = Query(False, description="是否返回买点标注数据"),
     limit_up_date: str = Query(None, description="涨停日期，用于标注生命线"),
-    auto_sync_latest: bool = Query(True, description="查询前是否自动补齐最新K线"),
+    auto_sync_latest: bool = Query(True, description="查询前是否自动补齐最新日K"),
     db: Session = Depends(get_db),
 ):
     basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
@@ -282,39 +288,6 @@ def get_stock_chart(
         df = _backfill_sparse_chart_from_remote(db, ts_code, df, period)
     if df.empty:
         return {"basic": _basic_dict(basic), "quotes": [], "indicators": {}}
-
-    def _fetch_daily_basic_bounded() -> pd.DataFrame:
-        start_date = str(df["date"].iloc[0])
-        end_date = str(df["date"].iloc[-1])
-        ex = ThreadPoolExecutor(max_workers=1)
-        try:
-            fut = ex.submit(
-                tushare_adapter.get_daily_basic,
-                ts_code,
-                start_date,
-                end_date,
-            )
-            try:
-                return fut.result(timeout=12.0)
-            except FutureTimeout:
-                return pd.DataFrame()
-        finally:
-            ex.shutdown(wait=False)
-
-    # 仅当本地仍有缺失换手率时再请求 Tushare，且带超时，避免图表接口被网络挂死
-    if df["turnover_rate"].isna().any():
-        try:
-            basic_df = _fetch_daily_basic_bounded()
-            if not basic_df.empty and "trade_date" in basic_df.columns and "turnover_rate" in basic_df.columns:
-                turnover_map = {
-                    str(row["trade_date"]): row["turnover_rate"]
-                    for _, row in basic_df.iterrows()
-                    if row.get("trade_date") is not None
-                }
-                fill = df["date"].map(turnover_map)
-                df["turnover_rate"] = df["turnover_rate"].where(~df["turnover_rate"].isna(), fill)
-        except Exception:
-            pass
 
     ma5 = _nan_to_none(calc_ma(df, 5))
     ma10 = _nan_to_none(calc_ma(df, 10))

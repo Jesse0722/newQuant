@@ -12,7 +12,7 @@ from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchStock
 from app.models.sync_log import SyncLog
 from app.services.tushare_adapter import tushare_adapter
-from app.services.trading_session import shanghai_trade_date_str
+from app.services.trading_session import shanghai_trade_date_str, latest_daily_k_trade_date_str
 from app.tasks.background import task_registry
 
 
@@ -109,11 +109,22 @@ def sync_daily(db: Session, ts_code: str, days: int = 250):
     else:
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
 
-    end_date = shanghai_trade_date_str()
+    end_date = latest_daily_k_trade_date_str()
     if start_date > end_date:
         return 0
 
     df = tushare_adapter.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+    if df.empty:
+        return 0
+    if "ts_code" in df.columns:
+        df = df.copy()
+        df["ts_code"] = df["ts_code"].astype(str).str.strip().str.upper()
+        df = df[df["ts_code"] == ts_code.upper()]
+    if "trade_date" in df.columns:
+        df = df.copy()
+        df["trade_date"] = df["trade_date"].astype(str).str.strip()
+        df = df[df["trade_date"].str.match(r"^\d{8}$", na=False)]
+    df = df.dropna(subset=["ts_code", "trade_date"]) if {"ts_code", "trade_date"}.issubset(df.columns) else df
     if df.empty:
         return 0
 

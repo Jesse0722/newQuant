@@ -26,7 +26,7 @@ class ProviderSwitchBody(BaseModel):
 def get_provider():
     return {
         "provider": get_current_provider_name(),
-        "options": ["tushare", "akshare", "composite"],
+        "options": ["tencent", "baostock", "tushare", "akshare", "composite"],
         "composite_order": COMPOSITE_ORDER,
     }
 
@@ -54,7 +54,7 @@ def check_tushare():
         "proxy_url": TUSHARE_API_URL[:80] + "..." if TUSHARE_API_URL and len(TUSHARE_API_URL) > 80 else (TUSHARE_API_URL or "(未配置，走官方 api.waditu.com/dataapi)"),
         "data_provider": provider,
         "composite_order": COMPOSITE_ORDER,
-        "hint": "akshare / composite 不要求 token；仅 data_provider=tushare 时必须先配置 TUSHARE_TOKEN。",
+        "hint": "tencent / baostock / akshare / composite 不要求 token；仅 data_provider=tushare 时必须先配置 TUSHARE_TOKEN。",
         "api_test": None,
         "rows_returned": None,
         "calendar_test": None,
@@ -63,8 +63,8 @@ def check_tushare():
     if provider == "tushare" and not token_ok:
         result["api_test"] = "token 未配置或过短，请在 backend/.env 设置 TUSHARE_TOKEN"
         return result
-    if provider in ("akshare", "composite") and not token_ok:
-        result["token_note"] = "未配置 TUSHARE_TOKEN：若仅用 AkShare 可忽略；composite 回退到 Tushare 时需要 token。"
+    if provider in ("tencent", "baostock", "akshare", "composite") and not token_ok:
+        result["token_note"] = "未配置 TUSHARE_TOKEN：若仅用 BaoStock/AkShare 可忽略；composite 回退到 Tushare 时需要 token。"
 
     try:
         df = tushare_adapter.get_daily("000001.SZ", start_date="20240101", end_date="20240105")

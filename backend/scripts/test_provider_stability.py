@@ -3,6 +3,7 @@
 对各 MarketDataProvider 做端到端稳定性探测（需网络）。
 
 用法（在 backend 目录、已激活 venv）:
+  DATA_PROVIDER=baostock python scripts/test_provider_stability.py
   DATA_PROVIDER=akshare python scripts/test_provider_stability.py
   DATA_PROVIDER=tushare python scripts/test_provider_stability.py
   DATA_PROVIDER=composite python scripts/test_provider_stability.py
@@ -28,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.config import DATA_PROVIDER  # noqa: E402
 from app.services.tushare_adapter import (  # noqa: E402
     AkshareAdapter,
+    BaoStockAdapter,
     CompositeAdapter,
     ProviderRouter,
     TushareAdapter,
@@ -124,6 +126,7 @@ def main() -> int:
 
     if full_layers:
         for label, ctor in (
+            ("BaoStockAdapter", lambda: BaoStockAdapter()),
             ("AkshareAdapter", lambda: AkshareAdapter()),
             ("TushareAdapter", lambda: TushareAdapter()),
         ):
