@@ -212,11 +212,39 @@ export interface DashboardLimitLadderRow {
   nums: string
 }
 
+export interface DashboardFlowSectorRow {
+  rank?: string | null
+  name: string
+  trade_date?: string | null
+  up_nums?: number | null
+  down_nums?: number | null
+  pct_chg?: number | null
+  cons_nums?: number | null
+  max_limit_times?: number | null
+  up_stat?: string | null
+}
+
+export interface DashboardSummary {
+  inflow_sector_count: number
+  outflow_sector_count: number
+  inflow_limit_count: number
+  outflow_limit_count: number
+  net_limit_count: number
+  flow_ratio?: number | null
+  max_up_streak: number
+  max_down_streak: number
+}
+
 export interface DashboardData {
   trade_date: string
   resolved_by: 'default' | 'query'
   sectors: DashboardLimitSectorRow[]
   ladder: DashboardLimitLadderRow[]
+  inflow_sectors?: DashboardFlowSectorRow[]
+  inflow_ladder?: DashboardLimitLadderRow[]
+  outflow_sectors?: DashboardFlowSectorRow[]
+  outflow_ladder?: DashboardLimitLadderRow[]
+  summary?: DashboardSummary
 }
 
 export interface TaskStatus {
