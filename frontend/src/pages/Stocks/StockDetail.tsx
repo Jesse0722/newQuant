@@ -5,7 +5,7 @@ import {
   Modal, Form, Input, InputNumber, Select, DatePicker, message, Upload, Popconfirm,
 } from 'antd'
 import dayjs from 'dayjs'
-import { ArrowLeftOutlined, ThunderboltOutlined, PlusOutlined, InboxOutlined, EditOutlined } from '@ant-design/icons'
+import { ThunderboltOutlined, PlusOutlined, InboxOutlined, EditOutlined } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import { getStockChart, getStockAlerts, getStockDetails, createStockDetail } from '../../api/stocks'
 import { updateDetail, deleteDetail } from '../../api/plans'
@@ -294,6 +294,8 @@ const StockDetail: React.FC = () => {
   const basic = chartData?.basic
   const latestQuote = chartData?.quotes?.length ? chartData.quotes[chartData.quotes.length - 1] : null
   const syncMeta = chartData?.sync_meta
+  const latestPct = latestQuote?.pct_chg
+  const hasLatestPct = latestPct != null && !Number.isNaN(Number(latestPct))
 
   const alertColumns = [
     { title: '触发日期', dataIndex: 'trigger_date', key: 'trigger_date' },
@@ -342,7 +344,7 @@ const StockDetail: React.FC = () => {
           title={poolName ? `${poolName}（${poolNavStocks.length}）` : `池内股票（${poolNavStocks.length}）`}
           size="small"
           style={{ width: 300, flexShrink: 0, maxHeight: 'calc(100vh - 130px)', overflow: 'hidden' }}
-          extra={<span style={{ fontSize: 12, color: '#999' }}>↑ ↓ 快速切换</span>}
+          extra={<span style={{ fontSize: 12, color: 'var(--text-muted)' }}>↑ ↓ 快速切换</span>}
         >
           <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 210px)' }}>
             {poolNavStocks.map((s, idx) => {
@@ -353,17 +355,17 @@ const StockDetail: React.FC = () => {
                   onClick={() => jumpToStock(idx)}
                   style={{
                     padding: '8px 10px',
-                    borderBottom: '1px solid #f0f0f0',
+                    borderBottom: '1px solid var(--border-subtle)',
                     cursor: 'pointer',
-                    background: active ? '#f0f5ff' : '#fff',
-                    borderLeft: active ? '3px solid #1677ff' : '3px solid transparent',
+                    background: active ? 'var(--accent-dim)' : 'transparent',
+                    borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                     <span style={{ fontWeight: 600 }}>{s.stock_name || s.ts_code}</span>
-                    <span style={{ color: '#8c8c8c', fontSize: 12 }}>{s.ts_code}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{s.ts_code}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: '#666' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                     {s.industry || '-'}
                     {s.latest_price != null && (
                       <span style={{ marginLeft: 8 }}>
@@ -371,7 +373,7 @@ const StockDetail: React.FC = () => {
                       </span>
                     )}
                     {s.pct_chg != null && (
-                      <span style={{ marginLeft: 8, color: s.pct_chg >= 0 ? '#cf1322' : '#3f8600' }}>
+                      <span style={{ marginLeft: 8, color: s.pct_chg >= 0 ? 'var(--color-down)' : 'var(--color-up)' }}>
                         {s.pct_chg >= 0 ? '+' : ''}{s.pct_chg.toFixed(2)}%
                       </span>
                     )}
@@ -384,16 +386,12 @@ const StockDetail: React.FC = () => {
       )}
 
       <div style={{ flex: 1, minWidth: 0 }}>
-      <Button icon={<ArrowLeftOutlined />} style={{ marginBottom: 16 }} onClick={() => navigate('/pools')}>
-        返回观察池
-      </Button>
-
       {syncMeta && (
         <div style={{ marginBottom: 12 }}>
           <Tag color={syncMeta.status === 'sync_failed' ? 'red' : syncMeta.status === 'updated' ? 'green' : 'blue'}>
             {syncMeta.status === 'sync_failed' ? '数据补齐失败' : syncMeta.status === 'updated' ? '数据已自动更新' : '数据已是最新'}
           </Tag>
-          <span style={{ color: '#666', fontSize: 12 }}>
+          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
             {syncMeta.message}
             {syncMeta.latest_trade_date ? `（最新交易日：${syncMeta.latest_trade_date}）` : ''}
           </span>
@@ -426,13 +424,21 @@ const StockDetail: React.FC = () => {
                   <Statistic title="最新价" value={latestQuote.close} precision={2} />
                 </Col>
                 <Col span={3}>
-                  <Statistic
-                    title="涨幅"
-                    value={latestQuote.pct_chg}
-                    precision={2}
-                    suffix="%"
-                    valueStyle={{ color: latestQuote.pct_chg >= 0 ? '#cf1322' : '#3f8600' }}
-                  />
+                  {hasLatestPct ? (
+                    <Statistic
+                      title="涨幅"
+                      value={Number(latestPct)}
+                      precision={2}
+                      suffix="%"
+                      valueStyle={{ color: Number(latestPct) >= 0 ? '#cf1322' : '#3f8600' }}
+                    />
+                  ) : (
+                    <Statistic
+                      title="涨幅"
+                      value="-"
+                      valueStyle={{ color: 'var(--text-muted)', fontSize: 16 }}
+                    />
+                  )}
                 </Col>
                 <Col span={3}>
                   <Statistic title="成交量" value={latestQuote.vol} valueStyle={{ fontSize: 16 }} />

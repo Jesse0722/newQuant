@@ -105,12 +105,16 @@ export const getBuyStrategies = () =>
 export const scanBuySignals = (
   poolId?: string,
   strategyId: string = 'two_phase',
-  minConfirmHits: number = 2
+  minConfirmHits: number = 2,
+  limitUpDateFrom?: string,
+  limitUpDateTo?: string,
 ) =>
   client.post<BuySignalScanResult>('/strategy/scan-buy-signals', {
     pool_id: poolId || null,
     strategy_id: strategyId,
     min_confirm_hits: minConfirmHits,
+    limit_up_date_from: limitUpDateFrom || null,
+    limit_up_date_to: limitUpDateTo || null,
   })
 
 export const listIntradayScanConfig = (poolId?: string) =>

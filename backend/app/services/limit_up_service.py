@@ -1,6 +1,6 @@
 """
 涨停回调买入策略：筛选涨停股加入观察池，打涨停日期标签。
-不依赖本地全量同步，直接调用 Tushare API 获取日线筛选涨停，再自动同步涨停股 60 日 K 线。
+不依赖本地全量同步，直接调用 AkShare 涨停池接口筛选涨停，再自动同步涨停股 60 日 K 线。
 """
 
 from __future__ import annotations
@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session
 from app.models.stock import DailyQuote, StockBasic
 from app.models.pool import WatchPool, WatchStock
 from app.models.monitor import MonitorRule
-from app.services.tushare_adapter import tushare_adapter
+from app.services.tushare_adapter import AkshareAdapter
 
 LIMIT_UP_POOL_NAME = "涨停股票观察池"
+_AKSHARE_LIMIT_UP = AkshareAdapter()
 
 # 涨停阈值：market -> pct_chg 下限
 LIMIT_UP_THRESHOLD = {
@@ -38,6 +39,22 @@ def _get_limit_up_threshold(market: str | None) -> float:
 def _is_stock_st(name: str | None) -> bool:
     """判断是否为 ST 股票"""
     return bool(name and ("ST" in name.upper()))
+
+
+def _load_limit_up_snapshot(trade_date: str) -> pd.DataFrame:
+    """
+    从 AkShare 加载指定交易日涨停池并标准化字段。
+    返回列：ts_code, name, pct_chg
+    """
+    raw = _AKSHARE_LIMIT_UP._zt_pool_df(trade_date)
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=["ts_code", "name", "pct_chg"])
+    out = pd.DataFrame()
+    out["ts_code"] = raw.get("代码", "").astype(str).str.zfill(6).map(_AKSHARE_LIMIT_UP._to_ts_code)
+    out["name"] = raw.get("名称", "").astype(str)
+    out["pct_chg"] = pd.to_numeric(raw.get("涨跌幅"), errors="coerce")
+    out = out[(out["ts_code"].notna()) & (out["ts_code"] != "")]
+    return out.reset_index(drop=True)
 
 
 def _get_trade_dates(days: int = 1) -> list[str]:
@@ -85,31 +102,19 @@ def fetch_limit_up_stocks_in_range(
             dates.append(s)
         current += timedelta(days=1)
 
-    basic_map: dict[str, StockBasic | None] = {}
     for trade_date in dates:
         time.sleep(0.2)
         try:
-            df = tushare_adapter.get_daily_by_date(trade_date)
+            df = _load_limit_up_snapshot(trade_date)
             if df.empty:
                 continue
             for _, row in df.iterrows():
                 ts_code = row.get("ts_code")
                 if not ts_code:
                     continue
-                if ts_code not in basic_map:
-                    basic_map[ts_code] = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
-                basic = basic_map[ts_code]
-                if _is_stock_st(basic.name if basic else None):
+                if _is_stock_st(row.get("name")):
                     continue
-                threshold = _get_limit_up_threshold(basic.market if basic else None)
-                pct = row.get("pct_chg")
-                if pct is None or pd.isna(pct) or pct < threshold:
-                    continue
-                # 可配置是否排除一字板（高低价相等）
-                if exclude_one_word_limit:
-                    high, low = row.get("high"), row.get("low")
-                    if high is not None and low is not None and high == low:
-                        continue
+                # AkShare 涨停池不稳定提供 high/low，无法准确排除一字板；此处仅按涨停池口径。
                 existing = result.get(ts_code)
                 if not existing or trade_date > existing:
                     result[ts_code] = trade_date
@@ -203,43 +208,36 @@ def collect_limit_up_stocks(
 ) -> dict:
     """
     按指定交易日筛选涨停股，加入/更新到指定池。
-    直接从 Tushare API 获取该日全市场日线，不依赖本地 DailyQuote。
+    直接从 AkShare 涨停池获取该日涨停股，不依赖本地 DailyQuote。
     返回 {"added": int, "updated": int, "skipped": int, "errors": list, "added_codes": list}
     """
     result = {"added": 0, "updated": 0, "skipped": 0, "errors": [], "added_codes": []}
 
-    time.sleep(0.2)  # 限流：避免 Tushare 接口频率超限
-    df = tushare_adapter.get_daily_by_date(trade_date)
+    time.sleep(0.2)  # 限流：避免接口频率超限
+    try:
+        df = _load_limit_up_snapshot(trade_date)
+    except Exception as e:
+        result["errors"].append(f"{trade_date}: 拉取 AkShare 涨停池失败: {e}")
+        db.commit()
+        return result
     if df.empty:
+        result["errors"].append(f"{trade_date}: AkShare 涨停池无数据")
         db.commit()
         return result
 
-    basic_map = {}
     for _, row in df.iterrows():
         ts_code = row.get("ts_code")
         if not ts_code:
             continue
-        if ts_code not in basic_map:
-            basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
-            basic_map[ts_code] = basic
 
         try:
-            basic = basic_map[ts_code]
-            if _is_stock_st(basic.name if basic else None):
+            basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+            if _is_stock_st(row.get("name")) or _is_stock_st(basic.name if basic else None):
                 result["skipped"] += 1
                 continue
 
-            threshold = _get_limit_up_threshold(basic.market if basic else None)
-            pct = row.get("pct_chg")
-            if pct is None or pd.isna(pct) or pct < threshold:
-                continue
-
-            # 可配置是否排除一字板
-            if exclude_one_word_limit:
-                high, low = row.get("high"), row.get("low")
-                if high is not None and low is not None and high == low:
-                    result["skipped"] += 1
-                    continue
+            # AkShare 涨停池接口不稳定提供 high/low 字段，无法准确判断一字板，默认不过滤。
+            _ = exclude_one_word_limit
 
             existing = (
                 db.query(WatchStock)

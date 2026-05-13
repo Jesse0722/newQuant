@@ -26,8 +26,6 @@ const PoolStockListItem: React.FC<PoolStockListItemProps> = ({
   onToggleCoreWatch,
   selectedItemRef,
 }) => {
-  const borderColor = isSelected ? '#1677ff' : 'transparent'
-
   return (
     <div
       key={stock.id}
@@ -37,13 +35,13 @@ const PoolStockListItem: React.FC<PoolStockListItemProps> = ({
       style={{
         padding: '10px 14px',
         cursor: 'pointer',
-        borderLeft: `3px solid ${borderColor}`,
-        background: isSelected ? '#f0f5ff' : 'transparent',
-        borderBottom: '1px solid #f0f0f0',
+        borderLeft: `3px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
+        background: isSelected ? 'rgba(0,212,255,0.08)' : 'transparent',
+        borderBottom: '1px solid var(--border-subtle)',
         transition: 'background 0.15s',
       }}
       onMouseEnter={(event) => {
-        if (!isSelected) event.currentTarget.style.background = '#fafafa'
+        if (!isSelected) event.currentTarget.style.background = 'var(--bg-card-hover)'
       }}
       onMouseLeave={(event) => {
         if (!isSelected) event.currentTarget.style.background = 'transparent'
@@ -69,7 +67,7 @@ const PoolStockListItem: React.FC<PoolStockListItemProps> = ({
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                color: isStarred ? '#faad14' : '#d9d9d9',
+                color: isStarred ? 'var(--color-warn)' : 'var(--border-strong)',
                 cursor: isStarBusy ? 'wait' : 'pointer',
                 opacity: isStarBusy ? 0.5 : 1,
               }}
@@ -77,27 +75,32 @@ const PoolStockListItem: React.FC<PoolStockListItemProps> = ({
               {isStarred ? <StarFilled /> : <StarOutlined />}
             </span>
           </Tooltip>
-          {stock.stock_name || '-'}
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{stock.stock_name || '-'}</span>
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {stock.pinned && <PushpinFilled style={{ color: '#faad14', fontSize: 12 }} />}
         </span>
       </div>
 
-      <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
         {stock.ts_code} {stock.industry ? `· ${stock.industry}` : ''}
         {stock.limit_up_date && <span style={{ marginLeft: 6 }}>涨停 {formatLimitDate(stock.limit_up_date)}</span>}
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#595959' }}>
-        <span style={{ fontFamily: "'Menlo', monospace", fontWeight: 600 }}>
+        <span className="mono" style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>
           {stock.latest_price != null ? stock.latest_price.toFixed(2) : '-'}
         </span>
         {stock.pct_chg != null && (
           <span
+            className="mono"
             style={{
-              fontWeight: 600,
-              color: stock.pct_chg > 0 ? '#cf1322' : stock.pct_chg < 0 ? '#3f8600' : '#666',
+              fontWeight: 700,
+              fontSize: 12,
+              color: stock.pct_chg > 0 ? 'var(--color-up)' : stock.pct_chg < 0 ? 'var(--color-down)' : 'var(--text-muted)',
+              padding: '1px 6px',
+              borderRadius: 4,
+              background: stock.pct_chg > 0 ? 'var(--color-up-dim)' : stock.pct_chg < 0 ? 'var(--color-down-dim)' : 'rgba(255,255,255,0.04)',
             }}
           >
             {stock.pct_chg > 0 ? '+' : ''}

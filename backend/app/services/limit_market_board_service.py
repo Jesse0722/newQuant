@@ -289,7 +289,13 @@ def _build_outflow_ladder(df_down: pd.DataFrame, trade_date: str) -> list[dict]:
     return out
 
 
-def _build_summary(inflow_sectors: list[dict], inflow_ladder: list[dict], outflow_sectors: list[dict], outflow_ladder: list[dict]) -> dict[str, Any]:
+def _build_summary(
+    inflow_sectors: list[dict],
+    inflow_ladder: list[dict],
+    outflow_sectors: list[dict],
+    outflow_ladder: list[dict],
+    outflow_source: str = "unknown",
+) -> dict[str, Any]:
     inflow_sector_count = len(inflow_sectors)
     outflow_sector_count = len(outflow_sectors)
     inflow_limit_count = sum(int(x.get("up_nums") or 0) for x in inflow_sectors)
@@ -305,6 +311,7 @@ def _build_summary(inflow_sectors: list[dict], inflow_ladder: list[dict], outflo
         "flow_ratio": round((inflow_limit_count / outflow_limit_count), 2) if outflow_limit_count > 0 else None,
         "max_up_streak": max_up_streak,
         "max_down_streak": max_down_streak,
+        "outflow_source": outflow_source,
     }
 
 
@@ -341,16 +348,23 @@ def get_limit_market_board_payload(
     df_l = ad.get_limit_step(td)
     sectors = _sort_sectors(_df_to_records(df_s))
     ladder = _sort_ladder(_df_to_records(df_l))
+    outflow_source = "none"
     df_down = _fetch_limit_list_d(td, "D")
+    if df_down is not None and not df_down.empty:
+        outflow_source = "tushare.limit_list_d"
     if df_down is None or df_down.empty:
         # 二级兜底：AkShare 跌停池
         df_down = _fetch_limit_down_from_akshare(td)
+        if df_down is not None and not df_down.empty:
+            outflow_source = "akshare.pool"
     if df_down is None or df_down.empty:
         # 三级兜底：日线推断跌停
         df_down = _derive_limit_down_from_daily(ad, td)
+        if df_down is not None and not df_down.empty:
+            outflow_source = "derived.daily"
     outflow_sectors = _build_outflow_sectors(df_down)
     outflow_ladder = _sort_ladder(_build_outflow_ladder(df_down, td))
-    summary = _build_summary(sectors, ladder, outflow_sectors, outflow_ladder)
+    summary = _build_summary(sectors, ladder, outflow_sectors, outflow_ladder, outflow_source=outflow_source)
     payload_body = (sectors, ladder, outflow_sectors, outflow_ladder, summary)
 
     with _cache_lock:

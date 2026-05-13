@@ -253,7 +253,7 @@ const DataPage: React.FC = () => {
                   <div key={item.task_type} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ fontSize: 13 }}>{item.task_type}（{item.tasks} 次）</span>
-                      <span style={{ fontSize: 12, color: '#8c8c8c' }}>成功 {item.success} / 失败 {item.failed} / 跳过 {item.skipped}</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>成功 {item.success} / 失败 {item.failed} / 跳过 {item.skipped}</span>
                     </div>
                     <Progress
                       percent={100}
@@ -278,7 +278,7 @@ const DataPage: React.FC = () => {
         </Spin>
 
         {tushareCheck && (
-          <div style={{ marginTop: 16, padding: 12, background: tushareCheck.api_test === 'ok' ? '#f6ffed' : '#fff2f0', border: '1px solid', borderColor: tushareCheck.api_test === 'ok' ? '#b7eb8f' : '#ffccc7', borderRadius: 8 }}>
+          <div style={{ marginTop: 16, padding: 12, background: tushareCheck.api_test === 'ok' ? 'var(--color-up-dim)' : 'var(--color-down-dim)', border: '1px solid', borderColor: tushareCheck.api_test === 'ok' ? 'rgba(0,230,118,0.35)' : 'rgba(255,71,87,0.35)', borderRadius: 8 }}>
             <p><strong>{(tushareCheck.data_provider || dataProvider).toUpperCase()} 诊断</strong></p>
             <p>当前主数据源：{tushareCheck.data_provider || dataProvider}</p>
             <p>Token 已配置：{tushareCheck.token_configured ? '是' : '否'}</p>
@@ -293,16 +293,16 @@ const DataPage: React.FC = () => {
         {syncing && (
           <div style={{ marginTop: 24 }}>
             <Progress percent={Math.round(taskProgress * 100)} status="active" />
-            <p style={{ color: '#666', marginTop: 8 }}>{taskMessage}</p>
+            <p style={{ color: 'var(--text-secondary)', marginTop: 8 }}>{taskMessage}</p>
           </div>
         )}
 
         {(taskResult || lastSync?.result) && !syncing && (
-          <div style={{ marginTop: 24, padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
+          <div style={{ marginTop: 24, padding: 16, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
             <h4>
               {taskResult ? '同步结果' : '上次同步'}
               {lastSync && !taskResult && lastSync.completed_at && (
-                <span style={{ fontWeight: 'normal', color: '#666', marginLeft: 8 }}>
+                <span style={{ fontWeight: 'normal', color: 'var(--text-secondary)', marginLeft: 8 }}>
                   {dayjs(lastSync.completed_at).format('YYYY-MM-DD HH:mm')}
                 </span>
               )}
@@ -314,7 +314,7 @@ const DataPage: React.FC = () => {
                 <p>失败天数：{taskResult?.failed_count ?? lastSync?.result?.failed_count ?? 0} 天</p>
                 <p>同步交易日：{taskResult?.days_synced ?? lastSync?.result?.days_synced ?? 0} 天</p>
                 {(taskResult?.diagnostic ?? lastSync?.result?.diagnostic) && (
-                  <p style={{ color: '#cf1322', marginTop: 8 }}>
+                  <p style={{ color: 'var(--color-down)', marginTop: 8 }}>
                     诊断：{taskResult?.diagnostic ?? lastSync?.result?.diagnostic}
                   </p>
                 )}
@@ -325,8 +325,8 @@ const DataPage: React.FC = () => {
       </Card>
 
       <Card title="涨停筛选" style={{ marginTop: 24 }}>
-        <p style={{ color: '#666', marginBottom: 16 }}>
-          直接调用 Tushare 接口获取涨停股，加入观察池并自动下载 60 日 K 线。默认日期窗口与「最近已完成交易日」一致：盘后含当日；盘中为上一交易日（不再仅从自然日昨天起算）。
+        <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
+          直接调用 AkShare 接口获取涨停股，加入观察池并自动下载 60 日 K 线。默认日期窗口与「最近已完成交易日」一致：盘后含当日；盘中为上一交易日（不再仅从自然日昨天起算）。
         </p>
         <Space>
           <span>处理最近</span>
@@ -344,16 +344,26 @@ const DataPage: React.FC = () => {
             loading={limitUpCollecting}
             onClick={handleLimitUpCollect}
             disabled={limitUpCollecting}
+            style={{ color: '#031a2b', fontWeight: 600 }}
           >
             执行涨停筛选
           </Button>
         </Space>
         {limitUpResult && (
-          <div style={{ marginTop: 16, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
-            <p>新增：{limitUpResult.added} 只</p>
-            <p>更新：{limitUpResult.updated} 只</p>
-            <p>跳过（ST 等）：{limitUpResult.skipped} 只</p>
-            <p>处理日期：{limitUpResult.dates_processed?.join(', ') || '-'}</p>
+          <div
+            style={{
+              marginTop: 16,
+              padding: 12,
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 8,
+              color: 'var(--text-primary)',
+            }}
+          >
+            <p style={{ marginBottom: 8 }}>新增：{limitUpResult.added} 只</p>
+            <p style={{ marginBottom: 8 }}>更新：{limitUpResult.updated} 只</p>
+            <p style={{ marginBottom: 8 }}>跳过（ST 等）：{limitUpResult.skipped} 只</p>
+            <p style={{ marginBottom: 0 }}>处理日期：{limitUpResult.dates_processed?.join(', ') || '-'}</p>
           </div>
         )}
       </Card>

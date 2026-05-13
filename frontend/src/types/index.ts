@@ -233,6 +233,7 @@ export interface DashboardSummary {
   flow_ratio?: number | null
   max_up_streak: number
   max_down_streak: number
+  outflow_source?: string | null
 }
 
 export interface DashboardData {

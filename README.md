@@ -88,3 +88,8 @@ python scripts/run_scheduler.py
 如果仍想保持原来的单进程行为，可以在 `.env` 中设置 `AUTO_START_SCHEDULER=true`。
 
 更多业务背景和设计说明见 [docs/README.md](/Users/lijiajun/ai-coding/newQuant/docs/README.md)。
+
+## 数据源策略说明（2026-05 更新）
+
+- 涨停筛选（`/api/strategy/limit-up/collect`）已切换为 **AkShare 主数据源**，不再依赖 Tushare。
+- 团队流程默认不再以 Tushare 作为涨停筛选前置条件；`TUSHARE_TOKEN` 仅在你主动启用 Tushare 相关能力时需要。

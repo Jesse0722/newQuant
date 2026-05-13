@@ -103,6 +103,49 @@ def _batch_limit_up_counts(
     return out
 
 
+def _batch_rising_trend_flags(db: Session, ts_codes: list[str]) -> dict[str, bool]:
+    """
+    计算“上升趋势”标记（近似口径）：
+    latest_close > MA5 > MA10 > MA20 且 MA5(今日) >= MA5(昨日)。
+    """
+    if not ts_codes:
+        return {}
+    rows = (
+        db.query(DailyQuote.ts_code, DailyQuote.trade_date, DailyQuote.close)
+        .filter(DailyQuote.ts_code.in_(ts_codes))
+        .order_by(DailyQuote.ts_code.asc(), DailyQuote.trade_date.desc())
+        .all()
+    )
+    by_code: dict[str, list[float]] = {}
+    for ts_code, _, close in rows:
+        if close is None:
+            continue
+        seq = by_code.setdefault(ts_code, [])
+        if len(seq) >= 25:
+            continue
+        try:
+            seq.append(float(close))
+        except (TypeError, ValueError):
+            continue
+
+    flags: dict[str, bool] = {}
+    for ts_code in ts_codes:
+        closes = by_code.get(ts_code, [])
+        if len(closes) < 21:
+            flags[ts_code] = False
+            continue
+        latest_close = closes[0]
+        ma5 = sum(closes[0:5]) / 5.0
+        ma10 = sum(closes[0:10]) / 10.0
+        ma20 = sum(closes[0:20]) / 20.0
+        ma5_prev = sum(closes[1:6]) / 5.0
+        flags[ts_code] = (
+            latest_close > ma5 > ma10 > ma20
+            and ma5 >= ma5_prev
+        )
+    return flags
+
+
 def _enrich_stock(
     db: Session,
     stock: WatchStock,
@@ -181,6 +224,8 @@ def _passes_pool_advanced_filters(
     limit_up_count_min: int | None,
     limit_up_count_max: int | None,
     need_limit_up_stats: bool,
+    rising_trend_only: bool,
+    rising_trend_ok: bool,
 ) -> bool:
     close = float(latest.close) if latest and latest.close is not None else None
     if price_min is not None:
@@ -209,6 +254,8 @@ def _passes_pool_advanced_filters(
             return False
         if limit_up_count_max is not None and limit_up_hits > limit_up_count_max:
             return False
+    if rising_trend_only and not rising_trend_ok:
+        return False
     return True
 
 
@@ -378,6 +425,7 @@ def list_stocks(
     limit_up_stats_to: Optional[str] = Query(None, description="统计涨停次数：截止日 YYYYMMDD"),
     limit_up_count_min: Optional[int] = Query(None, ge=0, description="区间内涨停次数下限"),
     limit_up_count_max: Optional[int] = Query(None, ge=0, description="区间内涨停次数上限"),
+    rising_trend: bool = Query(False, description="仅保留上升趋势（close>MA5>MA10>MA20 且 MA5 不下拐）"),
     sort_by: str = Query("created_at", description="排序字段: created_at | limit_up_date"),
     order: str = Query("desc", description="排序方向: asc | desc"),
     page: int = Query(1, ge=1),
@@ -409,11 +457,14 @@ def list_stocks(
     latest_map = _batch_latest_quotes(db, ts_codes)
     basic_map = _batch_stock_basics(db, ts_codes)
     luc_map: dict[str, int] = {}
+    trend_map: dict[str, bool] = {}
     need_luc = limit_up_stats_from and limit_up_stats_to and (
         limit_up_count_min is not None or limit_up_count_max is not None
     )
     if need_luc:
         luc_map = _batch_limit_up_counts(db, ts_codes, limit_up_stats_from, limit_up_stats_to, basic_map)
+    if rising_trend:
+        trend_map = _batch_rising_trend_flags(db, ts_codes)
     result = []
     for s in stocks:
         out = _enrich_stock(db, s)
@@ -430,6 +481,8 @@ def list_stocks(
             limit_up_count_min=limit_up_count_min,
             limit_up_count_max=limit_up_count_max,
             need_limit_up_stats=bool(need_luc),
+            rising_trend_only=rising_trend,
+            rising_trend_ok=trend_map.get(s.ts_code, False),
         ):
             continue
         result.append(out)
@@ -462,6 +515,7 @@ def export_stocks_csv(
     limit_up_stats_to: Optional[str] = Query(None),
     limit_up_count_min: Optional[int] = Query(None, ge=0),
     limit_up_count_max: Optional[int] = Query(None, ge=0),
+    rising_trend: bool = Query(False),
     sort_by: str = Query("created_at", description="排序字段: created_at | limit_up_date"),
     order: str = Query("desc", description="排序方向: asc | desc"),
     db: Session = Depends(get_db),
@@ -500,6 +554,7 @@ def export_stocks_csv(
         if need_luc
         else {}
     )
+    trend_map = _batch_rising_trend_flags(db, ts_codes) if rising_trend else {}
 
     result = []
     for s in stocks:
@@ -517,6 +572,8 @@ def export_stocks_csv(
             limit_up_count_min=limit_up_count_min,
             limit_up_count_max=limit_up_count_max,
             need_limit_up_stats=bool(need_luc),
+            rising_trend_only=rising_trend,
+            rising_trend_ok=trend_map.get(s.ts_code, False),
         ):
             continue
         result.append(out)

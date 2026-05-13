@@ -13,7 +13,7 @@ from app.services.indicator import calc_ma, calc_macd, calc_rsi
 from app.services.buy_signal_service import get_signal_marks
 from app.services.sync_service import sync_stock_info, sync_daily
 from app.services.trading_session import shanghai_trade_date_str, latest_daily_k_trade_date_str
-from app.services.tushare_adapter import tushare_adapter, TencentAdapter, BaoStockAdapter, AkshareAdapter
+from app.services.tushare_adapter import tushare_adapter, TushareAdapter, TencentAdapter, BaoStockAdapter, AkshareAdapter
 from app.exceptions import AppError
 import pandas as pd
 import numpy as np
@@ -61,6 +61,46 @@ def _scalar_json_safe(v):
 
 def _chart_quotes_json_safe(records: list[dict]) -> list[dict]:
     return [{k: _scalar_json_safe(val) for k, val in row.items()} for row in records]
+
+
+def _enrich_basic_from_fallbacks(db: Session, ts_code: str, basic: StockBasic | None) -> StockBasic | None:
+    """
+    主数据源返回基础信息字段为空时，尝试用备用来源补齐行业/地区/上市日。
+    """
+    target = basic or db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+    if not target:
+        return target
+    # area 在多源中缺失较常见，不作为每次详情请求的强制补齐条件，避免频繁外网调用拖慢 K 线加载。
+    if target.industry and target.list_date:
+        return target
+
+    for provider in (AkshareAdapter(), TushareAdapter(), BaoStockAdapter()):
+        try:
+            df = provider.get_stock_basic(ts_code=ts_code)
+        except Exception:
+            continue
+        if df is None or df.empty:
+            continue
+        if "ts_code" in df.columns:
+            matched = df[df["ts_code"].astype(str) == str(ts_code)]
+            row = matched.iloc[0] if not matched.empty else df.iloc[0]
+        else:
+            row = df.iloc[0]
+        changed = False
+        if (not target.industry) and row.get("industry"):
+            target.industry = str(row.get("industry"))
+            changed = True
+        if (not target.area) and row.get("area"):
+            target.area = str(row.get("area"))
+            changed = True
+        if (not target.list_date) and row.get("list_date"):
+            target.list_date = str(row.get("list_date"))
+            changed = True
+        if changed:
+            db.commit()
+            db.refresh(target)
+            break
+    return target
 
 
 def _filter_valid_ohlc(df: pd.DataFrame) -> pd.DataFrame:
@@ -257,6 +297,14 @@ def get_stock_chart(
     db: Session = Depends(get_db),
 ):
     basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+    # K 线首屏优先返回本地数据；行业/上市日缺失不阻塞图表加载。
+    # 完全不存在的股票仍保留一次同步兜底，用于支持直接访问新代码。
+    if not basic:
+        try:
+            sync_stock_info(db, ts_code)
+            basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+        except Exception:
+            basic = None
     if not basic:
         raise AppError(code=5001, message="股票不存在", status_code=404)
 
@@ -278,9 +326,27 @@ def get_stock_chart(
     df = pd.DataFrame([{
         "date": q.trade_date,
         "open": q.open, "high": q.high, "low": q.low, "close": q.close,
+        "pre_close": q.pre_close, "change": q.change,
         "vol": q.vol, "amount": q.amount, "pct_chg": q.pct_chg,
         "turnover_rate": q.turnover_rate,
     } for q in quotes])
+    if "pct_chg" in df.columns:
+        miss = df["pct_chg"].isna()
+        if miss.any():
+            pre_close = pd.to_numeric(df.get("pre_close"), errors="coerce")
+            close = pd.to_numeric(df.get("close"), errors="coerce")
+            change = pd.to_numeric(df.get("change"), errors="coerce")
+            by_close = (close - pre_close) / pre_close * 100.0
+            by_change = change / pre_close * 100.0
+            df.loc[miss, "pct_chg"] = by_close[miss]
+            miss2 = df["pct_chg"].isna()
+            df.loc[miss2, "pct_chg"] = by_change[miss2]
+            # 第三层兜底：当前记录 pre_close 缺失时，用前一根 K 的 close 估算涨跌幅。
+            miss3 = df["pct_chg"].isna()
+            if miss3.any():
+                prev_close = close.shift(1)
+                by_prev_close = (close - prev_close) / prev_close * 100.0
+                df.loc[miss3, "pct_chg"] = by_prev_close[miss3]
     df = _filter_valid_ohlc(df)
     # 除“条数过少”外，若存在明显时间断层也触发远程回填（例如中间缺失一大段交易日）。
     gap_days = _max_calendar_gap_days(df)

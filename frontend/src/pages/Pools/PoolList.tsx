@@ -79,6 +79,8 @@ const PoolList: React.FC = () => {
   const listRef = useRef<HTMLDivElement>(null)
   const chartDivRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
+  const chartCacheRef = useRef<Map<string, StockChartDataWithMarks>>(new Map())
+  const chartReqSeqRef = useRef(0)
   const selectedItemRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const limitUpDateFromStr = limitUpDateFrom ? limitUpDateFrom.format('YYYYMMDD') : ''
@@ -92,6 +94,7 @@ const PoolList: React.FC = () => {
   const [limitUpStatsTo, setLimitUpStatsTo] = useState<dayjs.Dayjs | null>(null)
   const [limitUpCountMin, setLimitUpCountMin] = useState<number | null>(null)
   const [limitUpCountMax, setLimitUpCountMax] = useState<number | null>(null)
+  const [risingTrendOnly, setRisingTrendOnly] = useState(false)
 
   const limitUpStatsFromStr = limitUpStatsFrom ? limitUpStatsFrom.format('YYYYMMDD') : ''
   const limitUpStatsToStr = limitUpStatsTo ? limitUpStatsTo.format('YYYYMMDD') : ''
@@ -108,6 +111,7 @@ const PoolList: React.FC = () => {
     limitUpStatsToStr,
     limitUpCountMin,
     limitUpCountMax,
+    risingTrendOnly,
   })
   filtersRef.current = {
     sortBy,
@@ -122,6 +126,7 @@ const PoolList: React.FC = () => {
     limitUpStatsToStr,
     limitUpCountMin,
     limitUpCountMax,
+    risingTrendOnly,
   }
   const anyModalOpenRef = useRef(false)
   anyModalOpenRef.current = addModalOpen || importModalOpen || editPoolModalOpen || noteModalOpen || addRuleModalOpen
@@ -189,6 +194,7 @@ const PoolList: React.FC = () => {
       if (f.limitUpCountMin != null) params.limit_up_count_min = f.limitUpCountMin
       if (f.limitUpCountMax != null) params.limit_up_count_max = f.limitUpCountMax
     }
+    if (f.risingTrendOnly) params.rising_trend = 1
     return listStocks(poolId, params)
   }
 
@@ -248,6 +254,7 @@ const PoolList: React.FC = () => {
     limitUpStatsToStr,
     limitUpCountMin,
     limitUpCountMax,
+    risingTrendOnly,
   ])
 
   useEffect(() => {
@@ -255,17 +262,36 @@ const PoolList: React.FC = () => {
     if (!exists && stocks.length > 0) setSelectedCode(stocks[0].ts_code)
   }, [stocks, selectedCode])
 
-  useEffect(() => { setChartData(null) }, [selectedCode])
-
   useEffect(() => {
     if (!selectedCode) return
+    const cacheKey = `${selectedCode}|${chartPeriod}|${selectedLimitUpDate || ''}`
+    const cached = chartCacheRef.current.get(cacheKey)
+    if (cached) {
+      setChartData(cached)
+      setChartLoading(false)
+      return
+    }
+    const reqSeq = ++chartReqSeqRef.current
     setChartLoading(true)
     getStockChartWithMarks(selectedCode, chartPeriod, selectedLimitUpDate)
       .then(res => {
+        if (reqSeq !== chartReqSeqRef.current) return
+        chartCacheRef.current.set(cacheKey, res.data)
+        // 轻量 LRU：限制缓存数量，避免无上限增长
+        if (chartCacheRef.current.size > 120) {
+          const oldestKey = chartCacheRef.current.keys().next().value
+          if (oldestKey) chartCacheRef.current.delete(oldestKey)
+        }
         setChartData(res.data)
       })
-      .catch(() => setChartData(null))
-      .finally(() => setChartLoading(false))
+      .catch(() => {
+        if (reqSeq !== chartReqSeqRef.current) return
+        setChartData(null)
+      })
+      .finally(() => {
+        if (reqSeq !== chartReqSeqRef.current) return
+        setChartLoading(false)
+      })
   }, [selectedCode, chartPeriod, selectedLimitUpDate])
 
   // Chart rendering with signal marks
@@ -561,6 +587,7 @@ const PoolList: React.FC = () => {
       if (f.limitUpCountMin != null) params.limit_up_count_min = f.limitUpCountMin
       if (f.limitUpCountMax != null) params.limit_up_count_max = f.limitUpCountMax
     }
+    if (f.risingTrendOnly) params.rising_trend = 1
     const res = await exportStocksCSV(activePoolId, params)
     const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' })
     const url = window.URL.createObjectURL(blob)
@@ -703,7 +730,7 @@ const PoolList: React.FC = () => {
       />
 
       {/* Main body: left-right split */}
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, border: '1px solid #f0f0f0', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, border: '1px solid var(--border-default)', borderRadius: 10, background: 'var(--bg-card)', overflow: 'hidden' }}>
         <PoolSidebar
           activePool={activePool}
           circMvMax={circMvMax}
@@ -734,12 +761,14 @@ const PoolList: React.FC = () => {
           onSetLimitUpStatsTo={setLimitUpStatsTo}
           onSetPriceMax={setPriceMax}
           onSetPriceMin={setPriceMin}
+          onSetRisingTrendOnly={setRisingTrendOnly}
           onSetSort={(nextSortBy, nextSortOrder) => {
             setSortBy(nextSortBy)
             setSortOrder(nextSortOrder)
           }}
           priceMax={priceMax}
           priceMin={priceMin}
+          risingTrendOnly={risingTrendOnly}
           sortBy={sortBy}
           sortOrder={sortOrder}
           stocks={stocks}
@@ -770,7 +799,7 @@ const PoolList: React.FC = () => {
       </div>
 
       {pools.length === 0 && !loading && (
-        <div style={{ textAlign: 'center', padding: 48, color: '#999' }}>暂无观察池，点击上方「+ 新建」创建</div>
+        <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>暂无观察池，点击上方「+ 新建」创建</div>
       )}
 
       {/* ===== Modals ===== */}

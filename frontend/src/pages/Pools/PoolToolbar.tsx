@@ -64,9 +64,16 @@ const PoolToolbar: React.FC<PoolToolbarProps> = ({
               cursor: 'pointer',
               userSelect: 'none',
               borderRadius: 6,
-              background: activePoolId === pool.id ? '#1677ff' : dragOverIndex === index ? '#e6f7ff' : '#f5f5f5',
-              color: activePoolId === pool.id ? '#fff' : '#333',
+              background: activePoolId === pool.id
+                ? 'rgba(0,212,255,0.15)'
+                : dragOverIndex === index
+                ? 'rgba(0,212,255,0.06)'
+                : 'rgba(255,255,255,0.04)',
+              color: activePoolId === pool.id ? 'var(--accent)' : 'var(--text-secondary)',
               fontWeight: activePoolId === pool.id ? 600 : 400,
+              border: activePoolId === pool.id
+                ? '1px solid var(--accent-border)'
+                : '1px solid var(--border-subtle)',
               transition: 'all 0.15s',
             }}
           >
@@ -86,7 +93,7 @@ const PoolToolbar: React.FC<PoolToolbarProps> = ({
         ))}
         <div
           onClick={onAddPool}
-          style={{ padding: '4px 10px', fontSize: 13, cursor: 'pointer', borderRadius: 6, border: '1px dashed #d9d9d9', color: '#999' }}
+          style={{ padding: '4px 10px', fontSize: 13, cursor: 'pointer', borderRadius: 6, border: '1px dashed var(--border-strong)', color: 'var(--text-muted)' }}
         >
           + 新建
         </div>

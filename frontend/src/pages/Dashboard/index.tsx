@@ -126,12 +126,19 @@ const Dashboard: React.FC = () => {
 
   const netAbs = Math.max(Math.abs(summary.net_limit_count), 1)
   const netPct = Math.min(100, Math.round((Math.abs(summary.net_limit_count) / (summary.inflow_limit_count + summary.outflow_limit_count || 1)) * 100))
+  const outflowSourceLabel = summary.outflow_source === 'tushare.limit_list_d'
+    ? 'Tushare 跌停清单'
+    : summary.outflow_source === 'akshare.pool'
+      ? 'AkShare 跌停池'
+      : summary.outflow_source === 'derived.daily'
+        ? '日线推断'
+        : '未知'
 
   const inflowColumns = [
     { title: '排名', dataIndex: 'rank', key: 'rank', width: 58 },
     { title: '流入板块', dataIndex: 'name', key: 'name', width: 140 },
-    { title: '涨停家数', dataIndex: 'up_nums', key: 'up_nums', width: 90, render: (v?: number | null) => <span className="up mono">{v ?? '-'}</span> },
-    { title: '连板数', dataIndex: 'cons_nums', key: 'cons_nums', width: 80, render: (v?: number | null) => (v == null ? '-' : v) },
+    { title: <Tooltip title="当日该板块涨停股票数量"><span>涨停家数</span></Tooltip>, dataIndex: 'up_nums', key: 'up_nums', width: 90, render: (v?: number | null) => <span className="up mono">{v ?? '-'}</span> },
+    { title: <Tooltip title="当日该板块连板股票数量"><span>连板数</span></Tooltip>, dataIndex: 'cons_nums', key: 'cons_nums', width: 80, render: (v?: number | null) => (v == null ? '-' : v) },
     {
       title: (
         <Tooltip title="涨停板块口径的强度值，非板块指数日涨幅">
@@ -143,14 +150,14 @@ const Dashboard: React.FC = () => {
       width: 92,
       render: (v?: number | null) => <PctCell value={v} />,
     },
-    { title: '连板高度', dataIndex: 'up_stat', key: 'up_stat', render: (v?: string | null) => v || '-' },
+    { title: <Tooltip title="该板块内连板梯队分布"><span>连板高度</span></Tooltip>, dataIndex: 'up_stat', key: 'up_stat', render: (v?: string | null) => v || '-' },
   ]
 
   const outflowColumns = [
     { title: '排名', dataIndex: 'rank', key: 'rank', width: 58 },
     { title: '流出板块', dataIndex: 'name', key: 'name', width: 140 },
-    { title: '跌停家数', dataIndex: 'down_nums', key: 'down_nums', width: 90, render: (v?: number | null) => <span className="down mono">{v ?? '-'}</span> },
-    { title: '连续跌停', dataIndex: 'max_limit_times', key: 'max_limit_times', width: 90, render: (v?: number | null) => (v == null ? '-' : v) },
+    { title: <Tooltip title="当日该板块跌停股票数量"><span>跌停家数</span></Tooltip>, dataIndex: 'down_nums', key: 'down_nums', width: 90, render: (v?: number | null) => <span className="down mono">{v ?? '-'}</span> },
+    { title: <Tooltip title="板块内跌停梯队最高连续次数"><span>连续跌停</span></Tooltip>, dataIndex: 'max_limit_times', key: 'max_limit_times', width: 90, render: (v?: number | null) => (v == null ? '-' : v) },
     { title: '板块强度', dataIndex: 'pct_chg', key: 'pct_chg', width: 92, render: (v?: number | null) => <PctCell value={v} /> },
   ]
 
@@ -180,6 +187,12 @@ const Dashboard: React.FC = () => {
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>资金流向总览</div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
             数据日期：<span className="mono" style={{ color: 'var(--accent)' }}>{data?.trade_date ?? '-'}</span>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+            跌停数据源：<span style={{ color: 'var(--text-secondary)' }}>{outflowSourceLabel}</span>
+            <Tooltip title="优先 Tushare，失败回退 AkShare，再回退日线推断。">
+              <span style={{ marginLeft: 6, color: 'var(--accent)', cursor: 'help' }}>口径说明</span>
+            </Tooltip>
           </div>
         </div>
         <Button
@@ -218,6 +231,9 @@ const Dashboard: React.FC = () => {
           流入 {summary.inflow_limit_count} / 流出 {summary.outflow_limit_count}
           {summary.flow_ratio != null ? ` · 强弱比 ${summary.flow_ratio}` : ''}
           · 绝对净差 {netAbs}
+          <Tooltip title="板块强度按当日入榜个股涨跌幅均值聚合，属于情绪口径，不等同于行业指数涨跌幅。">
+            <span style={{ marginLeft: 8, color: 'var(--accent)', cursor: 'help' }}>板块强度计算说明</span>
+          </Tooltip>
         </div>
       </div>
 
@@ -276,4 +292,3 @@ const Dashboard: React.FC = () => {
 }
 
 export default Dashboard
-

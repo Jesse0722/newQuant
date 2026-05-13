@@ -8,7 +8,7 @@
 
 个人量化交易工作流管理系统。核心流程：**观察池 → 监控提醒 → 交易计划 → 执行记录 → 复盘**。
 
-技术栈：React + TypeScript + Ant Design（前端）、Python + FastAPI + SQLite（后端）、Tushare Pro（数据源）。
+技术栈：React + TypeScript + Ant Design（前端）、Python + FastAPI + SQLite（后端）、多数据源（AkShare / BaoStock / Tencent / Tushare，可切换）。
 
 ---
 
@@ -53,7 +53,7 @@ Phase 5 → 前端（React + Ant Design，6 个页面 + 联调）
 ## 启动服务
 
 **前置**：
-- `backend/.env` 已配置 `TUSHARE_TOKEN`（可从 `backend/.env.example` 复制并填入）
+- `backend/.env` 已完成基础配置（可从 `backend/.env.example` 复制）
 - 快速记录 OCR 功能需安装 Tesseract：`brew install tesseract`（中文：`brew install tesseract-lang`）
 - AI 智能选股需配置 `OPENAI_API_KEY` 或 `DASHSCOPE_API_KEY` 或 `OLLAMA_BASE_URL`（见 `.env.example`）
 
@@ -67,10 +67,12 @@ cd frontend && npm run dev
 
 **注意**：代码更新后需**重启后端**，否则新接口（如全市场同步）可能返回 404。
 
-**Tushare 连接排查**：数据管理页点击「检查 Tushare 连接」可诊断 token、代理、接口是否正常。若 stock_basic 返回空，请确认：
+**Tushare 连接排查（可选）**：数据管理页点击「检查 Tushare 连接」可诊断 token、代理、接口是否正常。若 stock_basic 返回空，请确认：
 - `backend/.env` 中 `TUSHARE_TOKEN` 已正确填写（从 tushare.pro 获取）
 - 使用代理时，`TUSHARE_API_URL` 需与代理地址一致
 - 修改 .env 后需重启后端
+
+**重要澄清（2026-05）**：涨停筛选功能已改为 AkShare 主数据源，不再依赖 Tushare token。
 
 ---
 

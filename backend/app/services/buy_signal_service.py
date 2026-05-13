@@ -956,9 +956,18 @@ def scan_pool_buy_signals(
     strategy_id: str = "two_phase",
     *,
     min_confirm_hits: int = 2,
+    limit_up_date_from: str | None = None,
+    limit_up_date_to: str | None = None,
 ) -> dict:
     pid, stocks, rt_map, realtime, trade_date_today, merge_rt = _scan_context(db, pool_id)
     if not pid:
+        meta = _scan_meta_fields(realtime, trade_date_today)
+        return {**_empty_result(strategy_id), **meta}
+    if limit_up_date_from:
+        stocks = [s for s in stocks if s.limit_up_date and s.limit_up_date >= limit_up_date_from]
+    if limit_up_date_to:
+        stocks = [s for s in stocks if s.limit_up_date and s.limit_up_date <= limit_up_date_to]
+    if not stocks:
         meta = _scan_meta_fields(realtime, trade_date_today)
         return {**_empty_result(strategy_id), **meta}
     if strategy_id in TACTIC_REGISTRY:
