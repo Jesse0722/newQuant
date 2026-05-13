@@ -11,6 +11,9 @@ import StockDetail from './pages/Stocks/StockDetail'
 import StrategyPage from './pages/Strategy/StrategyPage'
 import BuyRadarPage from './pages/BuyRadar/BuyRadarPage'
 import DataPage from './pages/Data/DataPage'
+import MessageCenterPage from './pages/Messages/MessageCenterPage'
+import LoginPage from './pages/Login/LoginPage'
+import ProtectedRoute from './auth/ProtectedRoute'
 import './index.css'
 
 const { darkAlgorithm } = antdTheme
@@ -137,6 +140,8 @@ function App() {
     >
       <BrowserRouter>
         <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route element={<ProtectedRoute />}>
           <Route element={<MainLayout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/pools" element={<PoolList />} />
@@ -146,7 +151,9 @@ function App() {
             <Route path="/plans/:id" element={<PlanRedirect />} />
             <Route path="/strategy" element={<StrategyPage />} />
             <Route path="/buy-radar" element={<BuyRadarPage />} />
+            <Route path="/messages" element={<MessageCenterPage />} />
             <Route path="/data" element={<DataPage />} />
+          </Route>
           </Route>
         </Routes>
       </BrowserRouter>

@@ -311,6 +311,62 @@ export interface Pagination<T> {
   total: number
 }
 
+// ---------- 消息中心 ----------
+
+export type MessageLifecycleStage = 'early' | 'spreading' | 'climax' | 'cooling' | string
+export type MessageSentiment = 'positive' | 'neutral' | 'negative' | string
+export type MessageActionSuggestion = 'watch' | 'add_to_pool' | 'risk_watch' | string
+
+export interface MessageTopic {
+  id: string
+  trade_date: string
+  theme: string
+  summary?: string | null
+  lifecycle_stage: MessageLifecycleStage
+  sentiment: MessageSentiment
+  heat_score: number
+  credibility_score: number
+  crowding_score: number
+  source_platforms: string[]
+  tags: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface MessageOpportunity {
+  id: string
+  topic_id?: string | null
+  trade_date: string
+  theme: string
+  ts_code?: string | null
+  stock_name?: string | null
+  opportunity_score: number
+  heat_score: number
+  credibility_score: number
+  risk_score: number
+  action_suggestion: MessageActionSuggestion
+  reason?: string | null
+  catalysts: string[]
+  risks: string[]
+  source_platforms: string[]
+  source_links: string[]
+  status: string
+  created_at: string
+}
+
+export interface MessageDaily {
+  trade_date: string
+  generated_at: string
+  stats: {
+    topic_count: number
+    opportunity_count: number
+    top_score?: number | null
+    leading_theme?: string | null
+  }
+  topics: MessageTopic[]
+  opportunities: MessageOpportunity[]
+}
+
 // ---------- 买点雷达 ----------
 
 export type BuySignalStatus =

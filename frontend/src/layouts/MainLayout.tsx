@@ -8,11 +8,13 @@ import {
   FilterOutlined,
   DatabaseOutlined,
   RadarChartOutlined,
-  SettingOutlined,
+  MessageOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   RiseOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons'
+import { logout } from '../auth/session'
 
 /* ────────────────────────────────────────────────
    Navigation config
@@ -28,6 +30,7 @@ const navItems: NavItem[] = [
   { key: '/',          icon: <DashboardOutlined />,  label: '仪表盘' },
   { key: '/pools',     icon: <EyeOutlined />,        label: '观察池' },
   { key: '/buy-radar', icon: <RadarChartOutlined />, label: '买点雷达' },
+  { key: '/messages',  icon: <MessageOutlined />,    label: '消息中心' },
   { key: '/alerts',    icon: <AlertOutlined />,      label: '买点提醒', badge: 3 },
   { key: '/strategy',  icon: <FilterOutlined />,     label: '策略选股' },
   { key: '/plans',     icon: <FileTextOutlined />,   label: '交易计划' },
@@ -38,6 +41,7 @@ const pageTitle: Record<string, string> = {
   '/':          '仪表盘',
   '/pools':     '观察池',
   '/buy-radar': '买点雷达',
+  '/messages':  '消息中心',
   '/alerts':    '买点提醒',
   '/strategy':  '策略选股',
   '/plans':     '交易计划',
@@ -105,7 +109,12 @@ const MainLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false)
 
   const selectedKey = '/' + (location.pathname.split('/')[1] || '')
-  const title = pageTitle[selectedKey] ?? '量化交易'
+  const title = pageTitle[selectedKey] ?? '星枢 Quant'
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-base)', overflow: 'hidden' }}>
@@ -152,7 +161,7 @@ const MainLayout: React.FC = () => {
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
               }}>
-                量化交易
+                星枢 Quant
               </div>
               <div style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap', marginTop: -2 }}>
                 QUANT WORKFLOW
@@ -227,7 +236,7 @@ const MainLayout: React.FC = () => {
         {/* Bottom: Settings + Collapse */}
         <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
           <button
-            onClick={() => {}}
+            onClick={handleLogout}
             style={{
               width: '100%', display: 'flex', alignItems: 'center',
               gap: 10, padding: collapsed ? '10px 14px' : '10px 12px',
@@ -239,8 +248,8 @@ const MainLayout: React.FC = () => {
             onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.05)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)' }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)' }}
           >
-            <SettingOutlined style={{ fontSize: 16, flexShrink: 0, width: 20, textAlign: 'center' }} />
-            {!collapsed && <span style={{ fontSize: 13 }}>系统设置</span>}
+            <LogoutOutlined style={{ fontSize: 16, flexShrink: 0, width: 20, textAlign: 'center' }} />
+            {!collapsed && <span style={{ fontSize: 13 }}>退出登录</span>}
           </button>
           <button
             onClick={() => setCollapsed(!collapsed)}

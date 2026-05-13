@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test'
 
+test.beforeEach(async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('账号').fill('admin')
+  await page.getByLabel('密码').fill('admin123')
+  await page.getByTestId('login-submit').click()
+  await expect(page).toHaveURL(/\/$/)
+})
+
 test('数据管理页可触发涨停筛选请求', async ({ page }) => {
   const collectApi = page.waitForResponse(
     (resp) =>

@@ -223,7 +223,7 @@ const PlanDetailRow: React.FC<PlanDetailRowProps> = ({ planId, onRefresh }) => {
   if (loading || !plan) return <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>加载中...</div>
 
   return (
-    <div style={{ padding: '0 24px 16px', background: '#fafafa' }}>
+    <div style={{ padding: '0 24px 16px', background: 'transparent' }}>
       <Card
         title={plan.title || '交易计划'}
         size="small"
