@@ -53,12 +53,12 @@ const SignalList: React.FC<Props> = ({
               padding: '10px 14px',
               cursor: 'pointer',
               borderLeft: isActive ? `3px solid ${cfg.color}` : '3px solid transparent',
-              background: isActive ? '#f0f5ff' : 'transparent',
-              borderBottom: '1px solid #f0f0f0',
+              background: isActive ? 'var(--accent-dim)' : 'transparent',
+              borderBottom: '1px solid var(--border-subtle)',
               transition: 'background 0.15s',
             }}
             onMouseEnter={(e) => {
-              if (!isActive) e.currentTarget.style.background = '#fafafa'
+              if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
             }}
             onMouseLeave={(e) => {
               if (!isActive) e.currentTarget.style.background = 'transparent'
@@ -84,7 +84,7 @@ const SignalList: React.FC<Props> = ({
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
-                      color: starred ? '#faad14' : '#d9d9d9',
+                      color: starred ? 'var(--color-warn)' : 'var(--text-muted)',
                       cursor: busy ? 'wait' : 'pointer',
                       opacity: busy ? 0.5 : 1,
                     }}
@@ -104,20 +104,20 @@ const SignalList: React.FC<Props> = ({
               </Tag>
             </div>
 
-            <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
               {s.ts_code} {s.industry ? `· ${s.industry}` : ''}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#595959' }}>
-              <span>评分: <b style={{ color: s.signal_score >= 70 ? '#f5222d' : s.signal_score >= 50 ? '#fa8c16' : '#8c8c8c' }}>{s.signal_score}</b></span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)' }}>
+              <span>评分: <b style={{ color: s.signal_score >= 70 ? 'var(--color-down)' : s.signal_score >= 50 ? 'var(--color-warn)' : 'var(--text-muted)' }}>{s.signal_score}</b></span>
               {s.life_line_date && (
                 <span>涨停: {s.life_line_date.slice(4, 6)}-{s.life_line_date.slice(6)}</span>
               )}
             </div>
 
             {s.pullback_pct != null && s.signal_status !== 'invalidated' && (
-              <div style={{ fontSize: 12, color: '#595959', marginTop: 2 }}>
-                <span>回调: <b style={{ color: '#3f8600' }}>-{s.pullback_pct}%</b></span>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                <span>回调: <b style={{ color: 'var(--color-up)' }}>-{s.pullback_pct}%</b></span>
                 {s.latest_pct_chg != null && (
                   <span style={{ marginLeft: 12 }}>
                     今涨: <b style={{ color: s.latest_pct_chg >= 0 ? '#cf1322' : '#3f8600' }}>

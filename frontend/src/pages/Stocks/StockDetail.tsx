@@ -1,17 +1,17 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Card, Tag, Table, Button, Tabs, Space, Statistic, Row, Col, Segmented,
   Modal, Form, Input, InputNumber, Select, DatePicker, message, Upload, Popconfirm, Tooltip,
 } from 'antd'
 import dayjs from 'dayjs'
-import { ArrowLeftOutlined, ThunderboltOutlined, PlusOutlined, InboxOutlined, EditOutlined, StarOutlined, StarFilled } from '@ant-design/icons'
+import { ThunderboltOutlined, PlusOutlined, InboxOutlined, EditOutlined, StarOutlined, StarFilled } from '@ant-design/icons'
 import * as echarts from 'echarts'
 import { getStockChart, getStockAlerts, getStockDetails, createStockDetail } from '../../api/stocks'
 import { getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import { updateDetail, deleteDetail } from '../../api/plans'
 import { extractTradeFromImage } from '../../api/ocr'
-import type { StockChartData, StockAlertItem, TradeDetail } from '../../types'
+import type { JsonObject, StockChartData, StockAlertItem, TradeDetail } from '../../types'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const statusColors: Record<string, string> = {
@@ -25,6 +25,21 @@ interface PoolNavStock {
   latest_price?: number
   pct_chg?: number
   limit_up_date?: string
+}
+
+interface StockDetailLocationState {
+  stockList?: PoolNavStock[]
+  poolName?: string
+}
+
+interface DetailFormValues {
+  trade_date?: dayjs.Dayjs
+  trade_time?: string
+  direction?: 'buy' | 'sell'
+  price?: number
+  quantity?: number
+  commission?: number
+  exec_note?: string
 }
 
 const StockDetail: React.FC = () => {
@@ -49,21 +64,23 @@ const StockDetail: React.FC = () => {
   const [editDetailForm] = Form.useForm()
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
-  const poolNavStocks: PoolNavStock[] = Array.isArray((location.state as any)?.stockList)
-    ? (location.state as any).stockList
-    : []
-  const poolName: string | undefined = (location.state as any)?.poolName
+  const locationState = (location.state as StockDetailLocationState | null) ?? null
+  const poolNavStocks = useMemo<PoolNavStock[]>(
+    () => (Array.isArray(locationState?.stockList) ? locationState.stockList : []),
+    [locationState?.stockList]
+  )
+  const poolName = locationState?.poolName
   const currentNavIndex = poolNavStocks.findIndex((s) => s.ts_code === tsCode)
 
-  const jumpToStock = (idx: number) => {
+  const jumpToStock = useCallback((idx: number) => {
     if (idx < 0 || idx >= poolNavStocks.length) return
     const target = poolNavStocks[idx]
     navigate(`/stocks/${target.ts_code}`, { state: location.state })
-  }
+  }, [location.state, navigate, poolNavStocks])
 
-  const fetchDetails = () => {
+  const fetchDetails = useCallback(() => {
     if (tsCode) getStockDetails(tsCode).then((res) => setDetails(res.data))
-  }
+  }, [tsCode])
 
   const openDetailModal = () => {
     detailForm.resetFields()
@@ -86,7 +103,7 @@ const StockDetail: React.FC = () => {
       } else {
         setOcrRawText(res.data.raw_text)
         const p = res.data.parsed || {}
-        const values: Record<string, any> = {}
+        const values: DetailFormValues = {}
         if (p.trade_date) values.trade_date = dayjs(p.trade_date, 'YYYYMMDD')
         if (p.trade_time) values.trade_time = p.trade_time
         if (p.direction) values.direction = p.direction
@@ -167,7 +184,7 @@ const StockDetail: React.FC = () => {
     getStockChart(tsCode, period).then((res) => setChartData(res.data))
     getStockAlerts(tsCode).then((res) => setAlerts(res.data))
     fetchDetails()
-  }, [tsCode, period])
+  }, [tsCode, period, fetchDetails])
 
   useEffect(() => {
     if (!tsCode) {
@@ -225,7 +242,7 @@ const StockDetail: React.FC = () => {
     const gridVol = { left: 60, right: 20, top: '58%', height: '12%' }
     const gridSub = { left: 60, right: 20, top: '74%', height: '18%' }
 
-    const series: any[] = [
+    const series: Array<Record<string, unknown>> = [
       {
         name: 'K线', type: 'candlestick', data: ohlc, xAxisIndex: 0, yAxisIndex: 0,
         itemStyle: { color: '#ec0000', color0: '#00da3c', borderColor: '#ec0000', borderColor0: '#00da3c' },
@@ -310,16 +327,25 @@ const StockDetail: React.FC = () => {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [poolNavStocks, currentNavIndex])
+  }, [poolNavStocks.length, currentNavIndex, jumpToStock])
 
   const basic = chartData?.basic
   const latestQuote = chartData?.quotes?.length ? chartData.quotes[chartData.quotes.length - 1] : null
   const syncMeta = chartData?.sync_meta
+  const latestPct = latestQuote?.pct_chg
+  const hasLatestPct = latestPct != null && !Number.isNaN(Number(latestPct))
 
   const alertColumns = [
     { title: '触发日期', dataIndex: 'trigger_date', key: 'trigger_date' },
     { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={statusColors[s]}>{s}</Tag> },
-    { title: '收盘价', key: 'close', render: (_: any, r: StockAlertItem) => r.snapshot?.close?.toFixed(2) ?? '-' },
+    {
+      title: '收盘价',
+      key: 'close',
+      render: (_: unknown, r: StockAlertItem) => {
+        const snapshot = r.snapshot as (JsonObject & { close?: number }) | undefined
+        return snapshot?.close?.toFixed(2) ?? '-'
+      },
+    },
     { title: '时间', dataIndex: 'created_at', key: 'created_at', render: (v: string) => v?.slice(0, 10) },
   ]
 
@@ -338,7 +364,7 @@ const StockDetail: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, r: TradeDetail) => (
+      render: (_: unknown, r: TradeDetail) => (
         <Space>
           <a onClick={() => openEditDetailModal(r)}><EditOutlined /> 编辑</a>
           <Popconfirm title="确定删除？" onConfirm={() => handleDeleteDetail(r.id)}>
@@ -356,7 +382,7 @@ const StockDetail: React.FC = () => {
           title={poolName ? `${poolName}（${poolNavStocks.length}）` : `池内股票（${poolNavStocks.length}）`}
           size="small"
           style={{ width: 300, flexShrink: 0, maxHeight: 'calc(100vh - 130px)', overflow: 'hidden' }}
-          extra={<span style={{ fontSize: 12, color: '#999' }}>↑ ↓ 快速切换</span>}
+          extra={<span style={{ fontSize: 12, color: 'var(--text-muted)' }}>↑ ↓ 快速切换</span>}
         >
           <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 210px)' }}>
             {poolNavStocks.map((s, idx) => {
@@ -367,17 +393,17 @@ const StockDetail: React.FC = () => {
                   onClick={() => jumpToStock(idx)}
                   style={{
                     padding: '8px 10px',
-                    borderBottom: '1px solid #f0f0f0',
+                    borderBottom: '1px solid var(--border-subtle)',
                     cursor: 'pointer',
-                    background: active ? '#f0f5ff' : '#fff',
-                    borderLeft: active ? '3px solid #1677ff' : '3px solid transparent',
+                    background: active ? 'var(--accent-dim)' : 'transparent',
+                    borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                     <span style={{ fontWeight: 600 }}>{s.stock_name || s.ts_code}</span>
-                    <span style={{ color: '#8c8c8c', fontSize: 12 }}>{s.ts_code}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{s.ts_code}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: '#666' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                     {s.industry || '-'}
                     {s.latest_price != null && (
                       <span style={{ marginLeft: 8 }}>
@@ -385,7 +411,7 @@ const StockDetail: React.FC = () => {
                       </span>
                     )}
                     {s.pct_chg != null && (
-                      <span style={{ marginLeft: 8, color: s.pct_chg >= 0 ? '#cf1322' : '#3f8600' }}>
+                      <span style={{ marginLeft: 8, color: s.pct_chg >= 0 ? 'var(--color-down)' : 'var(--color-up)' }}>
                         {s.pct_chg >= 0 ? '+' : ''}{s.pct_chg.toFixed(2)}%
                       </span>
                     )}
@@ -398,16 +424,12 @@ const StockDetail: React.FC = () => {
       )}
 
       <div style={{ flex: 1, minWidth: 0 }}>
-      <Button icon={<ArrowLeftOutlined />} style={{ marginBottom: 16 }} onClick={() => navigate('/pools')}>
-        返回观察池
-      </Button>
-
       {syncMeta && (
         <div style={{ marginBottom: 12 }}>
           <Tag color={syncMeta.status === 'sync_failed' ? 'red' : syncMeta.status === 'updated' ? 'green' : 'blue'}>
             {syncMeta.status === 'sync_failed' ? '数据补齐失败' : syncMeta.status === 'updated' ? '数据已自动更新' : '数据已是最新'}
           </Tag>
-          <span style={{ color: '#666', fontSize: 12 }}>
+          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
             {syncMeta.message}
             {syncMeta.latest_trade_date ? `（最新交易日：${syncMeta.latest_trade_date}）` : ''}
           </span>
@@ -451,13 +473,21 @@ const StockDetail: React.FC = () => {
                   <Statistic title="最新价" value={latestQuote.close} precision={2} />
                 </Col>
                 <Col span={3}>
-                  <Statistic
-                    title="涨幅"
-                    value={latestQuote.pct_chg}
-                    precision={2}
-                    suffix="%"
-                    valueStyle={{ color: latestQuote.pct_chg >= 0 ? '#cf1322' : '#3f8600' }}
-                  />
+                  {hasLatestPct ? (
+                    <Statistic
+                      title="涨幅"
+                      value={Number(latestPct)}
+                      precision={2}
+                      suffix="%"
+                      valueStyle={{ color: Number(latestPct) >= 0 ? '#cf1322' : '#3f8600' }}
+                    />
+                  ) : (
+                    <Statistic
+                      title="涨幅"
+                      value="-"
+                      valueStyle={{ color: 'var(--text-muted)', fontSize: 16 }}
+                    />
+                  )}
                 </Col>
                 <Col span={3}>
                   <Statistic title="成交量" value={latestQuote.vol} valueStyle={{ fontSize: 16 }} />

@@ -1,6 +1,8 @@
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 tushare>=1.2.89
+akshare>=1.18.0
+baostock>=0.9.1
 pandas>=2.0.0
 sqlalchemy>=2.0.0
 python-dotenv>=1.0.0
@@ -11,3 +13,4 @@ Pillow>=10.0.0
 openai>=1.0.0
 dashscope>=1.14.0
 eval-type-backport>=0.2.0
+pytest>=8.0.0

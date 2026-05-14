@@ -1,8 +1,14 @@
+export type JsonPrimitive = string | number | boolean | null
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[]
+export interface JsonObject {
+  [key: string]: JsonValue
+}
+
 export interface Pool {
   id: string
   name: string
   description?: string
-  default_monitor_rule?: Record<string, any>
+  default_monitor_rule?: JsonObject
   trigger_target_pool_id?: string
   stock_count: number
   created_at: string
@@ -88,7 +94,7 @@ export interface StockAlertItem {
   id: string
   trigger_date: string
   status: string
-  snapshot?: Record<string, any>
+  snapshot?: JsonObject & { close?: number }
   created_at: string
 }
 
@@ -105,7 +111,7 @@ export interface MonitorTemplate {
   id: string
   name: string
   description: string
-  default_params: Record<string, any>
+  default_params: JsonObject
 }
 
 export interface MonitorRule {
@@ -114,7 +120,7 @@ export interface MonitorRule {
   stock_id?: string
   template_id?: string
   template_name?: string
-  params?: Record<string, any>
+  params?: JsonObject
   logic: string
   is_active: boolean
   created_at: string
@@ -133,12 +139,12 @@ export interface Alert {
   strategy_name?: string
   latest_price?: number
   pct_chg?: number
-  buy_signal?: Record<string, any>
-  scan_meta?: Record<string, any>
+  buy_signal?: Partial<BuySignal>
+  scan_meta?: JsonObject & { intraday_provisional?: boolean }
   trigger_date: string
   status: string
   plan_id?: string
-  snapshot?: Record<string, any>
+  snapshot?: JsonObject & { close?: number }
   created_at: string
 }
 
@@ -218,11 +224,40 @@ export interface DashboardLimitLadderRow {
   industry?: string | null
 }
 
+export interface DashboardFlowSectorRow {
+  rank?: string | null
+  name: string
+  trade_date?: string | null
+  up_nums?: number | null
+  down_nums?: number | null
+  pct_chg?: number | null
+  cons_nums?: number | null
+  max_limit_times?: number | null
+  up_stat?: string | null
+}
+
+export interface DashboardSummary {
+  inflow_sector_count: number
+  outflow_sector_count: number
+  inflow_limit_count: number
+  outflow_limit_count: number
+  net_limit_count: number
+  flow_ratio?: number | null
+  max_up_streak: number
+  max_down_streak: number
+  outflow_source?: string | null
+}
+
 export interface DashboardData {
   trade_date: string
   resolved_by: 'default' | 'query'
   sectors: DashboardLimitSectorRow[]
   ladder: DashboardLimitLadderRow[]
+  inflow_sectors?: DashboardFlowSectorRow[]
+  inflow_ladder?: DashboardLimitLadderRow[]
+  outflow_sectors?: DashboardFlowSectorRow[]
+  outflow_ladder?: DashboardLimitLadderRow[]
+  summary?: DashboardSummary
 }
 
 export interface TaskStatus {
@@ -286,6 +321,62 @@ export interface SyncOverview {
 export interface Pagination<T> {
   items: T[]
   total: number
+}
+
+// ---------- 消息中心 ----------
+
+export type MessageLifecycleStage = 'early' | 'spreading' | 'climax' | 'cooling' | string
+export type MessageSentiment = 'positive' | 'neutral' | 'negative' | string
+export type MessageActionSuggestion = 'watch' | 'add_to_pool' | 'risk_watch' | string
+
+export interface MessageTopic {
+  id: string
+  trade_date: string
+  theme: string
+  summary?: string | null
+  lifecycle_stage: MessageLifecycleStage
+  sentiment: MessageSentiment
+  heat_score: number
+  credibility_score: number
+  crowding_score: number
+  source_platforms: string[]
+  tags: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface MessageOpportunity {
+  id: string
+  topic_id?: string | null
+  trade_date: string
+  theme: string
+  ts_code?: string | null
+  stock_name?: string | null
+  opportunity_score: number
+  heat_score: number
+  credibility_score: number
+  risk_score: number
+  action_suggestion: MessageActionSuggestion
+  reason?: string | null
+  catalysts: string[]
+  risks: string[]
+  source_platforms: string[]
+  source_links: string[]
+  status: string
+  created_at: string
+}
+
+export interface MessageDaily {
+  trade_date: string
+  generated_at: string
+  stats: {
+    topic_count: number
+    opportunity_count: number
+    top_score?: number | null
+    leading_theme?: string | null
+  }
+  topics: MessageTopic[]
+  opportunities: MessageOpportunity[]
 }
 
 // ---------- 买点雷达 ----------

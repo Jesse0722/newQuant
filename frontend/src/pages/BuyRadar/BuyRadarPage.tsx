@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip, Modal, DatePicker, Progress, Table, Row, Col, Statistic, InputNumber, Switch } from 'antd'
+import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip, Modal, DatePicker, Progress, Table, Row, Col, Statistic } from 'antd'
 import { ScanOutlined, BarChartOutlined, BellOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import {
@@ -8,9 +8,6 @@ import {
   getBuyStrategies,
   submitStrategyBacktest,
   getStrategyBacktestResult,
-  getTradingSession,
-  listIntradayScanConfig,
-  upsertIntradayScanConfig,
 } from '../../api/strategy'
 import { getAlertsPendingCount } from '../../api/alerts'
 import { listPools, getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
@@ -23,13 +20,10 @@ import type {
   BuyStrategy,
   Pool,
   StrategyBacktestResult,
-  IntradayScanConfigItem,
 } from '../../types'
 
 type FilterStatus = 'all' | BuySignalStatus
 
-const LS_AUTO = 'buyRadar:autoScanByStrategy'
-const LS_INTERVAL = 'buyRadar:intervalMinutes'
 const ALL_STRATEGY_ID = 'all'
 
 const BuyRadarPage: React.FC = () => {
@@ -40,22 +34,7 @@ const BuyRadarPage: React.FC = () => {
   const [strategies, setStrategies] = useState<BuyStrategy[]>([])
   const [activeStrategyId, setActiveStrategyId] = useState(ALL_STRATEGY_ID)
   const [scanResultsByStrategy, setScanResultsByStrategy] = useState<Record<string, BuySignalScanResult>>({})
-  const [autoScanByStrategy, setAutoScanByStrategy] = useState<Record<string, boolean>>(() => {
-    try {
-      const s = localStorage.getItem(LS_AUTO)
-      return s ? JSON.parse(s) : {}
-    } catch {
-      return {}
-    }
-  })
-  const [intervalMinutes, setIntervalMinutes] = useState<number>(() => {
-    const s = localStorage.getItem(LS_INTERVAL)
-    const n = s ? parseInt(s, 10) : 3
-    return Number.isFinite(n) && n >= 1 && n <= 30 ? n : 3
-  })
-  const [inSession, setInSession] = useState(false)
-  const [intradayConfigs, setIntradayConfigs] = useState<IntradayScanConfigItem[]>([])
-  const [manualMinConfirmHits, setManualMinConfirmHits] = useState<number>(2)
+  const [manualMinConfirmHits] = useState<number>(2)
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<FilterStatus>('all')
   const [selectedSignal, setSelectedSignal] = useState<BuySignal | null>(null)
@@ -71,20 +50,13 @@ const BuyRadarPage: React.FC = () => {
     dayjs().subtract(90, 'day'),
     dayjs().subtract(1, 'day'),
   ])
+  const [limitUpRange, setLimitUpRange] = useState<[Dayjs, Dayjs] | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const backtestPollingRef = useRef<number | null>(null)
-  const autoScanIntervalRef = useRef<number | null>(null)
-  const sessionPollRef = useRef<number | null>(null)
 
   const refreshCoreWatch = useCallback(() => {
     getCoreWatchCodes()
       .then((res) => setCoreWatchCodes(new Set(res.data.ts_codes || [])))
-      .catch(() => {})
-  }, [])
-
-  const loadIntradayConfigs = useCallback((poolId?: string) => {
-    listIntradayScanConfig(poolId)
-      .then((res) => setIntradayConfigs(res.data || []))
       .catch(() => {})
   }, [])
 
@@ -125,14 +97,6 @@ const BuyRadarPage: React.FC = () => {
       .catch(() => {})
   }, [refreshCoreWatch, activeStrategyId])
 
-  useEffect(() => {
-    if (activePoolId) {
-      loadIntradayConfigs(activePoolId)
-    } else {
-      setIntradayConfigs([])
-    }
-  }, [activePoolId, loadIntradayConfigs])
-
   const mergeAllStrategyResults = useCallback((results: BuySignalScanResult[]): BuySignalScanResult => {
     const statusOrder: Record<BuySignalStatus, number> = {
       confirmed_triggered: 0,
@@ -172,7 +136,9 @@ const BuyRadarPage: React.FC = () => {
       signals,
       scan_time: latestScanTime,
       total: signals.length,
-      triggered_count: signals.filter((s) => s.signal_status === 'triggered').length,
+      triggered_count: signals.filter(
+        (s) => s.signal_status === 'triggered' || s.signal_status === 'confirmed_triggered'
+      ).length,
       approaching_count: signals.filter((s) => s.signal_status === 'approaching').length,
       strategy_id: ALL_STRATEGY_ID,
       strategy_name: '所有策略',
@@ -184,31 +150,6 @@ const BuyRadarPage: React.FC = () => {
         Object.values(scanResultsByStrategy).filter((r) => !!r?.strategy_id && r.strategy_id !== ALL_STRATEGY_ID)
       )
     : (scanResultsByStrategy[activeStrategyId] ?? null)
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_AUTO, JSON.stringify(autoScanByStrategy))
-    } catch (_) {}
-  }, [autoScanByStrategy])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_INTERVAL, String(intervalMinutes))
-    } catch (_) {}
-  }, [intervalMinutes])
-
-  useEffect(() => {
-    const poll = () => {
-      getTradingSession()
-        .then((res) => setInSession(!!res.data?.in_session))
-        .catch(() => {})
-    }
-    poll()
-    sessionPollRef.current = window.setInterval(poll, 60_000)
-    return () => {
-      if (sessionPollRef.current != null) window.clearInterval(sessionPollRef.current)
-    }
-  }, [])
 
   const handleToggleCoreWatch = async (sig: BuySignal, starred: boolean) => {
     setCoreWatchBusyTsCode(sig.ts_code)
@@ -235,15 +176,18 @@ const BuyRadarPage: React.FC = () => {
     }
   }
 
-  const filteredSignals = activeScanResult
-    ? filter === 'all'
-      ? activeScanResult.signals.filter((s) => s.signal_status !== 'invalidated')
-      : filter === 'triggered'
-        ? activeScanResult.signals.filter(
-            (s) => s.signal_status === 'triggered' || s.signal_status === 'confirmed_triggered'
-          )
-        : activeScanResult.signals.filter((s) => s.signal_status === filter)
-    : []
+  const filteredSignals = useMemo(() => {
+    if (!activeScanResult) return []
+    if (filter === 'all') {
+      return activeScanResult.signals.filter((s) => s.signal_status !== 'invalidated')
+    }
+    if (filter === 'triggered') {
+      return activeScanResult.signals.filter(
+        (s) => s.signal_status === 'triggered' || s.signal_status === 'confirmed_triggered'
+      )
+    }
+    return activeScanResult.signals.filter((s) => s.signal_status === filter)
+  }, [activeScanResult, filter])
 
   const handlePoolChange = (poolId: string) => {
     setActivePoolId(poolId)
@@ -263,6 +207,8 @@ const BuyRadarPage: React.FC = () => {
       message.warning('暂无可用股票池，请先在观察池页面创建')
       return
     }
+    const limitUpDateFrom = limitUpRange?.[0]?.format('YYYYMMDD')
+    const limitUpDateTo = limitUpRange?.[1]?.format('YYYYMMDD')
     setLoading(true)
     try {
       if (activeStrategyId === ALL_STRATEGY_ID) {
@@ -275,7 +221,13 @@ const BuyRadarPage: React.FC = () => {
         const patch: Record<string, BuySignalScanResult> = {}
         for (let i = 0; i < targets.length; i++) {
           const sid = targets[i]
-          const res = await scanBuySignals(activePoolId, sid, manualMinConfirmHits)
+          const res = await scanBuySignals(
+            activePoolId,
+            sid,
+            manualMinConfirmHits,
+            limitUpDateFrom,
+            limitUpDateTo
+          )
           collected.push(res.data)
           patch[sid] = res.data
           if (i < targets.length - 1) {
@@ -285,7 +237,7 @@ const BuyRadarPage: React.FC = () => {
         setScanResultsByStrategy((prev) => ({ ...prev, ...patch }))
         const merged = mergeAllStrategyResults(collected)
         message.success(
-          `全部策略扫描完成: ${merged.triggered_count} 只触发, ${merged.approaching_count} 只接近, 共 ${merged.total} 只。`
+          `全部策略扫描完成: ${merged.triggered_count} 只触发, 共 ${merged.total} 只。`
         )
         refreshPendingAlerts()
         if (merged.signals.length > 0) {
@@ -293,10 +245,16 @@ const BuyRadarPage: React.FC = () => {
           setSelectedSignal(first)
         }
       } else {
-        const res = await scanBuySignals(activePoolId, activeStrategyId, manualMinConfirmHits)
+        const res = await scanBuySignals(
+          activePoolId,
+          activeStrategyId,
+          manualMinConfirmHits,
+          limitUpDateFrom,
+          limitUpDateTo
+        )
         setScanResultsByStrategy((prev) => ({ ...prev, [activeStrategyId]: res.data }))
         message.success(
-          `扫描完成: ${res.data.triggered_count} 只触发, ${res.data.approaching_count} 只接近, 共 ${res.data.total} 只。待处理提醒已更新，可到买点提醒查看。`
+          `扫描完成: ${res.data.triggered_count} 只触发, 共 ${res.data.total} 只。待处理提醒已更新，可到买点提醒查看。`
         )
         refreshPendingAlerts()
         if (res.data.signals.length > 0) {
@@ -376,59 +334,6 @@ const BuyRadarPage: React.FC = () => {
     }
   }
 
-
-  useEffect(() => {
-    if (autoScanIntervalRef.current != null) {
-      window.clearInterval(autoScanIntervalRef.current)
-      autoScanIntervalRef.current = null
-    }
-    if (!inSession || !activePoolId) return () => {}
-    const enabled = Object.entries(autoScanByStrategy).filter(([, v]) => v).map(([k]) => k)
-    if (enabled.length === 0) return () => {}
-
-    const run = async () => {
-      for (let i = 0; i < enabled.length; i++) {
-        const sid = enabled[i]
-        try {
-          const res = await scanBuySignals(activePoolId, sid, manualMinConfirmHits)
-          setScanResultsByStrategy((prev) => ({ ...prev, [sid]: res.data }))
-        } catch (_) { /* 静默 */ }
-        if (i < enabled.length - 1) await new Promise((r) => setTimeout(r, 200))
-      }
-      refreshPendingAlerts()
-    }
-    void run()
-    autoScanIntervalRef.current = window.setInterval(run, Math.max(1, intervalMinutes) * 60 * 1000)
-    return () => {
-      if (autoScanIntervalRef.current != null) {
-        window.clearInterval(autoScanIntervalRef.current)
-        autoScanIntervalRef.current = null
-      }
-    }
-  }, [inSession, activePoolId, autoScanByStrategy, intervalMinutes, refreshPendingAlerts, manualMinConfirmHits])
-
-  const selectedCfg = intradayConfigs.find(
-    (c) => c.pool_id === activePoolId && c.strategy_id === activeStrategyId
-  )
-
-  const handleUpdateIntradayConfig = async (patch: Partial<IntradayScanConfigItem>) => {
-    if (!activePoolId || activeStrategyId === ALL_STRATEGY_ID) return
-    const base = selectedCfg || {
-      pool_id: activePoolId,
-      strategy_id: activeStrategyId,
-      enabled: false,
-      interval_minutes: 5,
-      min_confirm_hits: 2,
-    }
-    await upsertIntradayScanConfig({
-      pool_id: base.pool_id,
-      strategy_id: base.strategy_id,
-      enabled: patch.enabled ?? base.enabled,
-      interval_minutes: patch.interval_minutes ?? base.interval_minutes,
-      min_confirm_hits: patch.min_confirm_hits ?? base.min_confirm_hits,
-    })
-    loadIntradayConfigs(activePoolId)
-  }
 
   const handleSelect = useCallback((signal: BuySignal) => {
     setSelectedSignal(signal)
@@ -517,72 +422,6 @@ const BuyRadarPage: React.FC = () => {
             }}
           />
 
-          <Tooltip title={inSession ? '交易时段内按间隔自动扫描' : '非交易时段不轮询，进入时段后自动开始（若开关已开）'}>
-            <Space size={4}>
-              <span style={{ fontSize: 13, color: '#595959' }}>实时</span>
-              <Switch
-                disabled={activeStrategyId === ALL_STRATEGY_ID}
-                checked={!!autoScanByStrategy[activeStrategyId]}
-                onChange={(checked) => {
-                  const others = Object.entries(autoScanByStrategy).filter(([id, v]) => v && id !== activeStrategyId).length
-                  if (checked && !autoScanByStrategy[activeStrategyId] && others >= 3) {
-                    message.warning('最多同时开启 3 个策略的实时扫描')
-                    return
-                  }
-                  setAutoScanByStrategy((prev) => ({ ...prev, [activeStrategyId]: checked }))
-                }}
-              />
-            </Space>
-          </Tooltip>
-          <Tooltip title="后端盘中轮询（服务端执行，低误报优先）">
-            <Space size={4}>
-              <span style={{ fontSize: 13, color: '#595959' }}>后端轮询</span>
-              <Switch
-                disabled={!activePoolId || activeStrategyId === ALL_STRATEGY_ID}
-                checked={!!selectedCfg?.enabled}
-                onChange={(checked) => {
-                  handleUpdateIntradayConfig({ enabled: checked }).catch(() => {
-                    message.error('更新后端轮询配置失败')
-                  })
-                }}
-              />
-            </Space>
-          </Tooltip>
-          <span style={{ fontSize: 13, color: '#595959' }}>确证次数</span>
-          <InputNumber
-            min={1}
-            max={5}
-            value={selectedCfg?.min_confirm_hits ?? manualMinConfirmHits}
-            onChange={(v) => {
-              const n = typeof v === 'number' ? v : 2
-              setManualMinConfirmHits(n)
-              if (activePoolId && activeStrategyId !== ALL_STRATEGY_ID) {
-                handleUpdateIntradayConfig({ min_confirm_hits: n }).catch(() => {})
-              }
-            }}
-            size="small"
-            style={{ width: 72 }}
-          />
-          <span style={{ fontSize: 13, color: '#595959' }}>后端间隔</span>
-          <InputNumber
-            min={1}
-            max={30}
-            value={selectedCfg?.interval_minutes ?? 5}
-            disabled={!selectedCfg?.enabled || activeStrategyId === ALL_STRATEGY_ID}
-            onChange={(v) => {
-              const n = typeof v === 'number' ? v : 5
-              if (activePoolId && activeStrategyId !== ALL_STRATEGY_ID) {
-                handleUpdateIntradayConfig({ interval_minutes: n }).catch(() => {
-                  message.error('更新后端轮询间隔失败')
-                })
-              }
-            }}
-            size="small"
-            style={{ width: 80 }}
-          />
-          <span style={{ fontSize: 13, color: '#595959' }}>间隔(分)</span>
-          <InputNumber min={1} max={30} value={intervalMinutes} onChange={(v) => setIntervalMinutes(typeof v === 'number' ? v : 3)} size="small" style={{ width: 64 }} />
-
           <Button
             type="primary"
             icon={<ScanOutlined />}
@@ -593,6 +432,20 @@ const BuyRadarPage: React.FC = () => {
           >
             扫描买点
           </Button>
+          <DatePicker.RangePicker
+            size="small"
+            value={limitUpRange}
+            onChange={(v) => {
+              if (!v || !v[0] || !v[1]) {
+                setLimitUpRange(null)
+                return
+              }
+              setLimitUpRange([v[0], v[1]])
+            }}
+            format="YYYY-MM-DD"
+            placeholder={['涨停起始日', '涨停截止日']}
+            allowClear
+          />
           <Button
             icon={<BarChartOutlined />}
             onClick={() => setBacktestVisible(true)}
@@ -611,7 +464,6 @@ const BuyRadarPage: React.FC = () => {
                 ),
                 value: 'triggered',
               },
-              { label: '盘中候选', value: 'provisional_triggered' },
               {
                 label: (
                   <Badge count={activeScanResult?.approaching_count || 0} size="small" offset={[8, -2]} color="#fa8c16">
@@ -632,9 +484,6 @@ const BuyRadarPage: React.FC = () => {
             <span style={{ marginRight: 12, color: '#1890ff' }}>{activeScanResult.strategy_name}</span>
           )}
           {scanTime && <>扫描时间: {scanTime}</>}
-          {activeScanResult?.intraday_provisional && (
-            <span style={{ marginLeft: 8, color: '#fa8c16' }}>盘中快照</span>
-          )}
           <span style={{ marginLeft: 12, color: '#bfbfbf' }}>
             快捷键: <kbd style={{ border: '1px solid #d9d9d9', borderRadius: 3, padding: '0 4px', fontSize: 11 }}>↑</kbd>
             <kbd style={{ border: '1px solid #d9d9d9', borderRadius: 3, padding: '0 4px', fontSize: 11, marginLeft: 2 }}>↓</kbd> 切换
@@ -729,12 +578,12 @@ const BuyRadarPage: React.FC = () => {
         {/* 左侧信号列表 */}
         <div style={{
           width: 320, minWidth: 280, maxWidth: 360, flexShrink: 0,
-          borderRight: '1px solid #f0f0f0', background: '#fff',
+          borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-surface)',
           display: 'flex', flexDirection: 'column',
         }}>
           <div style={{
-            padding: '8px 14px', borderBottom: '1px solid #f0f0f0',
-            fontSize: 13, color: '#8c8c8c', flexShrink: 0,
+            padding: '8px 14px', borderBottom: '1px solid var(--border-subtle)',
+            fontSize: 13, color: 'var(--text-muted)', flexShrink: 0,
           }}>
             {filteredSignals.length} 只股票
           </div>

@@ -24,7 +24,7 @@ def get_dashboard(
             detail={
                 "code": "TRADE_DATE_RESOLUTION_FAILED",
                 "message": str(e),
-                "hint": "请检查 Tushare trade_cal 是否可用，或稍后重试。",
+                "hint": "请检查已配置数据源的交易日历接口是否可用，或稍后重试。",
             },
         ) from e
     except Exception as e:
@@ -42,9 +42,8 @@ def get_dashboard(
                 "code": code,
                 "message": msg,
                 "hint": (
-                    "请检查 backend 环境变量 TUSHARE_TOKEN 与积分权限"
-                    "（limit_cpt_list / limit_step 约需 8000 积分）。"
-                    "详见 https://tushare.pro/document/2"
+                    "请检查当前配置的数据源连通性。若使用 Tushare，"
+                    "请同时检查 TUSHARE_TOKEN、代理与积分权限。"
                 ),
             },
         ) from e

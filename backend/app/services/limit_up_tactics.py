@@ -7,13 +7,14 @@
 - 涨停不在历史高位区间（排除拉升/出货板）
 - 涨停日换手率在合理区间
 
-六大战法各自的买点条件（统一加权评分）：
+七大战法各自的买点条件（统一加权评分）：
 1. 次日缩量买入 — 涨停后5日内缩量靠拢均线企稳
 2. 回踩5日线 — 回踩 MA5 止跌收阳
 3. 三阴不破阳 — 连续阴线不破涨停低价，放量阳线反转
 4. 缩倍量信号 — 缩倍量阴线锁筹，放量阳线突破涨停价
 5. 均线金叉 — 回调缩量后 MA5 金叉 MA10
 6. 搓揉线买入 — 长上影+长下影洗盘后突破起涨
+7. 五日均线不破 — 首板后3~5日、回调8%~15%（相对首板涨停价）、缩量企稳于MA5/MA10
 """
 
 from __future__ import annotations
@@ -652,6 +653,187 @@ def analyze_rubbing_line(df: pd.DataFrame, limit_up_idx: int) -> dict:
 
 
 # ================================================================
+# 战法 7: 五日均线不破（首板涨停后缩量回调）
+# ================================================================
+
+MA5_HOLD_PULLBACK_CONDS = {
+    "board_vol_1p5": {
+        "label": "首板成交量≥5日均量1.5倍",
+        "weight": 1.2,
+        "core": True,
+    },
+    "board_turnover_5_20": {
+        "label": "首板换手率在5%~20%",
+        "weight": 1.0,
+        "core": True,
+    },
+    "board_mkt_40_120": {
+        "label": "首板市值在40~120亿",
+        "weight": 1.0,
+        "core": True,
+    },
+    "time_3_5": {
+        "label": "涨停后第3~5个交易日",
+        "weight": 1.2,
+        "core": True,
+    },
+    "pullback_5_10": {
+        "label": "回调深度5%~10%（相对首板涨停收盘）",
+        "weight": 1.5,
+        "core": True,
+    },
+    "vol_half": {
+        "label": "缩量（当日成交量≤首板日50%）",
+        "weight": 1.5,
+        "core": True,
+    },
+    "support_ma_board": {
+        "label": "不破首板最低价且收盘站稳5日均线",
+        "weight": 1.5,
+        "core": True,
+    },
+    "stabilize_or_ma": {
+        "label": "企稳信号或均线确认（十字星/阳包阴/两日持平/回踩5或10日线）",
+        "weight": 2.0,
+        "core": True,
+    },
+}
+
+
+def _shrink_doji_cross(row: pd.Series, lu_vol: float) -> bool:
+    """缩量十字星：实体占全幅比例小，有上下影，量能≤首板一半。"""
+    o = float(row["open"])
+    h = float(row["high"])
+    l = float(row["low"])
+    c = float(row["close"])
+    rng = h - l
+    if rng <= 0:
+        return False
+    body = abs(c - o)
+    if body / rng > 0.28:
+        return False
+    upper = h - max(c, o)
+    lower = min(c, o) - l
+    if upper / rng < 0.12 or lower / rng < 0.12:
+        return False
+    return float(row["vol"]) <= lu_vol * 0.5 + 1e-9
+
+
+def _bullish_engulfing(latest: pd.Series, prev: pd.Series) -> bool:
+    if float(prev["close"]) >= float(prev["open"]):
+        return False
+    return (
+        float(latest["close"]) > float(latest["open"])
+        and float(latest["close"]) >= float(prev["open"])
+        and float(latest["open"]) <= float(prev["close"])
+    )
+
+
+def _two_close_flat(latest: pd.Series, prev: pd.Series) -> bool:
+    c0 = float(latest["close"])
+    c1 = float(prev["close"])
+    if c0 <= 0:
+        return False
+    return abs(c0 - c1) / c0 <= 0.002
+
+
+def _shrink_near_ma5_or_ma10(latest: pd.Series, lu_vol: float) -> bool:
+    """缩量回踩5日或10日线企稳：量能≤首板一半，收盘在MA5或MA10±2%内。"""
+    if float(latest["vol"]) > lu_vol * 0.5 + 1e-9:
+        return False
+    close = float(latest["close"])
+    for col in ("ma5", "ma10"):
+        ma = latest.get(col)
+        if ma is None or pd.isna(ma) or float(ma) <= 0:
+            continue
+        if abs(close - float(ma)) / float(ma) <= 0.02:
+            return True
+    return False
+
+
+def analyze_ma5_hold_pullback(df: pd.DataFrame, limit_up_idx: int) -> dict:
+    """
+    五日均线不破：首板满足放量/换手/市值后，涨停后第3~5个交易日，
+    回调幅度（相对首板涨停收盘）5%~10%，当日缩量至首板一半以下，不破首板最低价且收盘在MA5之上，
+    并满足企稳形态（缩量十字星/阳包阴/两日收盘持平）或缩量回踩5/10日线确认。
+    """
+    latest_idx = len(df) - 1
+    lu = df.iloc[limit_up_idx]
+    latest = df.iloc[latest_idx]
+    lu_close = float(lu["close"])
+    lu_vol = float(lu["vol"])
+    lu_low = float(lu["low"])
+    days_since = latest_idx - limit_up_idx
+
+    c: dict[str, bool] = {}
+
+    lu_vol_ma5 = lu.get("vol_ma5")
+    if lu_vol_ma5 is not None and not pd.isna(lu_vol_ma5) and float(lu_vol_ma5) > 0:
+        c["board_vol_1p5"] = lu_vol >= float(lu_vol_ma5) * 1.5
+    else:
+        c["board_vol_1p5"] = False
+
+    lu_turnover = lu.get("turnover_rate")
+    if lu_turnover is not None and not pd.isna(lu_turnover):
+        tr = float(lu_turnover)
+        c["board_turnover_5_20"] = 5.0 <= tr <= 20.0
+    else:
+        c["board_turnover_5_20"] = False
+
+    lu_float_share = lu.get("float_share")
+    if lu_float_share is not None and not pd.isna(lu_float_share) and lu_close > 0:
+        # float_share 单位为“万股”：市值(亿) = float_share * close / 10000
+        mkt_cap_yi = float(lu_float_share) * lu_close / 10000.0
+        c["board_mkt_40_120"] = 40.0 <= mkt_cap_yi <= 120.0
+    else:
+        mkt_cap_yi = None
+        c["board_mkt_40_120"] = False
+
+    c["time_3_5"] = 3 <= days_since <= 5
+
+    post = df.iloc[limit_up_idx + 1 : latest_idx + 1]
+    min_low = float(post["low"].min()) if len(post) > 0 else lu_close
+    pullback_pct = (lu_close - min_low) / lu_close * 100 if lu_close > 0 else 0.0
+    c["pullback_5_10"] = 5.0 <= pullback_pct <= 10.0
+
+    c["vol_half"] = float(latest["vol"]) <= lu_vol * 0.5 + 1e-9
+
+    ma5 = latest.get("ma5")
+    not_break_board = float(latest["low"]) >= lu_low * 0.99
+    if ma5 is not None and not pd.isna(ma5) and float(ma5) > 0:
+        not_break_ma5 = float(latest["close"]) >= float(ma5) * 0.995
+    else:
+        not_break_ma5 = not_break_board
+    c["support_ma_board"] = not_break_board and not_break_ma5
+
+    prev = df.iloc[latest_idx - 1] if latest_idx >= limit_up_idx + 1 else None
+    doji_ok = _shrink_doji_cross(latest, lu_vol)
+    engulf_ok = _bullish_engulfing(latest, prev) if prev is not None else False
+    flat_ok = _two_close_flat(latest, prev) if prev is not None else False
+    ma_near_ok = _shrink_near_ma5_or_ma10(latest, lu_vol)
+    c["stabilize_or_ma"] = bool(doji_ok or engulf_ok or flat_ok or ma_near_ok)
+
+    m = _metrics(df, limit_up_idx)
+    m["pullback_pct_board"] = round(pullback_pct, 2)
+    m["days_since_limit_up"] = int(days_since)
+    m["board_turnover_rate"] = round(float(lu_turnover), 3) if lu_turnover is not None and not pd.isna(lu_turnover) else None
+    m["board_mkt_cap_yi"] = round(float(mkt_cap_yi), 2) if mkt_cap_yi is not None else None
+    m["board_vol_ratio_ma5"] = round(lu_vol / float(lu_vol_ma5), 3) if lu_vol_ma5 is not None and not pd.isna(lu_vol_ma5) and float(lu_vol_ma5) > 0 else None
+    detail_bits: list[str] = []
+    if doji_ok:
+        detail_bits.append("缩量十字星")
+    if engulf_ok:
+        detail_bits.append("阳包阴")
+    if flat_ok:
+        detail_bits.append("两日收盘持平")
+    if ma_near_ok:
+        detail_bits.append("缩量回踩5/10日线")
+    m["stabilize_detail"] = "+".join(detail_bits) if detail_bits else None
+
+    return _build_signal(c, MA5_HOLD_PULLBACK_CONDS, m)
+
+
+# ================================================================
 # 战法注册表
 # ================================================================
 
@@ -697,5 +879,12 @@ TACTIC_REGISTRY: dict[str, dict] = {
         "analyze_fn": analyze_rubbing_line,
         "cond_defs": RUBBING_LINE_CONDS,
         "max_days": 20,
+    },
+    "ma5_hold_pullback": {
+        "name": "五日均线不破",
+        "description": "首板需放量+换手+市值过滤；3~5日回调5%~10%、缩量≤首板一半、不破首板低且站稳MA5，企稳或回踩均线",
+        "analyze_fn": analyze_ma5_hold_pullback,
+        "cond_defs": MA5_HOLD_PULLBACK_CONDS,
+        "max_days": 5,
     },
 }

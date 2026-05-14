@@ -12,7 +12,11 @@ from app.services.buy_signal_service import (
     INTRADAY_PROVISIONAL,
     INTRADAY_CONFIRMED,
 )
-from app.services.trading_session import is_a_share_trading_session, shanghai_trade_date_str
+from app.services.trading_session import (
+    is_a_share_trading_session,
+    shanghai_trade_date_str,
+    latest_daily_k_trade_date_str,
+)
 
 
 class TestMergeRtK(unittest.TestCase):
@@ -88,6 +92,16 @@ class TestTradingSession(unittest.TestCase):
         sh = ZoneInfo("Asia/Shanghai")
         d = datetime(2026, 3, 30, 10, 0, 0, tzinfo=sh)
         self.assertEqual(shanghai_trade_date_str(d), "20260330")
+
+    def test_latest_daily_k_trade_date_before_open_uses_previous_workday(self):
+        sh = ZoneInfo("Asia/Shanghai")
+        d = datetime(2026, 4, 28, 0, 56, 0, tzinfo=sh)
+        self.assertEqual(latest_daily_k_trade_date_str(d), "20260427")
+
+    def test_latest_daily_k_trade_date_after_close_uses_same_day(self):
+        sh = ZoneInfo("Asia/Shanghai")
+        d = datetime(2026, 4, 28, 15, 30, 0, tzinfo=sh)
+        self.assertEqual(latest_daily_k_trade_date_str(d), "20260428")
 
 
 class TestIntradayReliability(unittest.TestCase):

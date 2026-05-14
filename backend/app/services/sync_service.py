@@ -6,11 +6,13 @@ import uuid
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
+from sqlalchemy import func
 from app.database import SessionLocal
 from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchStock
 from app.models.sync_log import SyncLog
 from app.services.tushare_adapter import tushare_adapter
+from app.services.trading_session import shanghai_trade_date_str, latest_daily_k_trade_date_str
 from app.tasks.background import task_registry
 
 
@@ -88,22 +90,82 @@ def sync_stock_info(db: Session, ts_code: str):
     _commit_with_retry(db)
 
 
+def _find_gap_repair_start(
+    db: Session,
+    ts_code: str,
+    *,
+    lookback_calendar_days: int = 160,
+    max_check_days: int = 80,
+) -> str | None:
+    """
+    检测近期交易日缺口，返回最早缺失交易日（YYYYMMDD）。
+    仅用于确定补齐起点，避免“只追最新”导致中间断档长期存在。
+    """
+    end_date = latest_daily_k_trade_date_str()
+    open_dates = tushare_adapter.get_sse_open_dates(
+        end_date=end_date,
+        lookback_calendar_days=lookback_calendar_days,
+    )
+    if not open_dates:
+        return None
+    recent_open = open_dates[-max_check_days:]
+    if not recent_open:
+        return None
+
+    rows = (
+        db.query(DailyQuote.trade_date)
+        .filter(
+            DailyQuote.ts_code == ts_code,
+            DailyQuote.trade_date >= recent_open[0],
+            DailyQuote.trade_date <= recent_open[-1],
+        )
+        .all()
+    )
+    existing = {r[0] for r in rows if r and r[0]}
+    missing = [d for d in recent_open if d not in existing]
+    if not missing:
+        return None
+    return missing[0]
+
+
 def sync_daily(db: Session, ts_code: str, days: int = 250):
     """增量同步日线行情"""
+    hist_count = (
+        db.query(func.count(DailyQuote.trade_date))
+        .filter(DailyQuote.ts_code == ts_code)
+        .scalar()
+        or 0
+    )
     latest = db.query(DailyQuote.trade_date).filter(
         DailyQuote.ts_code == ts_code
     ).order_by(DailyQuote.trade_date.desc()).first()
 
-    if latest:
+    # 历史过稀（例如曾写入异常快照后被清理）时，改为回填窗口，避免只做“向前增量”导致K线长期缺失。
+    sparse_threshold = max(20, min(80, days // 3))
+    if latest and hist_count >= sparse_threshold:
         start_date = (datetime.strptime(latest[0], "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
     else:
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+    gap_start = _find_gap_repair_start(db, ts_code)
+    if gap_start and gap_start < start_date:
+        start_date = gap_start
 
-    end_date = datetime.now().strftime("%Y%m%d")
+    end_date = latest_daily_k_trade_date_str()
     if start_date > end_date:
         return 0
 
     df = tushare_adapter.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+    if df.empty:
+        return 0
+    if "ts_code" in df.columns:
+        df = df.copy()
+        df["ts_code"] = df["ts_code"].astype(str).str.strip().str.upper()
+        df = df[df["ts_code"] == ts_code.upper()]
+    if "trade_date" in df.columns:
+        df = df.copy()
+        df["trade_date"] = df["trade_date"].astype(str).str.strip()
+        df = df[df["trade_date"].str.match(r"^\d{8}$", na=False)]
+    df = df.dropna(subset=["ts_code", "trade_date"]) if {"ts_code", "trade_date"}.issubset(df.columns) else df
     if df.empty:
         return 0
 

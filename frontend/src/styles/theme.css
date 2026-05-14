@@ -1,0 +1,79 @@
+/* ============================================================
+   量化交易系统 — 设计 Token 系统
+   Deep space dark theme with neon cyan accent
+   ============================================================ */
+
+:root {
+  /* ── 背景层次 ── */
+  --bg-base:        #070c18;
+  --bg-surface:     #0d1526;
+  --bg-card:        #111e35;
+  --bg-card-hover:  #152240;
+  --bg-modal:       #0f1a2e;
+  --bg-input:       #0a1220;
+  --bg-sidebar:     #080e1c;
+
+  /* ── 主色调 Accent ── */
+  --accent:         #00d4ff;
+  --accent-dim:     rgba(0, 212, 255, 0.15);
+  --accent-border:  rgba(0, 212, 255, 0.25);
+  --accent-glow:    rgba(0, 212, 255, 0.08);
+  --accent-hover:   #33deff;
+
+  /* ── 辅助色 ── */
+  --color-up:       #00e676;   /* 涨 */
+  --color-up-dim:   rgba(0, 230, 118, 0.12);
+  --color-down:     #ff4757;   /* 跌 */
+  --color-down-dim: rgba(255, 71, 87, 0.12);
+  --color-warn:     #ffa502;   /* 警告 */
+  --color-warn-dim: rgba(255, 165, 2, 0.12);
+  --color-purple:   #a855f7;   /* 紫色强调 */
+
+  /* ── 文字 ── */
+  --text-primary:   #e8edf8;
+  --text-secondary: #8899bb;
+  --text-muted:     #4a5a7a;
+  --text-accent:    #00d4ff;
+
+  /* ── 边框 ── */
+  --border-subtle:  rgba(255, 255, 255, 0.04);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong:  rgba(255, 255, 255, 0.15);
+  --border-accent:  rgba(0, 212, 255, 0.3);
+
+  /* ── 间距 ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* ── 圆角 ── */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  20px;
+
+  /* ── 阴影 ── */
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-accent: 0 0 20px rgba(0, 212, 255, 0.12), 0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-up:  0 0 16px rgba(0, 230, 118, 0.15);
+  --shadow-down: 0 0 16px rgba(255, 71, 87, 0.15);
+
+  /* ── 动效 ── */
+  --transition-fast:   0.15s ease;
+  --transition-base:   0.25s ease;
+  --transition-slow:   0.4s ease;
+
+  /* ── 字体 ── */
+  --font-sans:  'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:  'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* ── 侧边栏 ── */
+  --sidebar-width:          220px;
+  --sidebar-collapsed-width: 64px;
+  --topbar-height:          56px;
+}

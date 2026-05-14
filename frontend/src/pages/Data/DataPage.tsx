@@ -1,11 +1,19 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Descriptions, Button, Progress, message, Spin, InputNumber, Space, Row, Col, Statistic, Table, Tag } from 'antd'
+import { Card, Descriptions, Button, Progress, message, Spin, InputNumber, Space, Row, Col, Statistic, Table, Tag, Select } from 'antd'
 import { SyncOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { getDataSummary, getSyncHistory, checkTushare, getSyncOverview } from '../../api/data'
+import { getDataSummary, getSyncHistory, checkTushare, getSyncOverview, getDataProvider, setDataProvider } from '../../api/data'
 import { syncFullMarket, getTaskStatus } from '../../api/sync'
 import { collectLimitUp } from '../../api/strategy'
 import type { DataSummary, SyncHistoryItem, SyncOverview } from '../../types'
+
+interface ApiErrorLike {
+  response?: {
+    data?: {
+      message?: string
+    }
+  }
+}
 
 const DataPage: React.FC = () => {
   const [summary, setSummary] = useState<DataSummary | null>(null)
@@ -39,14 +47,18 @@ const DataPage: React.FC = () => {
     proxy_configured: boolean
     api_test: string
     rows_returned?: number
+    data_provider?: 'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite'
   } | null>(null)
+  const [dataProvider, setDataProviderState] = useState<'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite'>('composite')
+  const [switchingProvider, setSwitchingProvider] = useState(false)
 
   const handleCheckTushare = async () => {
     try {
       const res = await checkTushare()
       setTushareCheck(res.data)
-    } catch (e: any) {
-      message.error(e.response?.data?.message || '检查失败')
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '检查失败')
     }
   }
 
@@ -77,10 +89,35 @@ const DataPage: React.FC = () => {
     }
   }
 
+  const fetchDataProvider = async () => {
+    try {
+      const res = await getDataProvider()
+      setDataProviderState(res.data.provider)
+    } catch {
+      // noop
+    }
+  }
+
   useEffect(() => {
     fetchSummary()
     fetchSyncHistory()
+    fetchDataProvider()
   }, [])
+
+  const handleSwitchProvider = async (provider: 'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite') => {
+    setSwitchingProvider(true)
+    try {
+      await setDataProvider(provider)
+      setDataProviderState(provider)
+      message.success(`主数据源已切换为 ${provider}`)
+      await handleCheckTushare()
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '切换数据源失败')
+    } finally {
+      setSwitchingProvider(false)
+    }
+  }
 
   useEffect(() => {
     if (!taskId) return
@@ -119,9 +156,10 @@ const DataPage: React.FC = () => {
     try {
       const res = await syncFullMarket(fullMarketDays)
       setTaskId(res.data.task_id)
-    } catch (e: any) {
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
       setSyncing(false)
-      message.error(e.response?.data?.message || '启动同步失败')
+      message.error(apiError.response?.data?.message || '启动同步失败')
     }
   }
 
@@ -137,8 +175,9 @@ const DataPage: React.FC = () => {
         dates_processed: res.data.dates_processed || [],
       })
       message.success(`涨停筛选完成：新增 ${res.data.added} 只，更新 ${res.data.updated} 只`)
-    } catch (e: any) {
-      message.error(e.response?.data?.message || '涨停筛选失败')
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '涨停筛选失败')
     } finally {
       setLimitUpCollecting(false)
     }
@@ -153,8 +192,25 @@ const DataPage: React.FC = () => {
         title="数据管理"
         extra={
           <Space>
+            <Space>
+              <span>主数据源</span>
+              <Select<'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite'>
+                size="small"
+                style={{ width: 140 }}
+                value={dataProvider}
+                loading={switchingProvider}
+                onChange={handleSwitchProvider}
+                options={[
+                  { value: 'tencent', label: 'tencent' },
+                  { value: 'baostock', label: 'baostock' },
+                  { value: 'tushare', label: 'tushare' },
+                  { value: 'akshare', label: 'akshare' },
+                  { value: 'composite', label: 'composite' },
+                ]}
+              />
+            </Space>
             <Button size="small" onClick={handleCheckTushare}>
-              检查 Tushare 连接
+              检查连接
             </Button>
             <Space>
               <span>同步最近</span>
@@ -197,7 +253,7 @@ const DataPage: React.FC = () => {
                   <div key={item.task_type} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ fontSize: 13 }}>{item.task_type}（{item.tasks} 次）</span>
-                      <span style={{ fontSize: 12, color: '#8c8c8c' }}>成功 {item.success} / 失败 {item.failed} / 跳过 {item.skipped}</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>成功 {item.success} / 失败 {item.failed} / 跳过 {item.skipped}</span>
                     </div>
                     <Progress
                       percent={100}
@@ -222,8 +278,9 @@ const DataPage: React.FC = () => {
         </Spin>
 
         {tushareCheck && (
-          <div style={{ marginTop: 16, padding: 12, background: tushareCheck.api_test === 'ok' ? '#f6ffed' : '#fff2f0', border: '1px solid', borderColor: tushareCheck.api_test === 'ok' ? '#b7eb8f' : '#ffccc7', borderRadius: 8 }}>
-            <p><strong>Tushare 诊断</strong></p>
+          <div style={{ marginTop: 16, padding: 12, background: tushareCheck.api_test === 'ok' ? 'var(--color-up-dim)' : 'var(--color-down-dim)', border: '1px solid', borderColor: tushareCheck.api_test === 'ok' ? 'rgba(0,230,118,0.35)' : 'rgba(255,71,87,0.35)', borderRadius: 8 }}>
+            <p><strong>{(tushareCheck.data_provider || dataProvider).toUpperCase()} 诊断</strong></p>
+            <p>当前主数据源：{tushareCheck.data_provider || dataProvider}</p>
             <p>Token 已配置：{tushareCheck.token_configured ? '是' : '否'}</p>
             <p>代理已配置：{tushareCheck.proxy_configured ? '是' : '否'}</p>
             <p>接口测试：{tushareCheck.api_test}</p>
@@ -236,16 +293,16 @@ const DataPage: React.FC = () => {
         {syncing && (
           <div style={{ marginTop: 24 }}>
             <Progress percent={Math.round(taskProgress * 100)} status="active" />
-            <p style={{ color: '#666', marginTop: 8 }}>{taskMessage}</p>
+            <p style={{ color: 'var(--text-secondary)', marginTop: 8 }}>{taskMessage}</p>
           </div>
         )}
 
         {(taskResult || lastSync?.result) && !syncing && (
-          <div style={{ marginTop: 24, padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
+          <div style={{ marginTop: 24, padding: 16, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
             <h4>
               {taskResult ? '同步结果' : '上次同步'}
               {lastSync && !taskResult && lastSync.completed_at && (
-                <span style={{ fontWeight: 'normal', color: '#666', marginLeft: 8 }}>
+                <span style={{ fontWeight: 'normal', color: 'var(--text-secondary)', marginLeft: 8 }}>
                   {dayjs(lastSync.completed_at).format('YYYY-MM-DD HH:mm')}
                 </span>
               )}
@@ -257,7 +314,7 @@ const DataPage: React.FC = () => {
                 <p>失败天数：{taskResult?.failed_count ?? lastSync?.result?.failed_count ?? 0} 天</p>
                 <p>同步交易日：{taskResult?.days_synced ?? lastSync?.result?.days_synced ?? 0} 天</p>
                 {(taskResult?.diagnostic ?? lastSync?.result?.diagnostic) && (
-                  <p style={{ color: '#cf1322', marginTop: 8 }}>
+                  <p style={{ color: 'var(--color-down)', marginTop: 8 }}>
                     诊断：{taskResult?.diagnostic ?? lastSync?.result?.diagnostic}
                   </p>
                 )}
@@ -268,8 +325,8 @@ const DataPage: React.FC = () => {
       </Card>
 
       <Card title="涨停筛选" style={{ marginTop: 24 }}>
-        <p style={{ color: '#666', marginBottom: 16 }}>
-          直接调用 Tushare 接口获取涨停股，加入观察池并自动下载 60 日 K 线。默认日期窗口与「最近已完成交易日」一致：盘后含当日；盘中为上一交易日（不再仅从自然日昨天起算）。
+        <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
+          直接调用 AkShare 接口获取涨停股，加入观察池并自动下载 60 日 K 线。默认日期窗口与「最近已完成交易日」一致：盘后含当日；盘中为上一交易日（不再仅从自然日昨天起算）。
         </p>
         <Space>
           <span>处理最近</span>
@@ -287,16 +344,26 @@ const DataPage: React.FC = () => {
             loading={limitUpCollecting}
             onClick={handleLimitUpCollect}
             disabled={limitUpCollecting}
+            style={{ color: '#031a2b', fontWeight: 600 }}
           >
             执行涨停筛选
           </Button>
         </Space>
         {limitUpResult && (
-          <div style={{ marginTop: 16, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
-            <p>新增：{limitUpResult.added} 只</p>
-            <p>更新：{limitUpResult.updated} 只</p>
-            <p>跳过（ST 等）：{limitUpResult.skipped} 只</p>
-            <p>处理日期：{limitUpResult.dates_processed?.join(', ') || '-'}</p>
+          <div
+            style={{
+              marginTop: 16,
+              padding: 12,
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 8,
+              color: 'var(--text-primary)',
+            }}
+          >
+            <p style={{ marginBottom: 8 }}>新增：{limitUpResult.added} 只</p>
+            <p style={{ marginBottom: 8 }}>更新：{limitUpResult.updated} 只</p>
+            <p style={{ marginBottom: 8 }}>跳过（ST 等）：{limitUpResult.skipped} 只</p>
+            <p style={{ marginBottom: 0 }}>处理日期：{limitUpResult.dates_processed?.join(', ') || '-'}</p>
           </div>
         )}
       </Card>
@@ -326,22 +393,22 @@ const DataPage: React.FC = () => {
             {
               title: '成功',
               key: 'success_count',
-              render: (_: any, r: SyncHistoryItem) => (r.result?.success_count ?? 0).toLocaleString(),
+              render: (_: unknown, r: SyncHistoryItem) => (r.result?.success_count ?? 0).toLocaleString(),
             },
             {
               title: '失败',
               key: 'failed_count',
-              render: (_: any, r: SyncHistoryItem) => (r.result?.failed_count ?? 0).toLocaleString(),
+              render: (_: unknown, r: SyncHistoryItem) => (r.result?.failed_count ?? 0).toLocaleString(),
             },
             {
               title: '跳过',
               key: 'skipped_count',
-              render: (_: any, r: SyncHistoryItem) => (r.result?.skipped_count ?? 0).toLocaleString(),
+              render: (_: unknown, r: SyncHistoryItem) => (r.result?.skipped_count ?? 0).toLocaleString(),
             },
             {
               title: '任务说明',
               key: 'message',
-              render: (_: any, r: SyncHistoryItem) => r.result?.message || '-',
+              render: (_: unknown, r: SyncHistoryItem) => r.result?.message || '-',
             },
             {
               title: '完成时间',

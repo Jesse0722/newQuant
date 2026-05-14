@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, time
 
 from app.services.trading_session import is_a_share_trading_session, shanghai_datetime
-from app.services.tushare_adapter import TushareAdapter, tushare_adapter
+from app.services.tushare_adapter import MarketDataProvider, tushare_adapter
 
 
 class TradeDateResolutionError(Exception):
@@ -18,7 +18,7 @@ def _last_open_before(cal_today: str, open_dates_sorted: list[str]) -> str | Non
 
 def resolve_dashboard_trade_date(
     now: datetime | None = None,
-    adapter: TushareAdapter | None = None,
+    adapter: MarketDataProvider | None = None,
 ) -> str:
     """
     盘中：严格早于今日自然日的最近交易日。
@@ -46,7 +46,7 @@ def resolve_dashboard_trade_date(
 
 def last_n_resolved_trade_dates(
     n: int,
-    adapter: TushareAdapter | None = None,
+    adapter: MarketDataProvider | None = None,
     lookback_calendar_days: int = 400,
 ) -> list[str]:
     """

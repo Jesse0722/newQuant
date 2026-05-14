@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Space, Checkbox, message, Progress, DatePicker,
 } from 'antd'
@@ -10,16 +10,54 @@ import {
   type ScreenTemplate, type ScreenCondition, type ScreenResult, type BacktestResult,
 } from '../../api/strategy'
 import { listPools, batchAddStocks, quickCreatePool } from '../../api/pools'
-import type { Pool } from '../../types'
+import type { JsonObject, Pool } from '../../types'
 
 const MAX_CONDITIONS = 10
 const AI_DESC_MAX = 200
+type StrategyTabKey = 'indicator' | 'ai' | 'limit_up' | 'backtest'
+type ConditionField = 'template_id' | 'params'
+
+interface ApiErrorLike {
+  response?: {
+    data?: {
+      message?: string
+    }
+  }
+}
+
+const toConditionParams = (
+  params: JsonObject | undefined,
+  patch: Record<string, unknown>
+): JsonObject => ({ ...(params ?? {}), ...patch })
+
+const updateConditionList = (
+  list: ScreenCondition[],
+  templates: ScreenTemplate[],
+  index: number,
+  field: ConditionField,
+  value: string | JsonObject
+): ScreenCondition[] => {
+  return list.map((item, itemIndex) => {
+    if (itemIndex !== index) return item
+    if (field === 'template_id') {
+      const template = templates.find((entry) => entry.id === value)
+      return {
+        template_id: String(value),
+        params: template?.default_params ?? {},
+      }
+    }
+    return {
+      ...item,
+      params: value as JsonObject,
+    }
+  })
+}
 
 const StrategyPage: React.FC = () => {
   const [templates, setTemplates] = useState<ScreenTemplate[]>([])
   const [limitUpTemplates, setLimitUpTemplates] = useState<ScreenTemplate[]>([])
   const [pools, setPools] = useState<Pool[]>([])
-  const [activeTab, setActiveTab] = useState<'indicator' | 'ai' | 'limit_up' | 'backtest'>('indicator')
+  const [activeTab, setActiveTab] = useState<StrategyTabKey>('indicator')
   const [scope, setScope] = useState<string>('full')
   const [conditions, setConditions] = useState<ScreenCondition[]>([])
   const [logic, setLogic] = useState<string>('and')
@@ -61,15 +99,8 @@ const StrategyPage: React.FC = () => {
     setConditions(conditions.filter((_, idx) => idx !== i))
   }
 
-  const updateCondition = (i: number, field: string, value: any) => {
-    const next = [...conditions]
-    if (field === 'template_id') {
-      const t = templates.find((x) => x.id === value)
-      next[i] = { template_id: value, params: t?.default_params || {} }
-    } else {
-      (next[i] as any)[field] = value
-    }
-    setConditions(next)
+  const updateCondition = (i: number, field: ConditionField, value: string | JsonObject) => {
+    setConditions((prev) => updateConditionList(prev, templates, i, field, value))
   }
 
   const runIndicator = async () => {
@@ -104,15 +135,8 @@ const StrategyPage: React.FC = () => {
     setLimitUpConditions(limitUpConditions.filter((_, idx) => idx !== i))
   }
 
-  const updateLimitUpCondition = (i: number, field: string, value: any) => {
-    const next = [...limitUpConditions]
-    if (field === 'template_id') {
-      const t = limitUpTemplates.find((x) => x.id === value)
-      next[i] = { template_id: value, params: t?.default_params || {} }
-    } else {
-      (next[i] as any)[field] = value
-    }
-    setLimitUpConditions(next)
+  const updateLimitUpCondition = (i: number, field: ConditionField, value: string | JsonObject) => {
+    setLimitUpConditions((prev) => updateConditionList(prev, limitUpTemplates, i, field, value))
   }
 
   const runLimitUp = async () => {
@@ -152,15 +176,8 @@ const StrategyPage: React.FC = () => {
     setBacktestConditions(backtestConditions.filter((_, idx) => idx !== i))
   }
 
-  const updateBacktestCondition = (i: number, field: string, value: any) => {
-    const next = [...backtestConditions]
-    if (field === 'template_id') {
-      const t = limitUpTemplates.find((x) => x.id === value)
-      next[i] = { template_id: value, params: t?.default_params || {} }
-    } else {
-      (next[i] as any)[field] = value
-    }
-    setBacktestConditions(next)
+  const updateBacktestCondition = (i: number, field: ConditionField, value: string | JsonObject) => {
+    setBacktestConditions((prev) => updateConditionList(prev, limitUpTemplates, i, field, value))
   }
 
   const runBacktestFn = async () => {
@@ -182,8 +199,9 @@ const StrategyPage: React.FC = () => {
         logic: backtestLogic,
       })
       setBacktestResult(res.data)
-    } catch (e: any) {
-      message.error(e.response?.data?.message || '回测失败')
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '回测失败')
     } finally {
       setBacktestLoading(false)
     }
@@ -245,8 +263,9 @@ const StrategyPage: React.FC = () => {
       message.success(`已添加 ${res.data.added} 只，跳过 ${res.data.skipped} 只`)
       setAddModalOpen(false)
       setSelectedRows([])
-    } catch (e: any) {
-      message.error(e.response?.data?.message || '添加失败')
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '添加失败')
     }
   }
 
@@ -263,10 +282,16 @@ const StrategyPage: React.FC = () => {
       setQuickCreateOpen(false)
       setSelectedRows([])
       listPools().then((r) => setPools(r.data))
-    } catch (e: any) {
-      message.error(e.response?.data?.message || '创建失败')
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '创建失败')
     }
   }
+
+  const filteredResultCount = useMemo(
+    () => resultItems.length,
+    [resultItems.length]
+  )
 
   const resultColumns = [
     {
@@ -278,7 +303,7 @@ const StrategyPage: React.FC = () => {
         />
       ),
       width: 40,
-      render: (_: any, r: { ts_code: string }) => (
+      render: (_: unknown, r: { ts_code: string }) => (
         <Checkbox
           checked={selectedRows.includes(r.ts_code)}
           onChange={(e) => {
@@ -299,7 +324,7 @@ const StrategyPage: React.FC = () => {
   return (
     <div>
       <Card title="策略选股" extra={<FilterOutlined style={{ fontSize: 20 }} />}>
-        <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as any)}>
+        <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as StrategyTabKey)}>
           <Tabs.TabPane tab="指标组合选股" key="indicator">
             <div style={{ marginBottom: 16 }}>
               <Space wrap>
@@ -332,22 +357,22 @@ const StrategyPage: React.FC = () => {
                   />
                   {c.template_id === 'ma_cross' && (
                     <>
-                      <InputNumber size="small" value={c.params?.n1} onChange={(v) => updateCondition(i, 'params', { ...c.params, n1: v })} placeholder="N1" style={{ width: 60 }} />
-                      <InputNumber size="small" value={c.params?.n2} onChange={(v) => updateCondition(i, 'params', { ...c.params, n2: v })} placeholder="N2" style={{ width: 60 }} />
+                      <InputNumber size="small" value={Number(c.params?.n1)} onChange={(v) => updateCondition(i, 'params', toConditionParams(c.params, { n1: v }))} placeholder="N1" style={{ width: 60 }} />
+                      <InputNumber size="small" value={Number(c.params?.n2)} onChange={(v) => updateCondition(i, 'params', toConditionParams(c.params, { n2: v }))} placeholder="N2" style={{ width: 60 }} />
                     </>
                   )}
                   {(c.template_id === 'ma_above' || c.template_id === 'ma_below' || c.template_id === 'breakout_high') && (
-                    <InputNumber size="small" value={c.params?.n} onChange={(v) => updateCondition(i, 'params', { ...c.params, n: v })} placeholder="N" style={{ width: 80 }} />
+                    <InputNumber size="small" value={Number(c.params?.n)} onChange={(v) => updateCondition(i, 'params', toConditionParams(c.params, { n: v }))} placeholder="N" style={{ width: 80 }} />
                   )}
                   {c.template_id === 'rsi_oversold' && (
                     <>
-                      <InputNumber size="small" value={c.params?.threshold} onChange={(v) => updateCondition(i, 'params', { ...c.params, threshold: v })} placeholder="阈值" style={{ width: 70 }} />
+                      <InputNumber size="small" value={Number(c.params?.threshold)} onChange={(v) => updateCondition(i, 'params', toConditionParams(c.params, { threshold: v }))} placeholder="阈值" style={{ width: 70 }} />
                     </>
                   )}
                   {c.template_id === 'price_vs_ma' && (
                     <>
-                      <InputNumber size="small" value={c.params?.n} onChange={(v) => updateCondition(i, 'params', { ...c.params, n: v })} placeholder="N" style={{ width: 60 }} />
-                      <Select value={c.params?.op} onChange={(v) => updateCondition(i, 'params', { ...c.params, op: v })} style={{ width: 60 }} options={[
+                      <InputNumber size="small" value={Number(c.params?.n)} onChange={(v) => updateCondition(i, 'params', toConditionParams(c.params, { n: v }))} placeholder="N" style={{ width: 60 }} />
+                      <Select value={typeof c.params?.op === 'string' ? c.params.op : undefined} onChange={(v) => updateCondition(i, 'params', toConditionParams(c.params, { op: v }))} style={{ width: 60 }} options={[
                         { value: '>', label: '>' },
                         { value: '<', label: '<' },
                         { value: '>=', label: '>=' },
@@ -397,36 +422,36 @@ const StrategyPage: React.FC = () => {
                     options={limitUpTemplates.map((t) => ({ value: t.id, label: t.name }))}
                   />
                   {c.template_id === 'ma_support' && (
-                    <InputNumber size="small" value={c.params?.n} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, n: v })} placeholder="N" style={{ width: 80 }} />
+                    <InputNumber size="small" value={Number(c.params?.n)} onChange={(v) => updateLimitUpCondition(i, 'params', toConditionParams(c.params, { n: v }))} placeholder="N" style={{ width: 80 }} />
                   )}
                   {c.template_id === 'limit_up_price_support' && (
-                    <InputNumber size="small" value={c.params?.tolerance} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, tolerance: v })} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
+                    <InputNumber size="small" value={Number(c.params?.tolerance)} onChange={(v) => updateLimitUpCondition(i, 'params', toConditionParams(c.params, { tolerance: v }))} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
                   )}
                   {c.template_id === 'days_since_limit_up' && (
                     <>
-                      <InputNumber size="small" value={c.params?.min_days} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, min_days: v })} placeholder="最小" style={{ width: 70 }} />
-                      <InputNumber size="small" value={c.params?.max_days} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, max_days: v })} placeholder="最大" style={{ width: 70 }} />
+                      <InputNumber size="small" value={Number(c.params?.min_days)} onChange={(v) => updateLimitUpCondition(i, 'params', toConditionParams(c.params, { min_days: v }))} placeholder="最小" style={{ width: 70 }} />
+                      <InputNumber size="small" value={Number(c.params?.max_days)} onChange={(v) => updateLimitUpCondition(i, 'params', toConditionParams(c.params, { max_days: v }))} placeholder="最大" style={{ width: 70 }} />
                     </>
                   )}
                   {c.template_id === 'fibonacci_retrace' && (
                     <>
-                      <InputNumber size="small" value={c.params?.level} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, level: v })} placeholder="level" style={{ width: 80 }} step={0.01} />
-                      <InputNumber size="small" value={c.params?.tolerance} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, tolerance: v })} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
+                      <InputNumber size="small" value={Number(c.params?.level)} onChange={(v) => updateLimitUpCondition(i, 'params', toConditionParams(c.params, { level: v }))} placeholder="level" style={{ width: 80 }} step={0.01} />
+                      <InputNumber size="small" value={Number(c.params?.tolerance)} onChange={(v) => updateLimitUpCondition(i, 'params', toConditionParams(c.params, { tolerance: v }))} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
                     </>
                   )}
                   {c.template_id === 'volume_shrink' && (
-                    <InputNumber size="small" value={c.params?.ratio} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, ratio: v })} placeholder="ratio" style={{ width: 80 }} step={0.1} />
+                    <InputNumber size="small" value={Number(c.params?.ratio)} onChange={(v) => updateLimitUpCondition(i, 'params', toConditionParams(c.params, { ratio: v }))} placeholder="ratio" style={{ width: 80 }} step={0.1} />
                   )}
                   {c.template_id === 'price_threshold' && (
                     <>
-                      <InputNumber size="small" value={c.params?.ratio} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, ratio: v })} placeholder="ratio" style={{ width: 80 }} step={0.01} />
+                      <InputNumber size="small" value={Number(c.params?.ratio)} onChange={(v) => updateLimitUpCondition(i, 'params', toConditionParams(c.params, { ratio: v }))} placeholder="ratio" style={{ width: 80 }} step={0.01} />
                     </>
                   )}
                   {c.template_id === 'rsi_oversold' && (
-                    <InputNumber size="small" value={c.params?.threshold} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, threshold: v })} placeholder="阈值" style={{ width: 70 }} />
+                    <InputNumber size="small" value={Number(c.params?.threshold)} onChange={(v) => updateLimitUpCondition(i, 'params', toConditionParams(c.params, { threshold: v }))} placeholder="阈值" style={{ width: 70 }} />
                   )}
                   {c.template_id === 'breakout_high' && (
-                    <InputNumber size="small" value={c.params?.n} onChange={(v) => updateLimitUpCondition(i, 'params', { ...c.params, n: v })} placeholder="N" style={{ width: 80 }} />
+                    <InputNumber size="small" value={Number(c.params?.n)} onChange={(v) => updateLimitUpCondition(i, 'params', toConditionParams(c.params, { n: v }))} placeholder="N" style={{ width: 80 }} />
                   )}
                   <Button size="small" type="link" danger onClick={() => removeLimitUpCondition(i)}>删除</Button>
                 </div>
@@ -470,34 +495,34 @@ const StrategyPage: React.FC = () => {
                     options={limitUpTemplates.map((t) => ({ value: t.id, label: t.name }))}
                   />
                   {c.template_id === 'ma_support' && (
-                    <InputNumber size="small" value={c.params?.n} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, n: v })} placeholder="N" style={{ width: 80 }} />
+                    <InputNumber size="small" value={Number(c.params?.n)} onChange={(v) => updateBacktestCondition(i, 'params', toConditionParams(c.params, { n: v }))} placeholder="N" style={{ width: 80 }} />
                   )}
                   {c.template_id === 'limit_up_price_support' && (
-                    <InputNumber size="small" value={c.params?.tolerance} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, tolerance: v })} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
+                    <InputNumber size="small" value={Number(c.params?.tolerance)} onChange={(v) => updateBacktestCondition(i, 'params', toConditionParams(c.params, { tolerance: v }))} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
                   )}
                   {c.template_id === 'days_since_limit_up' && (
                     <>
-                      <InputNumber size="small" value={c.params?.min_days} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, min_days: v })} placeholder="最小" style={{ width: 70 }} />
-                      <InputNumber size="small" value={c.params?.max_days} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, max_days: v })} placeholder="最大" style={{ width: 70 }} />
+                      <InputNumber size="small" value={Number(c.params?.min_days)} onChange={(v) => updateBacktestCondition(i, 'params', toConditionParams(c.params, { min_days: v }))} placeholder="最小" style={{ width: 70 }} />
+                      <InputNumber size="small" value={Number(c.params?.max_days)} onChange={(v) => updateBacktestCondition(i, 'params', toConditionParams(c.params, { max_days: v }))} placeholder="最大" style={{ width: 70 }} />
                     </>
                   )}
                   {c.template_id === 'fibonacci_retrace' && (
                     <>
-                      <InputNumber size="small" value={c.params?.level} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, level: v })} placeholder="level" style={{ width: 80 }} step={0.01} />
-                      <InputNumber size="small" value={c.params?.tolerance} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, tolerance: v })} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
+                      <InputNumber size="small" value={Number(c.params?.level)} onChange={(v) => updateBacktestCondition(i, 'params', toConditionParams(c.params, { level: v }))} placeholder="level" style={{ width: 80 }} step={0.01} />
+                      <InputNumber size="small" value={Number(c.params?.tolerance)} onChange={(v) => updateBacktestCondition(i, 'params', toConditionParams(c.params, { tolerance: v }))} placeholder="tolerance" style={{ width: 90 }} step={0.01} />
                     </>
                   )}
                   {c.template_id === 'volume_shrink' && (
-                    <InputNumber size="small" value={c.params?.ratio} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, ratio: v })} placeholder="ratio" style={{ width: 80 }} step={0.1} />
+                    <InputNumber size="small" value={Number(c.params?.ratio)} onChange={(v) => updateBacktestCondition(i, 'params', toConditionParams(c.params, { ratio: v }))} placeholder="ratio" style={{ width: 80 }} step={0.1} />
                   )}
                   {c.template_id === 'price_threshold' && (
-                    <InputNumber size="small" value={c.params?.ratio} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, ratio: v })} placeholder="ratio" style={{ width: 80 }} step={0.01} />
+                    <InputNumber size="small" value={Number(c.params?.ratio)} onChange={(v) => updateBacktestCondition(i, 'params', toConditionParams(c.params, { ratio: v }))} placeholder="ratio" style={{ width: 80 }} step={0.01} />
                   )}
                   {c.template_id === 'rsi_oversold' && (
-                    <InputNumber size="small" value={c.params?.threshold} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, threshold: v })} placeholder="阈值" style={{ width: 70 }} />
+                    <InputNumber size="small" value={Number(c.params?.threshold)} onChange={(v) => updateBacktestCondition(i, 'params', toConditionParams(c.params, { threshold: v }))} placeholder="阈值" style={{ width: 70 }} />
                   )}
                   {c.template_id === 'breakout_high' && (
-                    <InputNumber size="small" value={c.params?.n} onChange={(v) => updateBacktestCondition(i, 'params', { ...c.params, n: v })} placeholder="N" style={{ width: 80 }} />
+                    <InputNumber size="small" value={Number(c.params?.n)} onChange={(v) => updateBacktestCondition(i, 'params', toConditionParams(c.params, { n: v }))} placeholder="N" style={{ width: 80 }} />
                   )}
                   <Button size="small" type="link" danger onClick={() => removeBacktestCondition(i)}>删除</Button>
                 </div>
@@ -574,7 +599,7 @@ const StrategyPage: React.FC = () => {
 
         {result && result.status === 'completed' && (
           <div style={{ marginTop: 24 }}>
-            <h4>选股结果（共 {result.total} 只）</h4>
+            <h4>选股结果（共 {filteredResultCount} 只）</h4>
             <div style={{ marginBottom: 8 }}>
               <Button type="primary" size="small" onClick={() => setAddModalOpen(true)}>
                 添加到观察池

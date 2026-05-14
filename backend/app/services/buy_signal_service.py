@@ -3,7 +3,7 @@
 
 策略注册表：
 - two_phase: 二阶段买点识别（冲高回落企稳反转，统一加权评分）
-- next_day_shrink / ma5_pullback / three_yin / half_volume / ma_golden_cross / rubbing_line: 涨停回调六大战法
+- next_day_shrink / ma5_pullback / three_yin / half_volume / ma_golden_cross / rubbing_line / ma5_hold_pullback: 涨停回调七大战法
 """
 
 from __future__ import annotations
@@ -59,15 +59,17 @@ TWO_PHASE_CONDS = {
 # ---------- 技术指标计算 ----------
 
 def _build_df(db: Session, ts_code: str, limit: int = 250) -> pd.DataFrame:
+    # 需要最近窗口用于买点扫描；先按倒序取 limit 条，再在内存中恢复为正序。
     rows = (
         db.query(DailyQuote)
         .filter(DailyQuote.ts_code == ts_code)
-        .order_by(DailyQuote.trade_date.asc())
+        .order_by(DailyQuote.trade_date.desc())
         .limit(limit)
         .all()
     )
     if not rows:
         return pd.DataFrame()
+    rows = list(reversed(rows))
     data = [
         {
             "trade_date": r.trade_date,
@@ -658,6 +660,71 @@ def _prepare_scan_dataframe(
     return _calc_indicators(df)
 
 
+def _inject_intraday_life_line_if_missing(
+    df: pd.DataFrame,
+    ts_code: str,
+    limit_up_date: str | None,
+    rt_map: dict[str, dict],
+    trade_date_today: str,
+) -> tuple[pd.DataFrame, bool]:
+    """
+    当日涨停票若本地 daily_quote 尚未落当天K线，使用 rt_k 临时补一根日K，
+    避免扫描阶段因为“找不到涨停日”而漏扫。
+    """
+    if df.empty or not limit_up_date or limit_up_date != trade_date_today:
+        return df, False
+    if "trade_date" not in df.columns:
+        return df, False
+    if str(limit_up_date) in set(df["trade_date"].astype(str)):
+        return df, False
+    rt = rt_map.get(ts_code)
+    if not rt:
+        return df, False
+
+    def _f(k: str):
+        v = rt.get(k)
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return None
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+    o = _f("open")
+    h = _f("high")
+    l = _f("low")
+    c = _f("close")
+    pc = _f("pre_close")
+    if None in (o, h, l, c) or min(o, h, l, c) <= 0:
+        return df, False
+    if h < l or h < o or h < c or l > o or l > c:
+        return df, False
+
+    vol_raw = _f("vol")
+    amount_raw = _f("amount")
+    vol_hands = vol_raw / 100.0 if vol_raw is not None else None
+    amount_k = amount_raw / 1000.0 if amount_raw is not None else None
+    pct = _f("pct_chg")
+    if pct is None and pc is not None and pc > 0:
+        pct = (c / pc - 1.0) * 100.0
+
+    new_row = {
+        "trade_date": trade_date_today,
+        "open": o,
+        "high": h,
+        "low": l,
+        "close": c,
+        "pre_close": pc,
+        "pct_chg": pct,
+        "vol": vol_hands,
+        "amount": amount_k,
+        "turnover_rate": _f("turnover_rate"),
+    }
+    out = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    out = out.drop_duplicates(subset=["trade_date"], keep="last").sort_values("trade_date").reset_index(drop=True)
+    return _calc_indicators(out), True
+
+
 def _align_signal_latest_display_with_daily_db(
     db: Session, signals: list[dict], merge_rt: bool
 ) -> None:
@@ -700,9 +767,12 @@ def _scan_context(db: Session, pool_id: str | None):
         return None, [], {}, {"requested": False, "applied": False, "error": None}, trade_date_today, False
     stocks = db.query(WatchStock).filter(WatchStock.pool_id == pid).all()
     in_session = is_a_share_trading_session()
-    realtime = {"requested": in_session, "applied": False, "error": None}
+    # 非交易时段若池内存在“当日涨停”票，仍尝试拉一次 rt_k，补齐当日临时K线避免漏扫。
+    need_today_fallback = any((ws.limit_up_date == trade_date_today) for ws in stocks)
+    should_fetch_rt = in_session or need_today_fallback
+    realtime = {"requested": should_fetch_rt, "applied": False, "error": None}
     rt_map: dict[str, dict] = {}
-    if in_session and stocks:
+    if should_fetch_rt and stocks:
         try:
             rt_map = _fetch_rt_k_map([ws.ts_code for ws in stocks])
             realtime["applied"] = len(rt_map) > 0
@@ -886,9 +956,18 @@ def scan_pool_buy_signals(
     strategy_id: str = "two_phase",
     *,
     min_confirm_hits: int = 2,
+    limit_up_date_from: str | None = None,
+    limit_up_date_to: str | None = None,
 ) -> dict:
     pid, stocks, rt_map, realtime, trade_date_today, merge_rt = _scan_context(db, pool_id)
     if not pid:
+        meta = _scan_meta_fields(realtime, trade_date_today)
+        return {**_empty_result(strategy_id), **meta}
+    if limit_up_date_from:
+        stocks = [s for s in stocks if s.limit_up_date and s.limit_up_date >= limit_up_date_from]
+    if limit_up_date_to:
+        stocks = [s for s in stocks if s.limit_up_date and s.limit_up_date <= limit_up_date_to]
+    if not stocks:
         meta = _scan_meta_fields(realtime, trade_date_today)
         return {**_empty_result(strategy_id), **meta}
     if strategy_id in TACTIC_REGISTRY:
@@ -926,6 +1005,9 @@ def _scan_two_phase(
             continue
 
         df = _prepare_scan_dataframe(db, ts_code, rt_map, trade_date_today, merge_rt)
+        df, _ = _inject_intraday_life_line_if_missing(
+            df, ts_code, ws.limit_up_date, rt_map, trade_date_today
+        )
         if df.empty or len(df) < 10:
             signals.append(
                 _scan_stub_invalidated(
@@ -1022,6 +1104,9 @@ def _scan_tactic(
             continue
 
         df = _prepare_scan_dataframe(db, ts_code, rt_map, trade_date_today, merge_rt)
+        df, _ = _inject_intraday_life_line_if_missing(
+            df, ts_code, ws.limit_up_date, rt_map, trade_date_today
+        )
         if df.empty or len(df) < 10:
             signals.append(
                 _scan_stub_invalidated(

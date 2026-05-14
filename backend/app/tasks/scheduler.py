@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import logging
 from datetime import datetime
 
 from app.services.scheduled_jobs_service import (
@@ -9,6 +10,8 @@ from app.services.scheduled_jobs_service import (
     run_5pm_sync_latest_kline_job,
     run_intraday_scan_job,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DailyJobScheduler:
@@ -20,15 +23,17 @@ class DailyJobScheduler:
     def start(self):
         if self._thread and self._thread.is_alive():
             return
+        self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._loop, daemon=True, name="daily-job-scheduler")
         self._thread.start()
-        print("[scheduler] started")
+        logger.info("Scheduler started")
 
     def stop(self):
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3)
-        print("[scheduler] stopped")
+        self._thread = None
+        logger.info("Scheduler stopped")
 
     def _should_run(self, key: str, now: datetime, hour: int, minute: int) -> bool:
         today = now.strftime("%Y%m%d")
@@ -45,9 +50,9 @@ class DailyJobScheduler:
     def _safe_run(self, key: str, fn):
         try:
             result = fn()
-            print(f"[scheduler] {key} done: {result}")
-        except Exception as e:
-            print(f"[scheduler] {key} failed: {e}")
+            logger.info("Scheduler job %s done: %s", key, result)
+        except Exception:
+            logger.exception("Scheduler job %s failed", key)
 
     def _loop(self):
         while not self._stop_event.is_set():
@@ -69,12 +74,3 @@ class DailyJobScheduler:
 
 
 scheduler = DailyJobScheduler()
-
-
-def start_scheduler():
-    scheduler.start()
-
-
-def stop_scheduler():
-    scheduler.stop()
-

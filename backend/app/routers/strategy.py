@@ -40,6 +40,8 @@ class ScanBuySignalsRequest(BaseModel):
     pool_id: Optional[str] = Field(None, description="观察池 ID，不传则自动使用涨停池")
     strategy_id: str = Field("two_phase", description="策略 ID，默认二阶段买点")
     min_confirm_hits: int = Field(2, ge=1, le=5, description="盘中确证阈值：连续命中次数")
+    limit_up_date_from: Optional[str] = Field(None, description="涨停日期起 YYYYMMDD")
+    limit_up_date_to: Optional[str] = Field(None, description="涨停日期止 YYYYMMDD")
 
 
 class IntradayConfigItem(BaseModel):
@@ -143,6 +145,8 @@ def scan_buy_signals(body: ScanBuySignalsRequest, db: Session = Depends(get_db))
         body.pool_id,
         body.strategy_id,
         min_confirm_hits=body.min_confirm_hits,
+        limit_up_date_from=body.limit_up_date_from,
+        limit_up_date_to=body.limit_up_date_to,
     )
 
 
@@ -239,7 +243,7 @@ def collect_limit_up(
     window_days: int = Query(1, ge=1, le=60, description="处理最近 N 个已完成交易日（SSE 日历，与仪表盘默认日一致），默认 1"),
     db: Session = Depends(get_db),
 ):
-    """涨停筛选：直接调用 Tushare 获取涨停股，加入观察池并自动同步 60 日 K 线。无需全量同步。"""
+    """涨停筛选：直接调用 AkShare 获取涨停股，加入观察池并自动同步 60 日 K 线。无需全量同步。"""
     log_id = str(uuid.uuid4())
     db.add(
         SyncLog(

@@ -3,30 +3,29 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import init_db
-from app.tasks.scheduler import start_scheduler, stop_scheduler
+from app.bootstrap import initialize_application, shutdown_application
+from app.config import CORS_ALLOW_CREDENTIALS, CORS_ORIGINS
 from app.exceptions import AppError, app_error_handler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    start_scheduler()
+    initialize_application()
     yield
-    stop_scheduler()
+    shutdown_application()
 
 app = FastAPI(title="量化交易系统", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.add_exception_handler(AppError, app_error_handler)
 
-from app.routers import pools, sync, monitor, alerts, plans, dashboard, stocks, ocr, strategy, data, market
+from app.routers import pools, sync, monitor, alerts, plans, dashboard, stocks, ocr, strategy, data, market, messages
 
 app.include_router(pools.router)
 app.include_router(sync.router)
@@ -39,6 +38,7 @@ app.include_router(ocr.router)
 app.include_router(strategy.router)
 app.include_router(data.router)
 app.include_router(market.router)
+app.include_router(messages.router)
 
 @app.get("/api/health")
 def health_check():

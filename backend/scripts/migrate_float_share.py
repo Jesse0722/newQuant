@@ -17,6 +17,8 @@ def migrate():
             continue
         cur.execute(f"PRAGMA table_info({table})")
         cols = [row[1] for row in cur.fetchall()]
+        if not cols:
+            continue
         if "float_share" not in cols:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN float_share REAL")
     conn.commit()

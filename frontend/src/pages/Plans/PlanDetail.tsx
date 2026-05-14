@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Card, Descriptions, Tag, Table, Button, Modal, Form,
@@ -6,7 +6,7 @@ import {
 } from 'antd'
 import dayjs from 'dayjs'
 import { ArrowLeftOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
-import { getPlan, updatePlan, submitReview, updateDetail, deleteDetail } from '../../api/plans'
+import { getPlan, updatePlan, submitReview, updateDetail, deleteDetail, type PlanStockInput, type DetailUpdateInput } from '../../api/plans'
 import { createStockDetail } from '../../api/stocks'
 import { getAllStocks } from '../../api/pools'
 import type { TradePlan, TradeDetail, TradePlanStock } from '../../types'
@@ -26,11 +26,26 @@ const riskMap: Record<number, { label: string; color: string }> = {
   3: { label: '高风险', color: 'red' },
 }
 
+interface EditPlanFormValues {
+  title: string
+  note?: string
+  stocks: PlanStockInput[]
+}
+
+interface DetailFormValues extends DetailUpdateInput {
+  trade_date?: dayjs.Dayjs
+}
+
+interface ApiErrorLike {
+  response?: { data?: { message?: string } }
+  message?: string
+}
+
 const PlanDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [plan, setPlan] = useState<TradePlan | null>(null)
-  const [, setLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [detailStockTsCode, setDetailStockTsCode] = useState<string | null>(null)
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
@@ -43,13 +58,14 @@ const PlanDetail: React.FC = () => {
   const [planForm] = Form.useForm()
   const [editDetailForm] = Form.useForm()
 
-  const fetchPlan = () => {
+  const fetchPlan = useCallback(() => {
     if (!id) return
-    setLoading(true)
     getPlan(id).then((res) => setPlan(res.data)).finally(() => setLoading(false))
-  }
+  }, [id])
 
-  useEffect(() => { fetchPlan() }, [id])
+  useEffect(() => {
+    fetchPlan()
+  }, [fetchPlan])
 
   const openAddDetailModal = () => {
     if (!plan?.stocks?.length) {
@@ -63,8 +79,8 @@ const PlanDetail: React.FC = () => {
 
   const handleAddDetail = async () => {
     if (!detailStockTsCode) return
-    const values = await detailForm.validateFields()
-    const payload = { ...values }
+    const values = await detailForm.validateFields() as DetailFormValues
+    const payload: DetailUpdateInput = { ...values }
     if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
     await createStockDetail(detailStockTsCode, payload)
     message.success('添加成功')
@@ -115,23 +131,24 @@ const PlanDetail: React.FC = () => {
 
   const handleEditPlan = async () => {
     try {
-      const values = await planForm.validateFields()
-      const stocks = values.stocks.map((s: any) => ({
-        ts_code: s.ts_code,
-        risk_level: s.risk_level ?? 2,
-        trigger_strategy: s.trigger_strategy,
-        planned_buy_price: s.planned_buy_price,
-        target_price: s.target_price,
-        stop_loss_price: s.stop_loss_price,
-        position_plan: s.position_plan,
-        note: s.note,
+      const values = await planForm.validateFields() as EditPlanFormValues
+      const stocks = values.stocks.map((stock) => ({
+        ts_code: stock.ts_code,
+        risk_level: stock.risk_level ?? 2,
+        trigger_strategy: stock.trigger_strategy,
+        planned_buy_price: stock.planned_buy_price,
+        target_price: stock.target_price,
+        stop_loss_price: stock.stop_loss_price,
+        position_plan: stock.position_plan,
+        note: stock.note,
       }))
       await updatePlan(id!, { title: values.title, note: values.note, stocks })
       message.success('计划已更新')
       setEditPlanModalOpen(false)
       fetchPlan()
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || '更新失败'
+    } catch (error: unknown) {
+      const err = error as ApiErrorLike
+      const msg = err.response?.data?.message || err.message || '更新失败'
       message.error(msg)
     }
   }
@@ -152,8 +169,8 @@ const PlanDetail: React.FC = () => {
 
   const handleEditDetail = async () => {
     if (!editingDetail) return
-    const values = await editDetailForm.validateFields()
-    const payload = { ...values }
+    const values = await editDetailForm.validateFields() as DetailFormValues
+    const payload: DetailUpdateInput = { ...values }
     if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
     await updateDetail(editingDetail.id, payload)
     message.success('明细已更新')
@@ -180,7 +197,7 @@ const PlanDetail: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, r: TradeDetail) => (
+      render: (_: unknown, r: TradeDetail) => (
         <Space>
           <a onClick={() => openEditDetailModal(r)}>编辑</a>
           <Popconfirm title="确定删除？" onConfirm={() => handleDeleteDetail(r.id)}>
@@ -247,7 +264,7 @@ const PlanDetail: React.FC = () => {
                 rowExpandable: () => true,
               }}
               columns={[
-                { title: '股票', key: 'stock', render: (_: any, ps: TradePlanStock) => <a onClick={() => navigate(`/stocks/${ps.ts_code}`)}>{ps.stock_name || ps.ts_code} ({ps.ts_code})</a> },
+                { title: '股票', key: 'stock', render: (_: unknown, ps: TradePlanStock) => <a onClick={() => navigate(`/stocks/${ps.ts_code}`)}>{ps.stock_name || ps.ts_code} ({ps.ts_code})</a> },
                 { title: '风险', dataIndex: 'risk_level', key: 'risk_level', width: 90, render: (v: number) => { const m = riskMap[v ?? 2] || riskMap[2]; return <Tag color={m.color}>{m.label}</Tag> } },
                 { title: '触发策略', dataIndex: 'trigger_strategy', key: 'trigger_strategy', ellipsis: true, render: (v: string) => v || '-' },
                 { title: '计划买入价', dataIndex: 'planned_buy_price', key: 'planned_buy_price', width: 100, render: (v: number) => v != null ? v.toFixed(2) : '-' },
@@ -299,6 +316,8 @@ const PlanDetail: React.FC = () => {
           )}
         </>
       )}
+
+      {!loading && !plan && <Card>未找到交易计划</Card>}
 
       {/* 编辑交易计划 */}
       <Modal title="编辑交易计划" open={editPlanModalOpen} onOk={handleEditPlan} onCancel={() => setEditPlanModalOpen(false)} width={900}>

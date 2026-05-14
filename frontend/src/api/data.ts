@@ -10,9 +10,20 @@ export interface TushareCheckResult {
   proxy_url: string
   api_test: string
   rows_returned?: number
+  data_provider?: 'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite'
 }
 
 export const checkTushare = () => client.get<TushareCheckResult>('/data/tushare-check')
+
+export interface DataProviderResult {
+  provider: 'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite'
+  options?: Array<'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite'>
+  composite_order?: string[]
+}
+
+export const getDataProvider = () => client.get<DataProviderResult>('/data/provider')
+export const setDataProvider = (provider: 'tencent' | 'baostock' | 'tushare' | 'akshare' | 'composite') =>
+  client.put<DataProviderResult>('/data/provider', { provider })
 export const getSyncHistory = (taskType = 'all', limit = 20) =>
   client.get<SyncHistoryItem[]>('/data/sync-history', { params: { task_type: taskType, limit } })
 
