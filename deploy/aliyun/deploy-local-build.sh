@@ -16,6 +16,7 @@ fi
 cd "$REPO_DIR"
 
 git fetch origin "$BRANCH"
+git checkout -B "$BRANCH" "origin/$BRANCH"
 git reset --hard "origin/$BRANCH"
 git clean -fdx
 
