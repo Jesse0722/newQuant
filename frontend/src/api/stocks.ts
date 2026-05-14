@@ -1,5 +1,6 @@
 import client from './client'
 import type { StockChartData, StockAlertItem, TradeDetail } from '../types'
+import type { DetailUpdateInput } from './plans'
 
 export interface StockSearchItem {
   ts_code: string
@@ -20,5 +21,5 @@ export const getStockAlerts = (tsCode: string) =>
 export const getStockDetails = (tsCode: string) =>
   client.get<TradeDetail[]>(`/stocks/${tsCode}/details`)
 
-export const createStockDetail = (tsCode: string, data: { trade_date: string; trade_time?: string; direction: string; price: number; quantity: number; commission?: number; exec_note?: string }) =>
+export const createStockDetail = (tsCode: string, data: DetailUpdateInput) =>
   client.post<TradeDetail>(`/stocks/${tsCode}/details`, data)

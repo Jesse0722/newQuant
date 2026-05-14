@@ -15,7 +15,7 @@ import { aiAnalyzeStock, getStockChartWithMarks } from '../../api/strategy'
 import { syncPool, getTaskStatus } from '../../api/sync'
 import { getPoolRules, createPoolRule, deleteRule, listTemplates } from '../../api/monitor'
 import type {
-  Pool, WatchStock, MonitorRule, MonitorTemplate,
+  JsonObject, JsonValue, Pool, WatchStock, MonitorRule, MonitorTemplate,
   StockChartDataWithMarks,
 } from '../../types'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
@@ -337,24 +337,25 @@ const PoolList: React.FC = () => {
       }
       if (signal_marks) {
         for (const mark of signal_marks) {
-          if (mark.type === 'life_line' && mark.value != null) {
+          const value = mark.value
+          if (mark.type === 'life_line' && typeof value === 'number') {
             markLines.push({
-              name: mark.label, yAxis: mark.value,
+              name: mark.label, yAxis: value,
               lineStyle: { color: '#722ed1', type: 'dashed', width: 1.5 },
-              label: { formatter: `${mark.label} ${mark.value.toFixed(2)}`, color: '#722ed1', fontSize: 11 },
+              label: { formatter: `${mark.label} ${value.toFixed(2)}`, color: '#722ed1', fontSize: 11 },
             })
           }
-          if (mark.type === 'phase2_high' && dates.includes(mark.date) && Number.isFinite(mark.value) && mark.value > 0) {
+          if (mark.type === 'phase2_high' && dates.includes(mark.date) && typeof value === 'number' && Number.isFinite(value) && value > 0) {
             markPoints.push({
-              name: mark.label, coord: [mark.date, mark.value],
+              name: mark.label, coord: [mark.date, value],
               symbol: 'triangle', symbolSize: 10, symbolRotate: 180,
               itemStyle: { color: '#faad14' },
               label: { show: true, formatter: mark.label, position: 'top', fontSize: 10, color: '#faad14' },
             })
           }
-          if (mark.type === 'buy_signal' && dates.includes(mark.date) && Number.isFinite(mark.value) && mark.value > 0) {
+          if (mark.type === 'buy_signal' && dates.includes(mark.date) && typeof value === 'number' && Number.isFinite(value) && value > 0) {
             markPoints.push({
-              name: mark.label, coord: [mark.date, mark.value],
+              name: mark.label, coord: [mark.date, value],
               symbol: 'triangle', symbolSize: 12,
               itemStyle: { color: '#f5222d' },
               label: { show: true, formatter: mark.label, position: 'bottom', fontSize: 10, color: '#f5222d', fontWeight: 'bold' },
@@ -505,8 +506,8 @@ const PoolList: React.FC = () => {
   const handleAddRule = async () => {
     const values = await ruleForm.validateFields()
     const template = monitorTemplates.find(t => t.id === values.template_id)
-    const merged = template?.default_params ? { ...template.default_params } : {}
-    Object.entries(values.params || {}).forEach(([k, v]) => { if (v != null && v !== '') merged[k] = v })
+    const merged: JsonObject = template?.default_params ? { ...template.default_params } : {}
+    Object.entries(values.params || {}).forEach(([k, v]) => { if (v != null && v !== '') merged[k] = v as JsonValue })
     await createPoolRule(activePoolId, { template_id: values.template_id, params: merged })
     message.success('规则已添加')
     setAddRuleModalOpen(false)

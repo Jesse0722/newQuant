@@ -1,0 +1,23 @@
+services:
+  backend:
+    image: ${IMAGE_REGISTRY:?set IMAGE_REGISTRY}:backend-latest
+    restart: always
+    env_file:
+      - ./backend.env
+    volumes:
+      - ./data:/app/backend/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    image: ${IMAGE_REGISTRY:?set IMAGE_REGISTRY}:frontend-latest
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"

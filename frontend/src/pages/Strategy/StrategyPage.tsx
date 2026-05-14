@@ -10,7 +10,7 @@ import {
   type ScreenTemplate, type ScreenCondition, type ScreenResult, type BacktestResult,
 } from '../../api/strategy'
 import { listPools, batchAddStocks, quickCreatePool } from '../../api/pools'
-import type { JsonObject, Pool } from '../../types'
+import type { JsonObject, JsonValue, Pool } from '../../types'
 
 const MAX_CONDITIONS = 10
 const AI_DESC_MAX = 200
@@ -27,7 +27,7 @@ interface ApiErrorLike {
 
 const toConditionParams = (
   params: JsonObject | undefined,
-  patch: Record<string, unknown>
+  patch: Record<string, JsonValue>
 ): JsonObject => ({ ...(params ?? {}), ...patch })
 
 const updateConditionList = (

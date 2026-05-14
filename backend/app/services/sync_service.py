@@ -101,6 +101,8 @@ def _find_gap_repair_start(
     检测近期交易日缺口，返回最早缺失交易日（YYYYMMDD）。
     仅用于确定补齐起点，避免“只追最新”导致中间断档长期存在。
     """
+    if not hasattr(tushare_adapter, "get_sse_open_dates"):
+        return None
     end_date = latest_daily_k_trade_date_str()
     open_dates = tushare_adapter.get_sse_open_dates(
         end_date=end_date,

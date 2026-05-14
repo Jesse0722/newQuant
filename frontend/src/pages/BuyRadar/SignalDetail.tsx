@@ -73,18 +73,19 @@ const SignalDetail: React.FC<Props> = ({
     if (signal_marks) {
       for (const mark of signal_marks) {
         const dateIdx = dates.indexOf(mark.date)
-        if (mark.type === 'life_line' && mark.value != null) {
+        const value = mark.value
+        if (mark.type === 'life_line' && typeof value === 'number') {
           markLines.push({
             name: mark.label,
-            yAxis: mark.value,
+            yAxis: value,
             lineStyle: { color: '#722ed1', type: 'dashed', width: 1.5 },
-            label: { formatter: `{b|${mark.label}} {c|${mark.value.toFixed(2)}}`, rich: { b: { color: '#722ed1', fontSize: 11 }, c: { color: '#722ed1', fontSize: 11 } } },
+            label: { formatter: `{b|${mark.label}} {c|${value.toFixed(2)}}`, rich: { b: { color: '#722ed1', fontSize: 11 }, c: { color: '#722ed1', fontSize: 11 } } },
           })
         }
-        if (mark.type === 'phase2_high' && dateIdx >= 0 && Number.isFinite(mark.value) && mark.value > 0) {
+        if (mark.type === 'phase2_high' && dateIdx >= 0 && typeof value === 'number' && Number.isFinite(value) && value > 0) {
           markPoints.push({
             name: mark.label,
-            coord: [mark.date, mark.value],
+            coord: [mark.date, value],
             symbol: 'triangle',
             symbolSize: 10,
             symbolRotate: 180,
@@ -92,10 +93,10 @@ const SignalDetail: React.FC<Props> = ({
             label: { show: true, formatter: mark.label, position: 'top', fontSize: 10, color: '#faad14' },
           })
         }
-        if (mark.type === 'buy_signal' && dateIdx >= 0 && Number.isFinite(mark.value) && mark.value > 0) {
+        if (mark.type === 'buy_signal' && dateIdx >= 0 && typeof value === 'number' && Number.isFinite(value) && value > 0) {
           markPoints.push({
             name: mark.label,
-            coord: [mark.date, mark.value],
+            coord: [mark.date, value],
             symbol: 'triangle',
             symbolSize: 12,
             itemStyle: { color: '#f5222d' },

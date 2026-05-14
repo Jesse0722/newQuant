@@ -106,7 +106,7 @@ const StockDetail: React.FC = () => {
         const values: DetailFormValues = {}
         if (p.trade_date) values.trade_date = dayjs(p.trade_date, 'YYYYMMDD')
         if (p.trade_time) values.trade_time = p.trade_time
-        if (p.direction) values.direction = p.direction
+        if (p.direction === 'buy' || p.direction === 'sell') values.direction = p.direction
         if (p.price != null) values.price = p.price
         if (p.quantity != null) values.quantity = p.quantity
         quickRecordForm.setFieldsValue(values)

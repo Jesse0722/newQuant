@@ -1,0 +1,17 @@
+.git
+.cursor
+.vscode
+.pytest_cache
+backend/venv
+backend/.pytest_cache
+backend/data/*.db
+backend/data/*.db-*
+backend/data/*.bak
+backend/data/*.bak-*
+frontend/node_modules
+frontend/dist
+**/.env
+*.egg-info
+dist
+build
+.DS_Store

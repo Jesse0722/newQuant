@@ -32,7 +32,7 @@ interface EditPlanFormValues {
   stocks: PlanStockInput[]
 }
 
-interface DetailFormValues extends DetailUpdateInput {
+interface DetailFormValues extends Omit<DetailUpdateInput, 'trade_date'> {
   trade_date?: dayjs.Dayjs
 }
 
@@ -80,8 +80,9 @@ const PlanDetail: React.FC = () => {
   const handleAddDetail = async () => {
     if (!detailStockTsCode) return
     const values = await detailForm.validateFields() as DetailFormValues
-    const payload: DetailUpdateInput = { ...values }
-    if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
+    const { trade_date, ...detailValues } = values
+    const payload: DetailUpdateInput = { ...detailValues }
+    if (trade_date) payload.trade_date = dayjs(trade_date).format('YYYYMMDD')
     await createStockDetail(detailStockTsCode, payload)
     message.success('添加成功')
     setDetailModalOpen(false)
@@ -170,8 +171,9 @@ const PlanDetail: React.FC = () => {
   const handleEditDetail = async () => {
     if (!editingDetail) return
     const values = await editDetailForm.validateFields() as DetailFormValues
-    const payload: DetailUpdateInput = { ...values }
-    if (values.trade_date) payload.trade_date = dayjs(values.trade_date).format('YYYYMMDD')
+    const { trade_date, ...detailValues } = values
+    const payload: DetailUpdateInput = { ...detailValues }
+    if (trade_date) payload.trade_date = dayjs(trade_date).format('YYYYMMDD')
     await updateDetail(editingDetail.id, payload)
     message.success('明细已更新')
     setEditDetailModalOpen(false)
