@@ -2,6 +2,8 @@
 
 This project supports two deployment modes.
 
+Last deploy smoke test: 2026-05-15T12:34:59Z.
+
 ## Mode A: ECS local build, no ACR
 
 This is the simplest mode for a single ECS. Because ECS may not be able to access GitHub reliably, Flow uploads the checked-out code to ECS and then builds locally:
