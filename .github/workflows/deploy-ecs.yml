@@ -1,0 +1,36 @@
+name: Deploy ECS
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: deploy-ecs
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate required secrets
+        run: |
+          test -n "${{ secrets.ECS_HOST }}" || (echo "ECS_HOST is missing" && exit 1)
+          test -n "${{ secrets.ECS_USER }}" || (echo "ECS_USER is missing" && exit 1)
+          test -n "${{ secrets.ECS_SSH_KEY }}" || (echo "ECS_SSH_KEY is missing" && exit 1)
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.ECS_SSH_KEY }}" > ~/.ssh/ecs_key
+          chmod 600 ~/.ssh/ecs_key
+          ssh-keyscan -H "${{ secrets.ECS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy to ECS
+        run: |
+          ssh -i ~/.ssh/ecs_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.ECS_USER }}@${{ secrets.ECS_HOST }}" \
+            'APP_DIR=/opt/newquant REPO_DIR=/root/newQuant REPO_URL=https://github.com/Jesse0722/newQuant.git BRANCH=master bash /opt/newquant/deploy-local-build.sh'
