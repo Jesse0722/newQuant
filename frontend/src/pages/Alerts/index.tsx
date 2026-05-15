@@ -24,6 +24,7 @@ import {
 import type { Alert } from '../../types'
 
 const LS_TIP = 'buyAlert:iaTipDismissed'
+const ALERTS_CHANGED_EVENT = 'buy-alerts:changed'
 
 const statusMap: Record<string, { label: string; color: string }> = {
   pending: { label: '待处理', color: 'orange' },
@@ -74,21 +75,28 @@ const Alerts: React.FC = () => {
     setShowTip(false)
   }
 
+  const notifyAlertsChanged = () => {
+    window.dispatchEvent(new Event(ALERTS_CHANGED_EVENT))
+  }
+
   const handleDismiss = async (id: string) => {
     await updateAlert(id, { status: 'dismissed' })
     message.success('已忽略')
+    notifyAlertsChanged()
     refreshAlerts()
   }
 
   const handleCreatePlan = async (id: string) => {
     await createPlanFromAlert(id)
     message.success('交易计划已创建')
+    notifyAlertsChanged()
     refreshAlerts()
   }
 
   const handleBatchDismiss = async () => {
     const res = await batchDismissPendingAlerts({ source: 'buy_radar' })
     message.success(`已忽略 ${res.data.count} 条待处理提醒`)
+    notifyAlertsChanged()
     refreshAlerts()
   }
 

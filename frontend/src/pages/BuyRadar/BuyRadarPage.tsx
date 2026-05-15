@@ -62,7 +62,10 @@ const BuyRadarPage: React.FC = () => {
 
   const refreshPendingAlerts = useCallback(() => {
     getAlertsPendingCount({ source: 'buy_radar' })
-      .then((res) => setPendingAlertCount(res.data.count))
+      .then((res) => {
+        setPendingAlertCount(res.data.count)
+        window.dispatchEvent(new Event('buy-alerts:changed'))
+      })
       .catch(() => {})
   }, [])
 
