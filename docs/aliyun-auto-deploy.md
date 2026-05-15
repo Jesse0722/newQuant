@@ -2,7 +2,7 @@
 
 This project supports two deployment modes.
 
-Last deploy smoke test: 2026-05-15T12:34:59Z.
+Last deploy smoke test: 2026-05-15T12:39:24Z.
 
 ## Mode A: ECS local build, no ACR
 
