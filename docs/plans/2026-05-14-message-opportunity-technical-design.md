@@ -7,6 +7,8 @@
 
 ```text
 外部采集器（后续）
+  -> /api/messages/source-items/import
+  -> 原始消息去重与聚合
   -> /api/messages/topics
   -> /api/messages/opportunities
   -> 本地 SQLite
@@ -16,6 +18,8 @@
 ```
 
 MVP 不把外部采集器作为阻塞项。页面从本地数据库读取今日题材与机会；当今日无数据时，服务会生成一组 AI 产业种子机会，保证模块第一天即可运行和验收。
+
+下一阶段先落地原始消息层：外部渠道、手动导入、文件导入或 webhook 统一写入 `/api/messages/source-items/import`，服务端负责按 `trade_date + channel + external_id/url/content` 去重，再按题材与股票聚合生成现有的 topic/opportunity 业务对象。
 
 ## 2. 后端模型
 
@@ -63,6 +67,33 @@ MVP 不把外部采集器作为阻塞项。页面从本地数据库读取今日�
 
 索引：`trade_date`、`ts_code`、`opportunity_score`。
 
+### 2.3 message_source_item
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | string | UUID |
+| trade_date | string | YYYYMMDD |
+| channel | string | 渠道，如 雪球 / 淘股吧 / RSS / webhook |
+| source_name | string/null | 作者、账号、栏目或导入源 |
+| external_id | string/null | 外部平台原始 ID |
+| title | string/null | 标题 |
+| content | text | 原始正文或摘要 |
+| url | string/null | 原文链接 |
+| published_at | datetime/null | 原文发布时间 |
+| captured_at | datetime | 入库时间 |
+| theme | string/null | 归属题材，MVP 可由导入方提供 |
+| ts_code | string/null | 命中的股票代码 |
+| stock_name | string/null | 股票名称 |
+| tags | json | 标签 |
+| sentiment | string | positive / neutral / negative |
+| heat_score | int | 单条消息热度分 |
+| credibility_score | int | 单条消息可信度分 |
+| dedupe_key | string | 去重 hash |
+| raw_payload | json/null | 渠道原始载荷 |
+| status | string | new / processed / ignored |
+
+唯一约束：`dedupe_key`。
+
 ## 3. API
 
 ### GET /api/messages/daily
@@ -95,6 +126,97 @@ MVP 不把外部采集器作为阻塞项。页面从本地数据库读取今日�
 ### POST /api/messages/opportunities
 
 创建个股机会。若传入 `topic_id` 则关联题材；若传入 `theme` 且不存在题材，则只以冗余主题展示。
+
+### POST /api/messages/source-items/import
+
+批量导入原始消息，并可立即聚合生成题材与个股机会。
+
+请求：
+
+```json
+{
+  "aggregate": true,
+  "items": [
+    {
+      "trade_date": "20260514",
+      "channel": "雪球",
+      "source_name": "产业观察",
+      "title": "CPO 光模块热度提升",
+      "content": "CPO 光模块方向被反复提及，新易盛关注度提升。",
+      "url": "https://example.test/a",
+      "theme": "CPO",
+      "ts_code": "300502.SZ",
+      "stock_name": "新易盛",
+      "tags": ["光模块", "CPO"],
+      "heat_score": 78,
+      "credibility_score": 70
+    }
+  ]
+}
+```
+
+### GET /api/messages/x/seeds
+
+返回 X MVP 使用的关键词与账号种子池，用于检查配置是否加载成功。
+
+### POST /api/messages/x/collect
+
+从 X recent search 拉取最近 7 天内匹配关键词的帖子，转换为 `message_source_item` 并按需聚合。
+
+请求：
+
+```json
+{
+  "trade_date": "20260514",
+  "min_priority": 5,
+  "keyword_limit": 12,
+  "max_results": 20,
+  "aggregate": true
+}
+```
+
+说明：
+
+- 依赖 `backend/.env` 中的 `X_API_BEARER_TOKEN`。
+- 默认查询高优先级关键词，并排除 retweet。
+- 当前只处理文本帖子与公开互动指标，不处理图片、视频、Space、长线程还原。
+- `query` 可选；传入后会覆盖默认关键词查询，便于手动验证某个主题。
+
+返回：
+
+```json
+{
+  "query": "(\"AI datacenter\" OR HBM) -is:retweet",
+  "raw_count": 10,
+  "imported": {
+    "created_count": 8,
+    "skipped_count": 2,
+    "items": [],
+    "aggregation": {
+      "trade_date": "20260514",
+      "topic_count": 3,
+      "opportunity_count": 0,
+      "source_item_count": 8
+    }
+  }
+}
+```
+
+返回：
+
+```json
+{
+  "created_count": 1,
+  "skipped_count": 0,
+  "items": [],
+  "aggregation": {
+    "trade_date": "20260514",
+    "topic_count": 1,
+    "opportunity_count": 1,
+    "source_item_count": 1
+  }
+}
+```
 
 ## 4. 前端页面
 

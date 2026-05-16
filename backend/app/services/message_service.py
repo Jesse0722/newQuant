@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
+from statistics import mean
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from app.models.message import MessageOpportunity, MessageTopic
+from app.models.message import MessageOpportunity, MessageSourceItem, MessageTopic
 from app.models.stock import StockBasic
-from app.schemas.message import MessageOpportunityCreate, MessageTopicCreate
+from app.schemas.message import (
+    MessageAggregationResult,
+    MessageOpportunityCreate,
+    MessageSourceImportRequest,
+    MessageSourceImportOut,
+    MessageSourceItemCreate,
+    MessageTopicCreate,
+)
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
@@ -18,6 +27,27 @@ def today_yyyymmdd() -> str:
 
 def _list_value(value):
     return value if isinstance(value, list) else []
+
+
+def _dedupe_key(body: MessageSourceItemCreate, trade_date: str) -> str:
+    identity = body.external_id or body.url or body.content
+    raw = f"{trade_date}|{body.channel}|{identity}|{body.theme or ''}|{body.ts_code or ''}".strip()
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _clamp_score(value: float) -> int:
+    return max(0, min(100, int(round(value))))
+
+
+def _merge_unique(*groups: list[str] | None) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group or []:
+            if item and item not in seen:
+                result.append(item)
+                seen.add(item)
+    return result
 
 
 def create_or_update_topic(db: Session, body: MessageTopicCreate) -> MessageTopic:
@@ -55,6 +85,213 @@ def create_opportunity(db: Session, body: MessageOpportunityCreate) -> MessageOp
     db.commit()
     db.refresh(opp)
     return opp
+
+
+def create_source_item(db: Session, body: MessageSourceItemCreate) -> tuple[MessageSourceItem, bool]:
+    trade_date = body.trade_date or today_yyyymmdd()
+    dedupe_key = _dedupe_key(body, trade_date)
+    existing = db.query(MessageSourceItem).filter(MessageSourceItem.dedupe_key == dedupe_key).first()
+    if existing:
+        return existing, False
+
+    stock_name = body.stock_name
+    if not stock_name and body.ts_code:
+        basic = db.query(StockBasic).filter(StockBasic.ts_code == body.ts_code).first()
+        stock_name = basic.name if basic else None
+
+    item = MessageSourceItem(
+        **body.model_dump(exclude={"trade_date", "stock_name"}),
+        trade_date=trade_date,
+        stock_name=stock_name,
+        dedupe_key=dedupe_key,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item, True
+
+
+def _topic_summary(items: list[MessageSourceItem]) -> str:
+    titles = [item.title for item in items if item.title]
+    if titles:
+        return "；".join(titles[:3])
+    contents = [item.content[:60] for item in items if item.content]
+    return "；".join(contents[:3])
+
+
+def _topic_stage(item_count: int, channel_count: int, crowding_score: int) -> str:
+    if crowding_score >= 75:
+        return "climax"
+    if item_count >= 3 or channel_count >= 2:
+        return "spreading"
+    return "early"
+
+
+def _dominant_sentiment(items: list[MessageSourceItem]) -> str:
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item.sentiment] = counts.get(item.sentiment, 0) + 1
+    return max(counts.items(), key=lambda kv: kv[1])[0] if counts else "neutral"
+
+
+def _upsert_aggregated_opportunity(
+    db: Session,
+    *,
+    trade_date: str,
+    topic: MessageTopic,
+    theme: str,
+    ts_code: str,
+    stock_name: str | None,
+    items: list[MessageSourceItem],
+) -> MessageOpportunity:
+    channels = sorted({item.channel for item in items})
+    channel_bonus = min(16, max(0, len(channels) - 1) * 8)
+    item_bonus = min(15, len(items) * 3)
+    avg_heat = mean([item.heat_score for item in items])
+    avg_credibility = mean([item.credibility_score for item in items])
+    heat_score = _clamp_score(avg_heat + channel_bonus + item_bonus)
+    credibility_score = _clamp_score(avg_credibility + min(12, len(channels) * 4))
+    risk_score = _clamp_score(30 + max(0, len(items) - 2) * 8 + max(0, heat_score - 80) * 0.5)
+    opportunity_score = _clamp_score(heat_score * 0.55 + credibility_score * 0.35 - risk_score * 0.15 + channel_bonus)
+    action_suggestion = "add_to_pool" if opportunity_score >= 80 and risk_score < 70 else "watch"
+    if risk_score >= 70:
+        action_suggestion = "risk_watch"
+
+    source_links = _merge_unique([item.url for item in items if item.url])
+    catalysts = _merge_unique(*[item.tags for item in items])
+    reason = f"{theme} 在 {len(channels)} 个渠道出现共振，近 {len(items)} 条消息提及 {stock_name or ts_code}。"
+    if source_links:
+        reason += " 已保留来源链接便于复盘。"
+
+    existing = (
+        db.query(MessageOpportunity)
+        .filter(
+            MessageOpportunity.trade_date == trade_date,
+            MessageOpportunity.theme == theme,
+            MessageOpportunity.ts_code == ts_code,
+            MessageOpportunity.status == "active",
+        )
+        .first()
+    )
+    values = {
+        "topic_id": topic.id,
+        "trade_date": trade_date,
+        "theme": theme,
+        "ts_code": ts_code,
+        "stock_name": stock_name,
+        "opportunity_score": opportunity_score,
+        "heat_score": heat_score,
+        "credibility_score": credibility_score,
+        "risk_score": risk_score,
+        "action_suggestion": action_suggestion,
+        "reason": reason,
+        "catalysts": catalysts,
+        "risks": ["消息热度变化快，需等待买点雷达确认"],
+        "source_platforms": channels,
+        "source_links": source_links,
+    }
+    if existing:
+        for key, value in values.items():
+            setattr(existing, key, value)
+        return existing
+
+    opp = MessageOpportunity(**values)
+    db.add(opp)
+    return opp
+
+
+def aggregate_source_items(db: Session, trade_date: str) -> MessageAggregationResult:
+    items = (
+        db.query(MessageSourceItem)
+        .filter(
+            MessageSourceItem.trade_date == trade_date,
+            MessageSourceItem.status != "ignored",
+            MessageSourceItem.theme.isnot(None),
+        )
+        .all()
+    )
+    grouped_by_theme: dict[str, list[MessageSourceItem]] = {}
+    for item in items:
+        if item.theme:
+            grouped_by_theme.setdefault(item.theme, []).append(item)
+
+    topics: dict[str, MessageTopic] = {}
+    for theme, theme_items in grouped_by_theme.items():
+        channels = sorted({item.channel for item in theme_items})
+        heat_score = _clamp_score(mean([item.heat_score for item in theme_items]) + len(channels) * 8 + len(theme_items) * 2)
+        credibility_score = _clamp_score(mean([item.credibility_score for item in theme_items]) + len(channels) * 4)
+        crowding_score = _clamp_score(20 + len(theme_items) * 8 + max(0, len(channels) - 1) * 10)
+        topic = create_or_update_topic(
+            db,
+            MessageTopicCreate(
+                trade_date=trade_date,
+                theme=theme,
+                summary=_topic_summary(theme_items),
+                lifecycle_stage=_topic_stage(len(theme_items), len(channels), crowding_score),
+                sentiment=_dominant_sentiment(theme_items),
+                heat_score=heat_score,
+                credibility_score=credibility_score,
+                crowding_score=crowding_score,
+                source_platforms=channels,
+                tags=_merge_unique(*[item.tags for item in theme_items]),
+            ),
+        )
+        topics[theme] = topic
+
+    opportunity_groups: dict[tuple[str, str], list[MessageSourceItem]] = {}
+    for item in items:
+        if item.theme and item.ts_code:
+            opportunity_groups.setdefault((item.theme, item.ts_code), []).append(item)
+
+    opportunities: list[MessageOpportunity] = []
+    for (theme, ts_code), opp_items in opportunity_groups.items():
+        topic = topics.get(theme)
+        if not topic:
+            continue
+        opportunities.append(
+            _upsert_aggregated_opportunity(
+                db,
+                trade_date=trade_date,
+                topic=topic,
+                theme=theme,
+                ts_code=ts_code,
+                stock_name=opp_items[0].stock_name,
+                items=opp_items,
+            )
+        )
+
+    for item in items:
+        item.status = "processed"
+    db.commit()
+    return MessageAggregationResult(
+        trade_date=trade_date,
+        topic_count=len(topics),
+        opportunity_count=len(opportunities),
+        source_item_count=len(items),
+    )
+
+
+def import_source_items(db: Session, body: MessageSourceImportRequest) -> MessageSourceImportOut:
+    imported: list[MessageSourceItem] = []
+    skipped = 0
+    trade_dates: set[str] = set()
+    for item_body in body.items:
+        item, created = create_source_item(db, item_body)
+        imported.append(item)
+        trade_dates.add(item.trade_date)
+        if not created:
+            skipped += 1
+
+    aggregation = None
+    if body.aggregate and len(trade_dates) == 1:
+        aggregation = aggregate_source_items(db, next(iter(trade_dates)))
+
+    return MessageSourceImportOut(
+        created_count=len(imported) - skipped,
+        skipped_count=skipped,
+        items=imported,
+        aggregation=aggregation,
+    )
 
 
 def ensure_seed_daily_messages(db: Session, trade_date: str) -> None:

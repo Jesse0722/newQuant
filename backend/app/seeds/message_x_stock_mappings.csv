@@ -1,0 +1,24 @@
+trigger,theme,ts_code,stock_name,weight,tags
+MU,存储芯片,300475.SZ,香农芯创,0.8,HBM|存储分销
+Micron,存储芯片,300475.SZ,香农芯创,0.8,HBM|存储分销
+SK Hynix,存储芯片,300475.SZ,香农芯创,0.7,HBM|存储分销
+Samsung memory,存储芯片,300475.SZ,香农芯创,0.6,HBM|存储分销
+HBM,存储芯片,300475.SZ,香农芯创,0.6,HBM
+NVDA,NVIDIA产业链,300308.SZ,中际旭创,0.7,光模块|NVIDIA产业链
+Nvidia,NVIDIA产业链,300308.SZ,中际旭创,0.7,光模块|NVIDIA产业链
+Blackwell,NVIDIA产业链,601138.SH,工业富联,0.8,AI服务器|NVIDIA产业链
+GB200,NVIDIA产业链,601138.SH,工业富联,0.8,AI服务器|NVIDIA产业链
+NVL72,NVIDIA产业链,601138.SH,工业富联,0.8,AI服务器|NVIDIA产业链
+CPO,光模块,300502.SZ,新易盛,0.8,CPO|光模块
+Co-packaged optics,光模块,300502.SZ,新易盛,0.8,CPO|光模块
+Optical module,光模块,300308.SZ,中际旭创,0.8,光模块
+800G,光模块,300308.SZ,中际旭创,0.7,光模块
+1.6T optics,光模块,300502.SZ,新易盛,0.8,CPO|光模块
+Liquid cooling,液冷,300442.SZ,润泽科技,0.7,液冷|数据中心
+AI power demand,AI电力,300274.SZ,阳光电源,0.6,AI电力|数据中心
+Power infrastructure,AI电力,300274.SZ,阳光电源,0.6,AI电力|数据中心
+Copper interconnect,铜连接,002463.SZ,沪电股份,0.6,铜连接|PCB
+PCB,PCB,002463.SZ,沪电股份,0.6,PCB
+ASIC,ASIC,300308.SZ,中际旭创,0.5,ASIC|数据中心
+Humanoid robot,机器人,002050.SZ,三花智控,0.6,机器人
+Tesla Optimus,机器人,002050.SZ,三花智控,0.6,机器人

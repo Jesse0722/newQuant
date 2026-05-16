@@ -42,6 +42,8 @@ CORS_ORIGINS = [
     if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = env_flag("CORS_ALLOW_CREDENTIALS", True)
+X_API_BEARER_TOKEN = (os.getenv("X_API_BEARER_TOKEN") or "").strip()
+X_API_BASE_URL = (os.getenv("X_API_BASE_URL") or "https://api.twitter.com").strip().rstrip("/")
 
 if DATA_PROVIDER in ("tushare", "composite") and not TUSHARE_TOKEN:
     logger.warning(

@@ -24,9 +24,10 @@ import {
   ReloadOutlined,
   StarFilled,
   StarOutlined,
+  ThunderboltOutlined,
   WarningOutlined,
 } from '@ant-design/icons'
-import { getDailyMessages } from '../../api/messages'
+import { collectMessageXPosts, getDailyMessages } from '../../api/messages'
 import { toggleCoreWatch } from '../../api/pools'
 import type { MessageDaily, MessageLifecycleStage, MessageOpportunity, MessageSentiment } from '../../types'
 
@@ -72,6 +73,7 @@ const MessageCenterPage: React.FC = () => {
   const [themeFilter, setThemeFilter] = useState<string>('all')
   const [highScoreOnly, setHighScoreOnly] = useState(false)
   const [coreWatchBusy, setCoreWatchBusy] = useState<string | null>(null)
+  const [xCollecting, setXCollecting] = useState(false)
 
   const fetchDaily = useCallback(async () => {
     setLoading(true)
@@ -122,6 +124,28 @@ const MessageCenterPage: React.FC = () => {
       message.error('加入核心关注失败')
     } finally {
       setCoreWatchBusy(null)
+    }
+  }
+
+  const handleCollectX = async () => {
+    setXCollecting(true)
+    try {
+      const res = await collectMessageXPosts({
+        min_priority: 5,
+        keyword_limit: 12,
+        max_results: 20,
+        aggregate: true,
+      })
+      const aggregation = res.data.imported.aggregation
+      message.success(
+        `X采集完成：新增${res.data.imported.created_count}条，跳过${res.data.imported.skipped_count}条，机会${aggregation?.opportunity_count ?? 0}个`
+      )
+      await fetchDaily()
+    } catch (error) {
+      const apiError = error as { response?: { data?: { message?: string; detail?: string } } }
+      message.error(apiError.response?.data?.message || 'X采集失败')
+    } finally {
+      setXCollecting(false)
     }
   }
 
@@ -267,9 +291,14 @@ const MessageCenterPage: React.FC = () => {
             {daily ? formatTradeDate(daily.trade_date) : '-'} · 聚焦 AI 产业链传播与映射
           </div>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={fetchDaily} loading={loading}>
-          刷新
-        </Button>
+        <Space>
+          <Button icon={<ThunderboltOutlined />} onClick={handleCollectX} loading={xCollecting}>
+            采集X
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={fetchDaily} loading={loading}>
+            刷新
+          </Button>
+        </Space>
       </section>
 
       <Row gutter={[12, 12]}>
