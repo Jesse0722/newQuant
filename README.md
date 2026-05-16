@@ -69,6 +69,8 @@ python scripts/run_scheduler.py
 - `SCHEDULER_ENABLED`: 是否允许调度器运行
 - `CORS_ORIGINS`: 允许访问后端的前端地址白名单
 - `AI_PROVIDER`: `openai`、`qwen` 或 `ollama`
+- `X_API_BEARER_TOKEN`: X 舆情采集 Bearer Token，可选；使用消息中心“采集X”时必填
+- `X_API_BASE_URL`: X API base URL，默认 `https://api.twitter.com`
 
 推荐的生产/长期运行方式是把 Web 服务和调度器拆开：
 
@@ -88,6 +90,22 @@ python scripts/run_scheduler.py
 如果仍想保持原来的单进程行为，可以在 `.env` 中设置 `AUTO_START_SCHEDULER=true`。
 
 更多业务背景和设计说明见 [docs/README.md](/Users/lijiajun/ai-coding/newQuant/docs/README.md)。
+
+## 消息中心 / X 舆情采集
+
+消息中心支持每日题材、个股机会、X recent search 小批量采集，以及海外 ticker / 产业词到 A 股候选映射。详细设计见：
+
+- [消息中心 PRD](/Users/lijiajun/ai-coding/newQuant/docs/plans/舆情分析模块需求.md)
+- [消息中心与 X 舆情采集技术方案](/Users/lijiajun/ai-coding/newQuant/docs/plans/2026-05-14-message-opportunity-technical-design.md)
+
+本地启用 X 采集：
+
+```env
+X_API_BEARER_TOKEN=your_x_api_bearer_token
+X_API_BASE_URL=https://api.twitter.com
+```
+
+配置后重启后端，再到消息中心点击“采集X”。
 
 ## 数据源策略说明（2026-05 更新）
 
