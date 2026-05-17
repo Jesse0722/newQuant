@@ -421,11 +421,29 @@ export interface MessageSourceImportResult {
 }
 
 export interface MessageSeedKeyword {
+  id?: string | null
   keyword: string
   type: string
   theme: string
   priority: number
   language: string
+  status: string
+}
+
+export interface MessageSeedKeywordInput {
+  keyword: string
+  type?: string
+  theme: string
+  priority?: number
+  language?: string
+  status?: string
+}
+
+export interface MessageKeywordImportResult {
+  created_count: number
+  updated_count: number
+  skipped_count: number
+  items: MessageSeedKeyword[]
 }
 
 export interface MessageXAccount {
@@ -458,6 +476,37 @@ export interface MessageXCollectResult {
   query: string
   raw_count: number
   imported: MessageSourceImportResult
+}
+
+export interface MessageConclusionTopic {
+  theme: string
+  heat_score: number
+  credibility_score: number
+  crowding_score: number
+  lifecycle_stage: MessageLifecycleStage
+  source_platforms: string[]
+  conclusion: string
+}
+
+export interface MessageConclusionOpportunity {
+  theme: string
+  ts_code?: string | null
+  stock_name?: string | null
+  opportunity_score: number
+  risk_score: number
+  action_suggestion: MessageActionSuggestion
+  conclusion: string
+  source_links: string[]
+}
+
+export interface MessageDailyConclusion {
+  trade_date: string
+  generated_at: string
+  headline: string
+  conclusion: string
+  next_action: string
+  top_topics: MessageConclusionTopic[]
+  top_opportunities: MessageConclusionOpportunity[]
 }
 
 export interface MessageDaily {

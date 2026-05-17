@@ -11,6 +11,9 @@ from app.models.message import MessageOpportunity, MessageSourceItem, MessageTop
 from app.models.stock import StockBasic
 from app.schemas.message import (
     MessageAggregationResult,
+    MessageConclusionOpportunity,
+    MessageConclusionTopic,
+    MessageDailyConclusionOut,
     MessageOpportunityCreate,
     MessageSourceImportRequest,
     MessageSourceImportOut,
@@ -483,3 +486,104 @@ def get_daily_messages(db: Session, trade_date: str, ensure_seed: bool = True) -
         "topics": topics,
         "opportunities": opportunities,
     }
+
+
+def _topic_conclusion(topic: MessageTopic) -> str:
+    stage_map = {
+        "early": "处于早期观察阶段",
+        "spreading": "正在扩散",
+        "climax": "热度偏高潮，注意拥挤",
+        "cooling": "有退潮迹象",
+    }
+    stage = stage_map.get(topic.lifecycle_stage, topic.lifecycle_stage)
+    sources = "、".join(_list_value(topic.source_platforms)) or "单一来源"
+    return f"{topic.theme}{stage}，热度{topic.heat_score}，可信度{topic.credibility_score}，来源：{sources}。"
+
+
+def _opportunity_conclusion(opp: MessageOpportunity) -> str:
+    target = opp.stock_name or opp.ts_code or "主题机会"
+    if opp.action_suggestion == "add_to_pool":
+        action = "可优先加入观察池等待买点确认"
+    elif opp.action_suggestion == "risk_watch":
+        action = "热度或风险偏高，只适合风险观察"
+    else:
+        action = "先观察，等待更多共振或买点确认"
+    return f"{target} 关联 {opp.theme}，机会分{opp.opportunity_score}，风险分{opp.risk_score}，{action}。"
+
+
+def get_daily_conclusion(
+    db: Session,
+    trade_date: str,
+    ensure_seed: bool = False,
+    limit: int = 5,
+) -> MessageDailyConclusionOut:
+    daily = get_daily_messages(db, trade_date, ensure_seed=ensure_seed)
+    topics: list[MessageTopic] = daily["topics"][:limit]
+    opportunities: list[MessageOpportunity] = daily["opportunities"][:limit]
+
+    if not topics and not opportunities:
+        return MessageDailyConclusionOut(
+            trade_date=trade_date,
+            generated_at=datetime.now(SHANGHAI_TZ),
+            headline="暂无可分析的舆情机会",
+            conclusion="当前日期没有题材或个股机会数据。请先导入关键词并执行采集，或导入原始消息。",
+            next_action="先执行关键词导入和 X 小批量采集，再回到消息中心查看结论。",
+            top_topics=[],
+            top_opportunities=[],
+        )
+
+    leading_topic = topics[0] if topics else None
+    top_opp = opportunities[0] if opportunities else None
+    headline_parts: list[str] = []
+    if leading_topic:
+        headline_parts.append(f"强势题材：{leading_topic.theme}")
+    if top_opp:
+        headline_parts.append(f"首要候选：{top_opp.stock_name or top_opp.ts_code}")
+    headline = "；".join(headline_parts) or "今日舆情结论"
+
+    high_risk_count = len([opp for opp in opportunities if opp.risk_score >= 70])
+    add_pool_count = len([opp for opp in opportunities if opp.action_suggestion == "add_to_pool"])
+    if add_pool_count:
+        next_action = "优先把高分且风险不过热的候选加入核心关注，再用买点雷达确认。"
+    elif high_risk_count:
+        next_action = "当前机会热度偏拥挤，先做风险观察，避免直接追高。"
+    else:
+        next_action = "维持观察，等待多渠道共振或技术买点确认。"
+
+    conclusion = (
+        f"今日共识别 {len(topics)} 个重点题材、{len(opportunities)} 个候选机会。"
+        f"{headline}。{next_action}"
+    )
+
+    return MessageDailyConclusionOut(
+        trade_date=trade_date,
+        generated_at=datetime.now(SHANGHAI_TZ),
+        headline=headline,
+        conclusion=conclusion,
+        next_action=next_action,
+        top_topics=[
+            MessageConclusionTopic(
+                theme=topic.theme,
+                heat_score=topic.heat_score,
+                credibility_score=topic.credibility_score,
+                crowding_score=topic.crowding_score,
+                lifecycle_stage=topic.lifecycle_stage,
+                source_platforms=_list_value(topic.source_platforms),
+                conclusion=_topic_conclusion(topic),
+            )
+            for topic in topics
+        ],
+        top_opportunities=[
+            MessageConclusionOpportunity(
+                theme=opp.theme,
+                ts_code=opp.ts_code,
+                stock_name=opp.stock_name,
+                opportunity_score=opp.opportunity_score,
+                risk_score=opp.risk_score,
+                action_suggestion=opp.action_suggestion,
+                source_links=_list_value(opp.source_links),
+                conclusion=_opportunity_conclusion(opp),
+            )
+            for opp in opportunities
+        ],
+    )

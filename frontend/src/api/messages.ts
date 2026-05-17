@@ -1,7 +1,11 @@
 import client from './client'
 import type {
   MessageDaily,
+  MessageDailyConclusion,
+  MessageKeywordImportResult,
   MessageOpportunity,
+  MessageSeedKeyword,
+  MessageSeedKeywordInput,
   MessageSourceImportResult,
   MessageSourceItemInput,
   MessageTopic,
@@ -14,6 +18,12 @@ export const getDailyMessages = (params?: {
   trade_date?: string
   ensure_seed?: boolean
 }) => client.get<MessageDaily>('/messages/daily', { params })
+
+export const getDailyMessageConclusion = (params?: {
+  trade_date?: string
+  ensure_seed?: boolean
+  limit?: number
+}) => client.get<MessageDailyConclusion>('/messages/daily-conclusion', { params })
 
 export const createMessageTopic = (data: Partial<MessageTopic> & { theme: string }) =>
   client.post<MessageTopic>('/messages/topics', data)
@@ -31,3 +41,12 @@ export const getMessageXSeeds = () =>
 
 export const collectMessageXPosts = (data: MessageXCollectRequest) =>
   client.post<MessageXCollectResult>('/messages/x/collect', data)
+
+export const listMessageKeywords = () =>
+  client.get<MessageSeedKeyword[]>('/messages/keywords')
+
+export const importMessageKeywords = (data: { items: MessageSeedKeywordInput[] }) =>
+  client.post<MessageKeywordImportResult>('/messages/keywords/import', data)
+
+export const importDefaultMessageKeywords = () =>
+  client.post<MessageKeywordImportResult>('/messages/keywords/import-default')

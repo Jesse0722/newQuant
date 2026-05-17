@@ -5,6 +5,10 @@ import {
   Card,
   Col,
   Empty,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
   Progress,
   Row,
   Select,
@@ -25,11 +29,25 @@ import {
   StarFilled,
   StarOutlined,
   ThunderboltOutlined,
+  UploadOutlined,
   WarningOutlined,
 } from '@ant-design/icons'
-import { collectMessageXPosts, getDailyMessages } from '../../api/messages'
+import {
+  collectMessageXPosts,
+  getDailyMessages,
+  importDefaultMessageKeywords,
+  importMessageKeywords,
+  listMessageKeywords,
+} from '../../api/messages'
 import { toggleCoreWatch } from '../../api/pools'
-import type { MessageDaily, MessageLifecycleStage, MessageOpportunity, MessageSentiment } from '../../types'
+import type {
+  MessageDaily,
+  MessageLifecycleStage,
+  MessageOpportunity,
+  MessageSeedKeyword,
+  MessageSeedKeywordInput,
+  MessageSentiment,
+} from '../../types'
 
 const stageMap: Record<string, { label: string; color: string }> = {
   early: { label: '早期', color: 'cyan' },
@@ -49,6 +67,23 @@ const actionMap: Record<string, { label: string; color: string }> = {
   add_to_pool: { label: '加入观察', color: 'green' },
   risk_watch: { label: '风险观察', color: 'orange' },
 }
+
+const keywordTypeOptions = [
+  { value: 'industry', label: 'industry' },
+  { value: 'product', label: 'product' },
+  { value: 'company', label: 'company' },
+  { value: 'catalyst', label: 'catalyst' },
+]
+
+const keywordLanguageOptions = [
+  { value: 'en', label: 'en' },
+  { value: 'zh', label: 'zh' },
+]
+
+const keywordStatusOptions = [
+  { value: 'active', label: 'active' },
+  { value: 'disabled', label: 'disabled' },
+]
 
 const formatTradeDate = (value: string) =>
   value?.length === 8 ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}` : value
@@ -74,6 +109,12 @@ const MessageCenterPage: React.FC = () => {
   const [highScoreOnly, setHighScoreOnly] = useState(false)
   const [coreWatchBusy, setCoreWatchBusy] = useState<string | null>(null)
   const [xCollecting, setXCollecting] = useState(false)
+  const [keywordImporting, setKeywordImporting] = useState(false)
+  const [keywordModalOpen, setKeywordModalOpen] = useState(false)
+  const [keywords, setKeywords] = useState<MessageSeedKeyword[]>([])
+  const [keywordLoading, setKeywordLoading] = useState(false)
+  const [keywordSaving, setKeywordSaving] = useState(false)
+  const [keywordForm] = Form.useForm<MessageSeedKeywordInput>()
 
   const fetchDaily = useCallback(async () => {
     setLoading(true)
@@ -146,6 +187,94 @@ const MessageCenterPage: React.FC = () => {
       message.error(apiError.response?.data?.message || 'X采集失败')
     } finally {
       setXCollecting(false)
+    }
+  }
+
+  const fetchKeywords = useCallback(async () => {
+    setKeywordLoading(true)
+    try {
+      const res = await listMessageKeywords()
+      setKeywords(res.data)
+    } catch {
+      message.error('加载关键词失败')
+    } finally {
+      setKeywordLoading(false)
+    }
+  }, [])
+
+  const openKeywordModal = () => {
+    setKeywordModalOpen(true)
+    keywordForm.setFieldsValue({
+      type: 'industry',
+      priority: 5,
+      language: 'en',
+      status: 'active',
+    })
+    fetchKeywords()
+  }
+
+  const handleImportKeywords = async () => {
+    setKeywordImporting(true)
+    try {
+      const res = await importDefaultMessageKeywords()
+      message.success(
+        `关键词导入完成：新增${res.data.created_count}个，更新${res.data.updated_count}个，跳过${res.data.skipped_count}个`
+      )
+      await fetchKeywords()
+    } catch (error) {
+      const apiError = error as { response?: { data?: { message?: string } } }
+      message.error(apiError.response?.data?.message || '关键词导入失败')
+    } finally {
+      setKeywordImporting(false)
+    }
+  }
+
+  const handleAddKeyword = async (values: MessageSeedKeywordInput) => {
+    setKeywordSaving(true)
+    try {
+      const payload: MessageSeedKeywordInput = {
+        keyword: values.keyword.trim(),
+        type: values.type || 'industry',
+        theme: values.theme.trim(),
+        priority: values.priority || 3,
+        language: values.language || 'en',
+        status: values.status || 'active',
+      }
+      const res = await importMessageKeywords({ items: [payload] })
+      message.success(
+        `保存关键词：新增${res.data.created_count}个，更新${res.data.updated_count}个，跳过${res.data.skipped_count}个`
+      )
+      keywordForm.resetFields()
+      keywordForm.setFieldsValue({ type: 'industry', priority: 5, language: 'en', status: 'active' })
+      await fetchKeywords()
+    } catch (error) {
+      const apiError = error as { response?: { data?: { message?: string } } }
+      message.error(apiError.response?.data?.message || '保存关键词失败')
+    } finally {
+      setKeywordSaving(false)
+    }
+  }
+
+  const handleToggleKeyword = async (row: MessageSeedKeyword) => {
+    const nextStatus = row.status === 'active' ? 'disabled' : 'active'
+    setKeywordSaving(true)
+    try {
+      await importMessageKeywords({
+        items: [{
+          keyword: row.keyword,
+          type: row.type,
+          theme: row.theme,
+          priority: row.priority,
+          language: row.language,
+          status: nextStatus,
+        }],
+      })
+      message.success(nextStatus === 'active' ? '关键词已启用' : '关键词已禁用')
+      await fetchKeywords()
+    } catch {
+      message.error('更新关键词状态失败')
+    } finally {
+      setKeywordSaving(false)
     }
   }
 
@@ -292,6 +421,9 @@ const MessageCenterPage: React.FC = () => {
           </div>
         </div>
         <Space>
+          <Button icon={<UploadOutlined />} onClick={openKeywordModal}>
+            关键词管理
+          </Button>
           <Button icon={<ThunderboltOutlined />} onClick={handleCollectX} loading={xCollecting}>
             采集X
           </Button>
@@ -391,6 +523,92 @@ const MessageCenterPage: React.FC = () => {
           <Empty description="暂无符合条件的机会" />
         )}
       </Card>
+
+      <Modal
+        title="关键词管理"
+        open={keywordModalOpen}
+        onCancel={() => setKeywordModalOpen(false)}
+        footer={null}
+        width={920}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Form
+            form={keywordForm}
+            layout="inline"
+            onFinish={handleAddKeyword}
+            initialValues={{ type: 'industry', priority: 5, language: 'en', status: 'active' }}
+          >
+            <Form.Item name="keyword" rules={[{ required: true, message: '请输入关键词' }]}>
+              <Input placeholder="关键词 / 公司名" style={{ width: 160 }} />
+            </Form.Item>
+            <Form.Item name="theme" rules={[{ required: true, message: '请输入题材' }]}>
+              <Input placeholder="题材" style={{ width: 120 }} />
+            </Form.Item>
+            <Form.Item name="type">
+              <Select options={keywordTypeOptions} style={{ width: 120 }} />
+            </Form.Item>
+            <Form.Item name="language">
+              <Select options={keywordLanguageOptions} style={{ width: 80 }} />
+            </Form.Item>
+            <Form.Item name="priority">
+              <InputNumber min={1} max={5} style={{ width: 80 }} />
+            </Form.Item>
+            <Form.Item name="status">
+              <Select options={keywordStatusOptions} style={{ width: 100 }} />
+            </Form.Item>
+            <Form.Item>
+              <Button type="primary" htmlType="submit" loading={keywordSaving}>
+                新增
+              </Button>
+            </Form.Item>
+          </Form>
+
+          <Space>
+            <Button icon={<UploadOutlined />} onClick={handleImportKeywords} loading={keywordImporting}>
+              导入默认种子
+            </Button>
+            <Button icon={<ReloadOutlined />} onClick={fetchKeywords} loading={keywordLoading}>
+              刷新关键词
+            </Button>
+          </Space>
+
+          <Table
+            rowKey={(row) => `${row.keyword}-${row.type}-${row.theme}-${row.language}`}
+            size="small"
+            loading={keywordLoading}
+            dataSource={keywords}
+            pagination={{ pageSize: 8, showSizeChanger: false }}
+            columns={[
+              {
+                title: '关键词',
+                dataIndex: 'keyword',
+                width: 170,
+                render: (value: string) => <span className="mono">{value}</span>,
+              },
+              { title: '题材', dataIndex: 'theme', width: 120 },
+              { title: '类型', dataIndex: 'type', width: 100 },
+              { title: '语言', dataIndex: 'language', width: 70 },
+              { title: '优先级', dataIndex: 'priority', width: 80 },
+              {
+                title: '状态',
+                dataIndex: 'status',
+                width: 90,
+                render: (status: string) => <Tag color={status === 'active' ? 'green' : 'default'}>{status}</Tag>,
+              },
+              {
+                title: '操作',
+                key: 'action',
+                width: 100,
+                render: (_: unknown, row: MessageSeedKeyword) => (
+                  <Button size="small" onClick={() => handleToggleKeyword(row)} loading={keywordSaving}>
+                    {row.status === 'active' ? '禁用' : '启用'}
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        </Space>
+      </Modal>
     </div>
   )
 }

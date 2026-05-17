@@ -21,11 +21,13 @@ MVP 坚持三条边界：
 
 - 原始消息层 `message_source_item`，保存渠道原文、链接、发布时间、标签、热度、可信度、去重键和原始载荷。
 - 统一导入接口 `/api/messages/source-items/import`，支持外部采集器、手工导入、文件导入或 webhook 统一写入。
+- 关键词池导入接口，支持把默认 CSV 种子导入数据库，也支持外部批量 upsert 关键词。
 - 题材聚合 `message_topic`，按日期、题材、渠道数和消息量生成热度、可信度、拥挤度与生命周期。
 - 个股机会 `message_opportunity`，按题材和股票聚合，生成机会分、风险分、建议动作和来源链接。
 - X recent search 采集接口 `/api/messages/x/collect`。
 - X 种子池：关键词、账号、海外线索到 A 股候选映射。
 - 前端消息中心右上角“采集X”按钮，可触发小批量采集并刷新页面。
+- 每日结论接口 `/api/messages/daily-conclusion`，把聚合结果组织成今日观点、Top 题材、Top 机会和下一步动作。
 
 ## 3. 数据流
 
@@ -38,6 +40,7 @@ X recent search
   -> 去重
   -> Topic 聚合
   -> Opportunity 聚合
+  -> Daily Conclusion
   -> /api/messages/daily
   -> 消息中心页面
   -> 核心关注 / 股票详情 / 买点雷达
@@ -76,6 +79,13 @@ X_API_BASE_URL=https://api.twitter.com
 | `message_keywords.csv` | AI 产业关键词，包含 keyword/type/theme/priority/language |
 | `message_x_accounts.csv` | X 重点账号池，包含 handle/category/theme/weight/status |
 | `message_x_stock_mappings.csv` | X 海外语境到 A 股候选映射 |
+
+关键词池有两层：
+
+- 默认层：`message_keywords.csv`，作为代码随附的初始种子。
+- 运行层：`message_keyword_seed` 数据库表，通过导入接口维护。
+
+X 采集优先使用数据库中的 active 关键词；如果数据库里还没有关键词，则回退到 CSV 默认种子。这样本地第一天可以直接运行，后续也可以在不改代码的情况下调整关键词。
 
 ### 5.1 关键词种子
 
@@ -129,7 +139,24 @@ X 上大量帖子不会出现 A 股代码，需要用海外 ticker、公司名�
 
 ## 6. 后端模型
 
-### 6.1 message_source_item
+### 6.1 message_keyword_seed
+
+关键词种子表，用于运行期维护 X 查询词。
+
+| 字段 | 说明 |
+|---|---|
+| id | UUID |
+| keyword | 搜索关键词 |
+| type | industry / product / company / catalyst |
+| theme | 归属题材 |
+| priority | 1-5，越高越优先进入默认 X 查询 |
+| language | en / zh |
+| status | active / disabled |
+| created_at / updated_at | 时间 |
+
+唯一约束：`keyword + type + theme + language`。
+
+### 6.2 message_source_item
 
 原始消息表，所有渠道先进入这里。
 
@@ -164,7 +191,7 @@ trade_date + channel + (external_id or url or content) + theme + ts_code
 
 同一条 X 帖子可映射到不同 A 股候选，因此去重键包含 `theme` 和 `ts_code`。
 
-### 6.2 message_topic
+### 6.3 message_topic
 
 题材聚合表。
 
@@ -183,7 +210,7 @@ trade_date + channel + (external_id or url or content) + theme + ts_code
 
 唯一约束：`trade_date + theme`。
 
-### 6.3 message_opportunity
+### 6.4 message_opportunity
 
 个股机会表。
 
@@ -207,6 +234,21 @@ trade_date + channel + (external_id or url or content) + theme + ts_code
 | status | active / dismissed / archived |
 
 ## 7. 聚合与评分
+
+### 7.0 X 文本质量过滤
+
+X 帖子进入 `message_source_item` 前会先做轻量质量过滤。过滤目标不是判断观点正确，而是剔除明显不适合作为产业舆情样本的文本。
+
+当前规则：
+
+- 默认查询排除 retweet 和 reply。
+- 过短文本降权。
+- 明显 spam 词过滤，如 `best trading decision`、`steady, consistent profits`、`telegram`、`free signals`、`pump`、`100x`、`guaranteed profit`。
+- URL、hashtag、cashtag 过度堆叠降权。
+- 有一定互动和足够文本长度的产业链内容加分。
+- 入库标签会追加 `quality:{score}`，便于后续复盘过滤效果。
+
+质量过滤只决定是否进入消息池，不直接决定机会分。机会分仍由热度、可信度、风险和映射聚合决定。
 
 ### 7.1 Topic 聚合
 
@@ -246,6 +288,30 @@ trade_date + channel + (external_id or url or content) + theme + ts_code
 |---|---|
 | trade_date | 可选，YYYYMMDD，默认上海自然日 |
 | ensure_seed | 可选，默认 true；无数据时生成示例种子机会 |
+
+### GET `/api/messages/daily-conclusion`
+
+基于每日聚合结果输出可读结论。
+
+参数：
+
+| 参数 | 说明 |
+|---|---|
+| trade_date | 可选，YYYYMMDD，默认上海自然日 |
+| ensure_seed | 可选，默认 false；真实验证时建议保持 false |
+| limit | 可选，默认 5，返回 Top 题材和 Top 机会数量 |
+
+返回重点：
+
+```json
+{
+  "headline": "强势题材：存储芯片；首要候选：香农芯创",
+  "conclusion": "今日共识别 1 个重点题材、1 个候选机会...",
+  "next_action": "维持观察，等待多渠道共振或技术买点确认。",
+  "top_topics": [],
+  "top_opportunities": []
+}
+```
 
 ### POST `/api/messages/source-items/import`
 
@@ -293,6 +359,57 @@ trade_date + channel + (external_id or url or content) + theme + ts_code
 ### GET `/api/messages/x/seeds`
 
 返回 X 使用的关键词池、账号池和主题摘要，用于检查配置是否加载成功。
+
+### GET `/api/messages/keywords`
+
+返回数据库中的关键词池。注意：如果尚未导入默认关键词，该接口可以为空，但 X 采集仍会回退使用 CSV 默认种子。
+
+### POST `/api/messages/keywords/import-default`
+
+把 `backend/app/seeds/message_keywords.csv` 导入数据库。按 `keyword + type + theme + language` 幂等 upsert。
+
+返回重点：
+
+```json
+{
+  "created_count": 68,
+  "updated_count": 0,
+  "skipped_count": 0,
+  "items": []
+}
+```
+
+### POST `/api/messages/keywords/import`
+
+批量导入或更新关键词。
+
+请求示例：
+
+```json
+{
+  "items": [
+    {
+      "keyword": "AI wafer scale",
+      "type": "industry",
+      "theme": "AI芯片",
+      "priority": 5,
+      "language": "en",
+      "status": "active"
+    }
+  ]
+}
+```
+
+返回重点：
+
+```json
+{
+  "created_count": 1,
+  "updated_count": 0,
+  "skipped_count": 0,
+  "items": []
+}
+```
 
 ### POST `/api/messages/x/collect`
 
@@ -379,6 +496,22 @@ curl -sS http://127.0.0.1:8000/api/messages/x/seeds
 
 ### 10.4 小批量真实采集
 
+先把默认关键词导入数据库：
+
+```bash
+curl -sS -X POST http://127.0.0.1:8000/api/messages/keywords/import-default
+```
+
+也可以导入自定义关键词：
+
+```bash
+curl -sS -X POST http://127.0.0.1:8000/api/messages/keywords/import \
+  -H 'Content-Type: application/json' \
+  -d '{"items":[{"keyword":"HBM","type":"industry","theme":"存储芯片","priority":5,"language":"en"}]}'
+```
+
+再执行采集：
+
 ```bash
 curl -sS -X POST http://127.0.0.1:8000/api/messages/x/collect \
   -H 'Content-Type: application/json' \
@@ -391,6 +524,18 @@ curl -sS -X POST http://127.0.0.1:8000/api/messages/x/collect \
 - `created_count` 或 `skipped_count` 有值。
 - `aggregation.topic_count` 大于 0。
 - 若命中映射表，`aggregation.opportunity_count` 大于 0。
+
+最后查看结论：
+
+```bash
+curl -sS 'http://127.0.0.1:8000/api/messages/daily-conclusion?ensure_seed=false'
+```
+
+闭环预期：
+
+```text
+关键词导入 -> X 采集 -> 原始消息入库 -> 题材/机会聚合 -> daily-conclusion 给出今日结论
+```
 
 ### 10.5 自动化验证
 
@@ -407,7 +552,7 @@ npm run build
 当前验证结果：
 
 ```text
-backend tests/test_messages_api.py: 8 passed
+backend tests/test_messages_api.py: 13 passed
 frontend npm run build: passed
 ```
 
@@ -425,7 +570,7 @@ frontend npm run build: passed
 - X recent search 只覆盖最近 7 天。
 - 当前只处理文本，不处理图片、视频、Space、长线程。
 - 当前 A 股映射为种子表规则，需继续校准。
-- 当前没有对垃圾内容、低质账号、机器人账号做系统过滤。
+- 当前已有轻量文本质量过滤，但还没有完整的账号质量评分、机器人账号识别和来源黑白名单。
 - 当前示例种子机会仍会在 `ensure_seed=true` 时生成，后续真实采集稳定后应改成手动示例模式。
 
 ## 13. 后续计划

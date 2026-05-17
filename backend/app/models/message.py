@@ -30,6 +30,25 @@ class MessageTopic(Base):
     )
 
 
+class MessageKeywordSeed(Base):
+    __tablename__ = "message_keyword_seed"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    keyword = Column(String(80), nullable=False)
+    type = Column(String(24), nullable=False, default="industry")
+    theme = Column(String(64), nullable=False)
+    priority = Column(Integer, nullable=False, default=3)
+    language = Column(String(8), nullable=False, default="zh")
+    status = Column(String(16), nullable=False, default="active")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("keyword", "type", "theme", "language", name="uq_message_keyword_seed"),
+        Index("ix_message_keyword_seed_theme_priority", "theme", "priority"),
+    )
+
+
 class MessageSourceItem(Base):
     __tablename__ = "message_source_item"
 

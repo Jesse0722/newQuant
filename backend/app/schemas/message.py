@@ -158,11 +158,35 @@ class MessageSourceImportOut(BaseModel):
 
 
 class MessageSeedKeywordOut(BaseModel):
+    id: Optional[str] = None
     keyword: str
     type: str
     theme: str
     priority: int
     language: str
+    status: str = "active"
+
+    model_config = {"from_attributes": True}
+
+
+class MessageSeedKeywordCreate(BaseModel):
+    keyword: str = Field(min_length=1, max_length=80)
+    type: str = Field(default="industry", max_length=24)
+    theme: str = Field(min_length=1, max_length=64)
+    priority: int = Field(default=3, ge=1, le=5)
+    language: str = Field(default="zh", max_length=8)
+    status: str = Field(default="active", max_length=16)
+
+
+class MessageKeywordImportRequest(BaseModel):
+    items: list[MessageSeedKeywordCreate] = Field(min_length=1, max_length=500)
+
+
+class MessageKeywordImportOut(BaseModel):
+    created_count: int
+    updated_count: int
+    skipped_count: int
+    items: list[MessageSeedKeywordOut]
 
 
 class MessageXAccountOut(BaseModel):
@@ -195,6 +219,37 @@ class MessageXCollectOut(BaseModel):
     query: str
     raw_count: int
     imported: MessageSourceImportOut
+
+
+class MessageConclusionTopic(BaseModel):
+    theme: str
+    heat_score: int
+    credibility_score: int
+    crowding_score: int
+    lifecycle_stage: str
+    source_platforms: list[str] = Field(default_factory=list)
+    conclusion: str
+
+
+class MessageConclusionOpportunity(BaseModel):
+    theme: str
+    ts_code: Optional[str] = None
+    stock_name: Optional[str] = None
+    opportunity_score: int
+    risk_score: int
+    action_suggestion: str
+    conclusion: str
+    source_links: list[str] = Field(default_factory=list)
+
+
+class MessageDailyConclusionOut(BaseModel):
+    trade_date: str
+    generated_at: datetime
+    headline: str
+    conclusion: str
+    next_action: str
+    top_topics: list[MessageConclusionTopic]
+    top_opportunities: list[MessageConclusionOpportunity]
 
 
 class MessageDailyStats(BaseModel):
