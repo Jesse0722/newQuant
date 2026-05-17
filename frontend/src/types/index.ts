@@ -366,6 +366,149 @@ export interface MessageOpportunity {
   created_at: string
 }
 
+export interface MessageSourceItem {
+  id: string
+  trade_date: string
+  channel: string
+  source_name?: string | null
+  external_id?: string | null
+  title?: string | null
+  content: string
+  url?: string | null
+  published_at?: string | null
+  captured_at: string
+  theme?: string | null
+  ts_code?: string | null
+  stock_name?: string | null
+  tags: string[]
+  sentiment: MessageSentiment
+  heat_score: number
+  credibility_score: number
+  dedupe_key: string
+  raw_payload?: Record<string, unknown> | null
+  status: string
+}
+
+export interface MessageSourceItemInput {
+  trade_date?: string
+  channel: string
+  source_name?: string
+  external_id?: string
+  title?: string
+  content: string
+  url?: string
+  published_at?: string
+  theme?: string
+  ts_code?: string
+  stock_name?: string
+  tags?: string[]
+  sentiment?: MessageSentiment
+  heat_score?: number
+  credibility_score?: number
+  raw_payload?: Record<string, unknown>
+}
+
+export interface MessageSourceImportResult {
+  created_count: number
+  skipped_count: number
+  items: MessageSourceItem[]
+  aggregation?: {
+    trade_date: string
+    topic_count: number
+    opportunity_count: number
+    source_item_count: number
+  } | null
+}
+
+export interface MessageSeedKeyword {
+  id?: string | null
+  keyword: string
+  type: string
+  theme: string
+  priority: number
+  language: string
+  status: string
+}
+
+export interface MessageSeedKeywordInput {
+  keyword: string
+  type?: string
+  theme: string
+  priority?: number
+  language?: string
+  status?: string
+}
+
+export interface MessageKeywordImportResult {
+  created_count: number
+  updated_count: number
+  skipped_count: number
+  items: MessageSeedKeyword[]
+}
+
+export interface MessageXAccount {
+  handle: string
+  platform: string
+  category: string
+  theme: string
+  weight: number
+  status: string
+}
+
+export interface MessageXSeedSummary {
+  keyword_count: number
+  account_count: number
+  top_themes: string[]
+  keywords: MessageSeedKeyword[]
+  accounts: MessageXAccount[]
+}
+
+export interface MessageXCollectRequest {
+  trade_date?: string
+  query?: string
+  min_priority?: number
+  keyword_limit?: number
+  max_results?: number
+  aggregate?: boolean
+}
+
+export interface MessageXCollectResult {
+  query: string
+  raw_count: number
+  imported: MessageSourceImportResult
+}
+
+export interface MessageConclusionTopic {
+  theme: string
+  heat_score: number
+  credibility_score: number
+  crowding_score: number
+  lifecycle_stage: MessageLifecycleStage
+  source_platforms: string[]
+  conclusion: string
+}
+
+export interface MessageConclusionOpportunity {
+  theme: string
+  ts_code?: string | null
+  stock_name?: string | null
+  opportunity_score: number
+  risk_score: number
+  action_suggestion: MessageActionSuggestion
+  conclusion: string
+  source_links: string[]
+}
+
+export interface MessageDailyConclusion {
+  trade_date: string
+  generated_at: string
+  headline: string
+  conclusion: string
+  next_action: string
+  top_topics: MessageConclusionTopic[]
+  top_opportunities: MessageConclusionOpportunity[]
+}
+
 export interface MessageDaily {
   trade_date: string
   generated_at: string

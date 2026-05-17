@@ -30,6 +30,55 @@ class MessageTopic(Base):
     )
 
 
+class MessageKeywordSeed(Base):
+    __tablename__ = "message_keyword_seed"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    keyword = Column(String(80), nullable=False)
+    type = Column(String(24), nullable=False, default="industry")
+    theme = Column(String(64), nullable=False)
+    priority = Column(Integer, nullable=False, default=3)
+    language = Column(String(8), nullable=False, default="zh")
+    status = Column(String(16), nullable=False, default="active")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("keyword", "type", "theme", "language", name="uq_message_keyword_seed"),
+        Index("ix_message_keyword_seed_theme_priority", "theme", "priority"),
+    )
+
+
+class MessageSourceItem(Base):
+    __tablename__ = "message_source_item"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    trade_date = Column(String(8), nullable=False, index=True)
+    channel = Column(String(32), nullable=False, index=True)
+    source_name = Column(String(64), nullable=True)
+    external_id = Column(String(128), nullable=True)
+    title = Column(String(200), nullable=True)
+    content = Column(Text, nullable=False)
+    url = Column(String(500), nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    captured_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    theme = Column(String(64), nullable=True, index=True)
+    ts_code = Column(String(16), nullable=True, index=True)
+    stock_name = Column(String(32), nullable=True)
+    tags = Column(JSON, nullable=True)
+    sentiment = Column(String(16), nullable=False, default="neutral")
+    heat_score = Column(Integer, nullable=False, default=50)
+    credibility_score = Column(Integer, nullable=False, default=50)
+    dedupe_key = Column(String(64), nullable=False, unique=True, index=True)
+    raw_payload = Column(JSON, nullable=True)
+    status = Column(String(16), nullable=False, default="new")
+
+    __table_args__ = (
+        Index("ix_message_source_item_date_theme", "trade_date", "theme"),
+        Index("ix_message_source_item_date_stock", "trade_date", "ts_code"),
+    )
+
+
 class MessageOpportunity(Base):
     __tablename__ = "message_opportunity"
 

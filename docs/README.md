@@ -21,6 +21,8 @@
 | 03 | `03-技术方案-定稿.md` | 技术方案：项目目录结构、8 张表详细列定义、28 个 API 接口设计、监控引擎（6 模板 + 指标计算）、异步任务机制、统一错误处理 | 已定稿 |
 | -- | `UI设计提示词-StitchAI.md` | 6 个页面的 ASCII 线框图（仪表盘、观察池列表、池内详情、监控提醒、交易计划列表、计划详情） | 已定稿 |
 | -- | `plans/2026-03-02-v1-implementation-plan.md` | V1 详细实施计划：5 个 Phase、28 个任务，含文件路径、代码片段、验证步骤 | 已定稿 |
+| -- | `plans/舆情分析模块需求.md` | 消息中心 PRD：每日题材、个股机会、平台角色、验收标准 | MVP 已实现 |
+| -- | `plans/2026-05-14-message-opportunity-technical-design.md` | 消息中心与 X 舆情采集技术方案：原始消息层、X recent search、种子池、A 股映射、API、验证步骤 | MVP 已实现 |
 | -- | `plans/2026-03-01-涨停回调买入策略.md` | 涨停回调买入策略实施方案（已实施） | 已归档 |
 | -- | `plans/2026-04-14-五日均线不破策略.md` | 五日均线不破（`ma5_hold_pullback`）量化口径与回测说明 | 已归档 |
 | -- | `PLANNING_WITH_SUPERPOWERS.md` | Superpowers 问答式规划流程说明 | 参考 |
@@ -33,6 +35,11 @@
 2. **理解技术**：读 `03-技术方案-定稿.md`（API、数据库、项目结构）
 3. **理解实施**：读 `plans/2026-03-02-v1-implementation-plan.md`（任务清单）
 4. **了解决策过程**：如需回溯设计决策，读 `01-方案讨论-定稿.md`
+
+消息中心 / 舆情采集相关工作请额外阅读：
+
+1. `plans/舆情分析模块需求.md`
+2. `plans/2026-05-14-message-opportunity-technical-design.md`
 
 ---
 
@@ -56,6 +63,7 @@ Phase 5 → 前端（React + Ant Design，6 个页面 + 联调）
 - `backend/.env` 已完成基础配置（可从 `backend/.env.example` 复制）
 - 快速记录 OCR 功能需安装 Tesseract：`brew install tesseract`（中文：`brew install tesseract-lang`）
 - AI 智能选股需配置 `OPENAI_API_KEY` 或 `DASHSCOPE_API_KEY` 或 `OLLAMA_BASE_URL`（见 `.env.example`）
+- X 舆情采集需配置 `X_API_BEARER_TOKEN`，并确保 X Developer Console credits 可用。
 
 ```bash
 # 后端（默认 http://localhost:8000）
@@ -98,6 +106,7 @@ cd frontend && npm run dev
 | 交易计划 | 列表内嵌详情（expandable）、默认展开最近计划、CRUD + 编辑（含成功/失败反馈）、价格目标 + 盈亏比、风险等级、计划级复盘；`/plans/:id` 重定向至 `/plans?expand=id` |
 | 交易明细 | 手动记录 + 编辑、关联交易计划、自动算金额/印花税、盈亏自动汇总 |
 | 策略选股 | 指标组合（10 条件）+ AI 智能选股、批量添加 / 快捷建池 |
+| 消息中心 | 今日题材、个股机会、X recent search 小批量采集、海外线索到 A 股候选映射、加入核心关注 |
 | 数据管理 | 全市场 60 日 K 线增量同步、数据概览、涨停筛选、异步任务结果（成功/失败/跳过） |
 
 ## 数据管理（V2 已实现）

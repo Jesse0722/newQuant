@@ -1,0 +1,27 @@
+handle,platform,category,theme,weight,status
+unusual_whales,twitter,资金流/异动,市场情绪,0.9,active
+DeItaone,twitter,快讯,宏观/科技,0.9,active
+SawyerMerritt,twitter,Tesla/AI,Tesla AI,0.8,active
+SemiAnalysis_,twitter,半导体研究,AI算力,1.0,active
+daniel_newmanUV,twitter,科技产业,AI算力,0.7,active
+patrickc,twitter,科技投资,AI基础设施,0.7,active
+Tomshardware,twitter,硬件媒体,GPU/CPU,0.6,active
+ServeTheHome,twitter,服务器/数据中心,AI服务器,0.8,active
+TechFund1,twitter,科技投资,AI产业链,0.7,active
+muji_xe,twitter,半导体研究,存储芯片,0.7,active
+TrendForce,twitter,存储/面板研究,存储芯片,0.9,active
+Jukanlosreve,twitter,半导体爆料,半导体,0.7,active
+StockMKTNewz,twitter,市场热点,AI热点,0.6,active
+firstadopter,twitter,科技趋势,AI应用,0.6,active
+bespokeinvest,twitter,市场研究,科技股,0.7,active
+AppEconomyInsights,twitter,AI应用,AI应用,0.6,active
+TheTranscript_,twitter,财报纪要,科技财报,0.8,active
+StockTalkWeekly,twitter,科技总结,AI产业链,0.6,active
+Nvidia,twitter,官方,NVIDIA,1.0,active
+microntech,twitter,官方,存储芯片,1.0,active
+AMD,twitter,官方,AI芯片,1.0,active
+broadcom,twitter,官方,ASIC/CPO,1.0,active
+Intel,twitter,官方,半导体,0.8,active
+OpenAI,twitter,官方,AI应用,0.8,active
+AnthropicAI,twitter,官方,AI应用,0.7,active
+xAI,twitter,官方,AI模型,0.7,active

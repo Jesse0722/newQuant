@@ -6,7 +6,7 @@ from app.models.monitor import MonitorRule, Alert
 from app.models.trade import TradePlan, TradePlanStock, TradeDetail
 from app.models.sync_log import SyncLog
 from app.models.intraday_scan import IntradayScanConfig
-from app.models.message import MessageTopic, MessageOpportunity
+from app.models.message import MessageKeywordSeed, MessageOpportunity, MessageSourceItem, MessageTopic
 
 __all__ = [
     "StockBasic", "DailyQuote",
@@ -15,5 +15,5 @@ __all__ = [
     "TradePlan", "TradePlanStock", "TradeDetail",
     "SyncLog",
     "IntradayScanConfig",
-    "MessageTopic", "MessageOpportunity",
+    "MessageTopic", "MessageKeywordSeed", "MessageSourceItem", "MessageOpportunity",
 ]

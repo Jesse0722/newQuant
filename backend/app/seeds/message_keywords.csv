@@ -1,0 +1,69 @@
+keyword,type,theme,priority,language
+AI datacenter,industry,AI算力,5,en
+AI infrastructure,industry,AI算力,5,en
+GPU cluster,industry,AI算力,5,en
+GPU server,industry,AI算力,5,en
+AI server,industry,AI算力,5,en
+AI capex,industry,AI算力,5,en
+Datacenter capex,industry,AI算力,5,en
+Hyperscaler,industry,AI算力,4,en
+Inference,industry,AI推理,4,en
+Training cluster,industry,AI训练,4,en
+Blackwell,product,NVIDIA产业链,5,en
+GB200,product,NVIDIA产业链,5,en
+NVL72,product,NVIDIA产业链,5,en
+CUDA,product,NVIDIA生态,4,en
+HBM,industry,存储芯片,5,en
+HBM3E,industry,存储芯片,5,en
+HBM4,industry,存储芯片,5,en
+DRAM,industry,存储芯片,5,en
+NAND,industry,存储芯片,4,en
+Memory pricing,catalyst,存储芯片,4,en
+Memory shortage,catalyst,存储芯片,4,en
+Micron,company,存储芯片,5,en
+SK Hynix,company,存储芯片,5,en
+Samsung memory,company,存储芯片,5,en
+CPO,industry,光模块,5,en
+Co-packaged optics,industry,光模块,5,en
+Optical module,industry,光模块,5,en
+800G,industry,光模块,4,en
+1.6T optics,industry,光模块,5,en
+Silicon photonics,industry,光模块,4,en
+Liquid cooling,industry,液冷,5,en
+Immersion cooling,industry,液冷,4,en
+Cooling infrastructure,industry,液冷,4,en
+Power supply,industry,AI电源,4,en
+Power infrastructure,industry,AI电力,4,en
+Transformer capacity,industry,AI电力,4,en
+AI power demand,industry,AI电力,5,en
+PCB,industry,PCB,4,en
+High speed PCB,industry,PCB,4,en
+Copper interconnect,industry,铜连接,5,en
+ASIC,industry,ASIC,5,en
+Custom silicon,industry,ASIC,4,en
+Edge AI,industry,AI应用,4,en
+AI agent,industry,AI应用,4,en
+Embodied AI,industry,机器人,5,en
+Humanoid robot,industry,机器人,5,en
+Tesla Optimus,industry,机器人,4,en
+机器人,industry,机器人,5,zh
+人形机器人,industry,机器人,5,zh
+AI算力,industry,AI算力,5,zh
+AI服务器,industry,AI算力,5,zh
+数据中心,industry,AI算力,5,zh
+光模块,industry,光模块,5,zh
+液冷,industry,液冷,5,zh
+铜连接,industry,铜连接,5,zh
+PCB,industry,PCB,4,zh
+存储芯片,industry,存储芯片,5,zh
+HBM,industry,存储芯片,5,zh
+涨价,catalyst,通用,4,zh
+缺货,catalyst,通用,4,zh
+扩产,catalyst,通用,4,zh
+订单,catalyst,通用,4,zh
+爆单,catalyst,通用,4,zh
+景气度,catalyst,通用,4,zh
+预期差,catalyst,通用,4,zh
+卡位,catalyst,短线情绪,3,zh
+龙头,catalyst,短线情绪,3,zh
+弱转强,catalyst,短线情绪,3,zh
