@@ -86,6 +86,15 @@ const keywordStatusOptions = [
   { value: 'disabled', label: 'disabled' },
 ]
 
+const keywordRowKey = (row: MessageSeedKeyword) =>
+  `${row.keyword}-${row.type}-${row.theme}-${row.language}`
+
+const upsertKeywordRows = (rows: MessageSeedKeyword[], next: MessageSeedKeyword) => {
+  const nextKey = keywordRowKey(next)
+  const filtered = rows.filter((row) => keywordRowKey(row) !== nextKey)
+  return [next, ...filtered]
+}
+
 const formatTradeDate = (value: string) =>
   value?.length === 8 ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}` : value
 
@@ -122,6 +131,7 @@ const MessageCenterPage: React.FC = () => {
   const [keywords, setKeywords] = useState<MessageSeedKeyword[]>([])
   const [keywordLoading, setKeywordLoading] = useState(false)
   const [keywordSaving, setKeywordSaving] = useState(false)
+  const [keywordPage, setKeywordPage] = useState(1)
   const [keywordForm] = Form.useForm<MessageSeedKeywordInput>()
 
   const fetchDaily = useCallback(async () => {
@@ -248,9 +258,10 @@ const MessageCenterPage: React.FC = () => {
       }
       const res = await saveMessageKeyword(payload)
       message.success(`关键词已保存：${res.data.keyword}`)
+      setKeywords((prev) => upsertKeywordRows(prev, res.data))
+      setKeywordPage(1)
       keywordForm.resetFields()
       keywordForm.setFieldsValue({ type: 'industry', priority: 5, language: 'en', status: 'active' })
-      await fetchKeywords()
     } catch (error) {
       message.error(errorText(error, '保存关键词失败'))
     } finally {
@@ -576,11 +587,16 @@ const MessageCenterPage: React.FC = () => {
           </Space>
 
           <Table
-            rowKey={(row) => `${row.keyword}-${row.type}-${row.theme}-${row.language}`}
+            rowKey={keywordRowKey}
             size="small"
             loading={keywordLoading}
             dataSource={keywords}
-            pagination={{ pageSize: 8, showSizeChanger: false }}
+            pagination={{
+              current: keywordPage,
+              pageSize: 8,
+              showSizeChanger: false,
+              onChange: setKeywordPage,
+            }}
             columns={[
               {
                 title: '关键词',

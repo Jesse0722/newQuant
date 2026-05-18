@@ -68,7 +68,10 @@ python scripts/run_scheduler.py
 - `AUTO_START_SCHEDULER`: 是否在 Web 进程内自动启动调度器
 - `SCHEDULER_ENABLED`: 是否允许调度器运行
 - `CORS_ORIGINS`: 允许访问后端的前端地址白名单
-- `AI_PROVIDER`: `openai`、`qwen` 或 `ollama`
+- `AI_PROVIDER`: `deepseek`、`openai`、`qwen` 或 `ollama`
+- `DEEPSEEK_API_KEY`: DeepSeek API Key，股票详情 AI 分析使用 DeepSeek V4 时必填
+- `DEEPSEEK_MODEL`: 深度分析模型，默认 `deepseek-v4-pro`
+- `DEEPSEEK_FAST_MODEL`: 快速分析模型，默认 `deepseek-v4-flash`
 - `X_API_BEARER_TOKEN`: X 舆情采集 Bearer Token，可选；使用消息中心“采集X”时必填
 - `X_API_BASE_URL`: X API base URL，默认 `https://api.twitter.com`
 

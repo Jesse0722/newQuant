@@ -1,5 +1,5 @@
 import client from './client'
-import type { StockChartData, StockAlertItem, TradeDetail } from '../types'
+import type { StockAiAnalysisRecord, StockChartData, StockAlertItem, TradeDetail } from '../types'
 import type { DetailUpdateInput } from './plans'
 
 export interface StockSearchItem {
@@ -23,3 +23,14 @@ export const getStockDetails = (tsCode: string) =>
 
 export const createStockDetail = (tsCode: string, data: DetailUpdateInput) =>
   client.post<TradeDetail>(`/stocks/${tsCode}/details`, data)
+
+export const getStockAiAnalysis = (tsCode: string) =>
+  client.get<StockAiAnalysisRecord | { analysis: null }>(`/stocks/${tsCode}/ai-analysis`)
+
+export const runStockAiAnalysis = (tsCode: string, data: {
+  mode?: 'fast' | 'deep'
+  scope?: string
+  pool_id?: string | null
+  watch_stock_id?: string | null
+  force_refresh?: boolean
+}) => client.post<StockAiAnalysisRecord>(`/stocks/${tsCode}/ai-analysis`, data)

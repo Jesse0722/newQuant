@@ -104,6 +104,8 @@ def run_ai_analyze(body: AiAnalyzeRequest, db: Session = Depends(get_db)):
         raise AppError(code=2003, message=str(e), status_code=400)
     except RuntimeError as e:
         raise AppError(code=2004, message=str(e), status_code=400)
+    except Exception as e:
+        raise AppError(code=2004, message=f"AI 分析失败：{str(e)[:160]}", status_code=400)
 
 
 @router.post("/limit-up-buy-point")
