@@ -11,6 +11,7 @@ from app.schemas.message import (
     MessageKeywordImportRequest,
     MessageOpportunityCreate,
     MessageOpportunityOut,
+    MessageSeedKeywordCreate,
     MessageSeedKeywordOut,
     MessageSourceImportOut,
     MessageSourceImportRequest,
@@ -34,6 +35,7 @@ from app.services.x_message_service import (
     import_default_keyword_seeds,
     import_keyword_seeds,
     list_keyword_seed_rows,
+    save_keyword_seed,
 )
 
 router = APIRouter(prefix="/api/messages", tags=["messages"])
@@ -42,7 +44,7 @@ router = APIRouter(prefix="/api/messages", tags=["messages"])
 @router.get("/daily", response_model=MessageDailyOut)
 def get_daily(
     trade_date: str | None = Query(default=None, pattern=r"^\d{8}$"),
-    ensure_seed: bool = Query(default=True),
+    ensure_seed: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
     return get_daily_messages(db, trade_date or today_yyyymmdd(), ensure_seed=ensure_seed)
@@ -91,6 +93,11 @@ def list_keywords(db: Session = Depends(get_db)):
 @router.post("/keywords/import", response_model=MessageKeywordImportOut, status_code=201)
 def import_keywords(body: MessageKeywordImportRequest, db: Session = Depends(get_db)):
     return import_keyword_seeds(db, body)
+
+
+@router.post("/keywords", response_model=MessageSeedKeywordOut, status_code=201)
+def save_keyword(body: MessageSeedKeywordCreate, db: Session = Depends(get_db)):
+    return save_keyword_seed(db, body)
 
 
 @router.post("/keywords/import-default", response_model=MessageKeywordImportOut, status_code=201)

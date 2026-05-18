@@ -190,6 +190,13 @@ def import_keyword_seeds(db: Session, body: MessageKeywordImportRequest) -> Mess
     )
 
 
+def save_keyword_seed(db: Session, body: MessageSeedKeywordCreate) -> MessageSeedKeywordOut:
+    result = import_keyword_seeds(db, MessageKeywordImportRequest(items=[body]))
+    if not result.items:
+        raise AppError(code=5103, message="关键词保存失败", detail="没有生成可保存的关键词记录", status_code=400)
+    return result.items[0]
+
+
 def import_default_keyword_seeds(db: Session) -> MessageKeywordImportOut:
     return import_keyword_seeds(
         db,

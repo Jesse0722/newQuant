@@ -35,7 +35,7 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
-def test_daily_messages_auto_seed_today():
+def test_daily_messages_default_is_real_data_only():
     client = _client()
 
     resp = client.get("/api/messages/daily?trade_date=20260514")
@@ -43,11 +43,39 @@ def test_daily_messages_auto_seed_today():
     assert resp.status_code == 200
     body = resp.json()
     assert body["trade_date"] == "20260514"
+    assert body["stats"]["topic_count"] == 0
+    assert body["stats"]["opportunity_count"] == 0
+    assert body["topics"] == []
+    assert body["opportunities"] == []
+
+
+def test_daily_messages_explicit_demo_seed():
+    client = _client()
+
+    resp = client.get("/api/messages/daily?trade_date=20260514&ensure_seed=true")
+
+    assert resp.status_code == 200
+    body = resp.json()
     assert body["stats"]["topic_count"] >= 4
     assert body["stats"]["opportunity_count"] >= 5
     assert body["stats"]["top_score"] >= 80
     assert any(item["theme"] == "AI算力" for item in body["topics"])
     assert any(item["ts_code"] == "300308.SZ" for item in body["opportunities"])
+
+
+def test_daily_messages_hides_legacy_seed_rows_in_real_mode():
+    client = _client()
+
+    seeded = client.get("/api/messages/daily?trade_date=20260514&ensure_seed=true")
+    assert seeded.status_code == 200
+
+    real = client.get("/api/messages/daily?trade_date=20260514&ensure_seed=false")
+    assert real.status_code == 200
+    body = real.json()
+    assert body["stats"]["topic_count"] == 0
+    assert body["stats"]["opportunity_count"] == 0
+    assert body["topics"] == []
+    assert body["opportunities"] == []
 
 
 def test_topic_upsert_is_idempotent():
@@ -256,6 +284,31 @@ def test_import_keywords_upserts_and_x_seeds_prefer_db_pool():
     assert seeds["keyword_count"] == 1
     assert seeds["keywords"][0]["keyword"] == "AI wafer scale"
     assert seeds["keywords"][0]["priority"] == 4
+
+
+def test_save_single_keyword_persists_to_keyword_pool():
+    client = _client()
+
+    resp = client.post(
+        "/api/messages/keywords",
+        json={
+            "keyword": "Micron",
+            "type": "company",
+            "theme": "存储芯片",
+            "priority": 5,
+            "language": "en",
+        },
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["keyword"] == "Micron"
+    assert body["type"] == "company"
+
+    rows = client.get("/api/messages/keywords").json()
+    assert len(rows) == 1
+    assert rows[0]["keyword"] == "Micron"
+    assert rows[0]["theme"] == "存储芯片"
 
 
 def test_disabled_db_keywords_do_not_fallback_to_csv_pool():
