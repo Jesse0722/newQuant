@@ -38,6 +38,7 @@ import {
   importDefaultMessageKeywords,
   importMessageKeywords,
   listMessageKeywords,
+  saveMessageKeyword,
 } from '../../api/messages'
 import { toggleCoreWatch } from '../../api/pools'
 import type {
@@ -91,6 +92,13 @@ const formatTradeDate = (value: string) =>
 const scoreStatus = (score: number): 'success' | 'normal' | 'exception' =>
   score >= 80 ? 'success' : score >= 60 ? 'normal' : 'exception'
 
+const errorText = (error: unknown, fallback: string) => {
+  const apiError = error as { response?: { data?: { message?: string; detail?: string } } }
+  const messageText = apiError.response?.data?.message
+  const detailText = apiError.response?.data?.detail
+  return detailText ? `${messageText || fallback}：${detailText}` : (messageText || fallback)
+}
+
 const stageTag = (stage: MessageLifecycleStage) => {
   const item = stageMap[stage] || { label: stage, color: 'default' }
   return <Tag color={item.color}>{item.label}</Tag>
@@ -119,14 +127,14 @@ const MessageCenterPage: React.FC = () => {
   const fetchDaily = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await getDailyMessages({ ensure_seed: true })
+      const res = await getDailyMessages({ ensure_seed: false })
       setDaily(res.data)
       setThemeFilter((prev) => {
         if (prev === 'all') return prev
         return res.data.topics.some((t) => t.theme === prev) ? prev : 'all'
       })
-    } catch {
-      message.error('加载消息中心失败')
+    } catch (error) {
+      message.error(errorText(error, '加载消息中心失败'))
     } finally {
       setLoading(false)
     }
@@ -183,8 +191,7 @@ const MessageCenterPage: React.FC = () => {
       )
       await fetchDaily()
     } catch (error) {
-      const apiError = error as { response?: { data?: { message?: string; detail?: string } } }
-      message.error(apiError.response?.data?.message || 'X采集失败')
+      message.error(errorText(error, 'X采集失败'))
     } finally {
       setXCollecting(false)
     }
@@ -195,8 +202,8 @@ const MessageCenterPage: React.FC = () => {
     try {
       const res = await listMessageKeywords()
       setKeywords(res.data)
-    } catch {
-      message.error('加载关键词失败')
+    } catch (error) {
+      message.error(errorText(error, '加载关键词失败'))
     } finally {
       setKeywordLoading(false)
     }
@@ -222,8 +229,7 @@ const MessageCenterPage: React.FC = () => {
       )
       await fetchKeywords()
     } catch (error) {
-      const apiError = error as { response?: { data?: { message?: string } } }
-      message.error(apiError.response?.data?.message || '关键词导入失败')
+      message.error(errorText(error, '关键词导入失败'))
     } finally {
       setKeywordImporting(false)
     }
@@ -240,16 +246,13 @@ const MessageCenterPage: React.FC = () => {
         language: values.language || 'en',
         status: values.status || 'active',
       }
-      const res = await importMessageKeywords({ items: [payload] })
-      message.success(
-        `保存关键词：新增${res.data.created_count}个，更新${res.data.updated_count}个，跳过${res.data.skipped_count}个`
-      )
+      const res = await saveMessageKeyword(payload)
+      message.success(`关键词已保存：${res.data.keyword}`)
       keywordForm.resetFields()
       keywordForm.setFieldsValue({ type: 'industry', priority: 5, language: 'en', status: 'active' })
       await fetchKeywords()
     } catch (error) {
-      const apiError = error as { response?: { data?: { message?: string } } }
-      message.error(apiError.response?.data?.message || '保存关键词失败')
+      message.error(errorText(error, '保存关键词失败'))
     } finally {
       setKeywordSaving(false)
     }
@@ -271,8 +274,8 @@ const MessageCenterPage: React.FC = () => {
       })
       message.success(nextStatus === 'active' ? '关键词已启用' : '关键词已禁用')
       await fetchKeywords()
-    } catch {
-      message.error('更新关键词状态失败')
+    } catch (error) {
+      message.error(errorText(error, '更新关键词状态失败'))
     } finally {
       setKeywordSaving(false)
     }

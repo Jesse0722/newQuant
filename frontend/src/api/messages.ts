@@ -45,6 +45,9 @@ export const collectMessageXPosts = (data: MessageXCollectRequest) =>
 export const listMessageKeywords = () =>
   client.get<MessageSeedKeyword[]>('/messages/keywords')
 
+export const saveMessageKeyword = (data: MessageSeedKeywordInput) =>
+  client.post<MessageSeedKeyword>('/messages/keywords', data)
+
 export const importMessageKeywords = (data: { items: MessageSeedKeywordInput[] }) =>
   client.post<MessageKeywordImportResult>('/messages/keywords/import', data)
 

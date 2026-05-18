@@ -22,6 +22,14 @@ from app.schemas.message import (
 )
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+SEED_OPPORTUNITY_CODES = {
+    "300308.SZ",
+    "300475.SZ",
+    "601138.SH",
+    "300442.SZ",
+    "300274.SZ",
+    "002050.SZ",
+}
 
 
 def today_yyyymmdd() -> str:
@@ -298,7 +306,11 @@ def import_source_items(db: Session, body: MessageSourceImportRequest) -> Messag
 
 
 def ensure_seed_daily_messages(db: Session, trade_date: str) -> None:
-    existing = db.query(MessageOpportunity.id).filter(MessageOpportunity.trade_date == trade_date).first()
+    existing = (
+        db.query(MessageOpportunity.id)
+        .filter(MessageOpportunity.trade_date == trade_date, MessageOpportunity.status == "demo")
+        .first()
+    )
     if existing:
         return
 
@@ -453,25 +465,75 @@ def ensure_seed_daily_messages(db: Session, trade_date: str) -> None:
         ),
     ]
     for opp in seed_opportunities:
-        create_opportunity(db, opp)
+        create_opportunity(db, MessageOpportunityCreate(**{**opp.model_dump(), "status": "demo"}))
+
+
+def _is_legacy_seed_opportunity(opp: MessageOpportunity) -> bool:
+    if opp.status != "active" or opp.ts_code not in SEED_OPPORTUNITY_CODES:
+        return False
+    if _list_value(opp.source_links):
+        return False
+    reason = opp.reason or ""
+    return (
+        "光模块作为 AI 数据中心扩容" in reason
+        or "HBM 与存储涨价叙事" in reason
+        or "AI 服务器是算力链核心映射" in reason
+        or "数据中心与算力基础设施扩张" in reason
+        or "AI 数据中心功耗提升" in reason
+        or "机器人题材传播面较广" in reason
+    )
+
+
+def demote_legacy_seed_daily_messages(db: Session, trade_date: str) -> None:
+    rows = (
+        db.query(MessageOpportunity)
+        .filter(MessageOpportunity.trade_date == trade_date, MessageOpportunity.status == "active")
+        .all()
+    )
+    changed = False
+    for row in rows:
+        if _is_legacy_seed_opportunity(row):
+            row.status = "demo"
+            changed = True
+    if changed:
+        db.commit()
 
 
 def get_daily_messages(db: Session, trade_date: str, ensure_seed: bool = True) -> dict:
     if ensure_seed:
         ensure_seed_daily_messages(db, trade_date)
+    else:
+        demote_legacy_seed_daily_messages(db, trade_date)
 
-    topics = (
+    topic_rows = (
         db.query(MessageTopic)
         .filter(MessageTopic.trade_date == trade_date)
         .order_by(MessageTopic.heat_score.desc(), MessageTopic.credibility_score.desc())
         .all()
     )
+    status_filter = ["active", "demo"] if ensure_seed else ["active"]
     opportunities = (
         db.query(MessageOpportunity)
-        .filter(MessageOpportunity.trade_date == trade_date, MessageOpportunity.status == "active")
+        .filter(MessageOpportunity.trade_date == trade_date, MessageOpportunity.status.in_(status_filter))
         .order_by(MessageOpportunity.opportunity_score.desc(), MessageOpportunity.heat_score.desc())
         .all()
     )
+    if ensure_seed:
+        topics = topic_rows
+    else:
+        active_themes = {opp.theme for opp in opportunities}
+        active_themes.update(
+            theme
+            for (theme,) in db.query(MessageSourceItem.theme)
+            .filter(
+                MessageSourceItem.trade_date == trade_date,
+                MessageSourceItem.status != "ignored",
+                MessageSourceItem.theme.isnot(None),
+            )
+            .distinct()
+            .all()
+        )
+        topics = [topic for topic in topic_rows if topic.theme in active_themes]
     top = opportunities[0] if opportunities else None
     leading_topic = topics[0] if topics else None
     return {
