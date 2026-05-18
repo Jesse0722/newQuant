@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
@@ -11,6 +12,7 @@ from app.models.trade import TradeDetail
 from app.schemas.trade import TradeDetailCreate, TradeDetailOut
 from app.services.indicator import calc_ma, calc_macd, calc_rsi
 from app.services.buy_signal_service import get_signal_marks
+from app.services.ai_analysis_service import analyze_stock_detail, get_latest_stock_analysis
 from app.services.sync_service import sync_stock_info, sync_daily, sync_daily_backward
 from app.services.trading_session import shanghai_trade_date_str, latest_daily_k_trade_date_str
 from app.services.tushare_adapter import tushare_adapter, TushareAdapter, TencentAdapter, BaoStockAdapter, AkshareAdapter
@@ -20,6 +22,14 @@ import numpy as np
 from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
+
+
+class StockAiAnalysisRequest(BaseModel):
+    mode: str = Field("deep", description="fast 或 deep")
+    scope: str = Field("stock_detail", description="stock_detail 或 watch_pool")
+    pool_id: str | None = None
+    watch_stock_id: str | None = None
+    force_refresh: bool = False
 
 
 @router.get("/search")
@@ -482,6 +492,34 @@ def get_stock_alerts(ts_code: str, db: Session = Depends(get_db)):
         }
         for a in alerts
     ]
+
+
+@router.get("/{ts_code}/ai-analysis")
+def get_stock_ai_analysis(ts_code: str, db: Session = Depends(get_db)):
+    record = get_latest_stock_analysis(db, ts_code)
+    if not record:
+        return {"analysis": None}
+    return record
+
+
+@router.post("/{ts_code}/ai-analysis")
+def run_stock_ai_analysis(ts_code: str, body: StockAiAnalysisRequest, db: Session = Depends(get_db)):
+    try:
+        return analyze_stock_detail(
+            db,
+            ts_code,
+            mode=body.mode,
+            scope=body.scope,
+            pool_id=body.pool_id,
+            watch_stock_id=body.watch_stock_id,
+            force_refresh=body.force_refresh,
+        )
+    except ValueError as e:
+        raise AppError(code=5002, message=str(e), status_code=400)
+    except RuntimeError as e:
+        raise AppError(code=5003, message=str(e), status_code=400)
+    except Exception as e:
+        raise AppError(code=5003, message=f"AI 分析失败：{str(e)[:160]}", status_code=400)
 
 
 @router.get("/{ts_code}/details", response_model=list[TradeDetailOut])

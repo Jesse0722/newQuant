@@ -45,6 +45,64 @@ export interface StockBasicInfo {
   list_date?: string
 }
 
+export interface StockAiAnalysisSection {
+  score?: number | null
+  conclusion?: string
+  evidence?: string[]
+  risk?: string
+}
+
+export interface StockAiAnalysisResult {
+  version?: string
+  rating?: '强关注' | '观察' | '谨慎' | '回避'
+  score?: number
+  confidence?: number
+  trend?: '上涨' | '震荡' | '下跌'
+  time_horizon?: '短线' | '波段' | '中线'
+  summary?: string
+  sections?: {
+    technical?: StockAiAnalysisSection
+    fundamental?: StockAiAnalysisSection
+    news?: StockAiAnalysisSection
+    trading?: StockAiAnalysisSection
+  }
+  watch_plan?: {
+    key_levels?: {
+      support?: number[]
+      pressure?: number[]
+      risk_line?: number | null
+    }
+    trigger_conditions?: string[]
+    invalid_conditions?: string[]
+    next_review?: string
+  }
+  data_quality?: {
+    score?: number
+    warnings?: string[]
+  }
+  disclaimer?: string
+  技术面?: string
+  基本面?: string
+  量能?: string
+  风险提示?: string
+  操作建议?: string
+}
+
+export interface StockAiAnalysisRecord {
+  id?: string
+  stock_id?: string | null
+  ts_code: string
+  scope?: string
+  mode?: string
+  model_provider?: string
+  model_name?: string
+  prompt_version?: string
+  analysis: StockAiAnalysisResult | null
+  data_trade_date?: string | null
+  ai_analyzed_at?: string | null
+  created_at?: string | null
+}
+
 export interface QuoteItem {
   date: string
   open: number

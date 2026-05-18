@@ -25,6 +25,7 @@ MIGRATION_RUNNERS = (
     ("pool_sort_order", "scripts.migrate_pool_sort_order", "migrate"),
     ("limit_up_fields", "scripts.migrate_limit_up_fields", "migrate"),
     ("watch_stock_ai_fields", "scripts.migrate_watch_stock_ai_fields", "migrate"),
+    ("stock_ai_analysis", "scripts.migrate_stock_ai_analysis", "migrate"),
     ("daily_quote_turnover", "scripts.migrate_daily_quote_turnover", "migrate"),
     ("float_share", "scripts.migrate_float_share", "migrate"),
     ("alert_buy_radar", "scripts.migrate_alert_buy_radar", "migrate"),

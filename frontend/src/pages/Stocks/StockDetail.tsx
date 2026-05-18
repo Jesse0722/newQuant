@@ -3,15 +3,32 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Card, Tag, Table, Button, Tabs, Space, Statistic, Row, Col, Segmented,
   Modal, Form, Input, InputNumber, Select, DatePicker, message, Upload, Popconfirm, Tooltip,
+  Progress, Alert,
 } from 'antd'
 import dayjs from 'dayjs'
-import { ThunderboltOutlined, PlusOutlined, InboxOutlined, EditOutlined, StarOutlined, StarFilled } from '@ant-design/icons'
+import {
+  ThunderboltOutlined,
+  PlusOutlined,
+  InboxOutlined,
+  EditOutlined,
+  StarOutlined,
+  StarFilled,
+  RobotOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons'
 import * as echarts from 'echarts'
-import { getStockChart, getStockAlerts, getStockDetails, createStockDetail } from '../../api/stocks'
+import {
+  getStockChart,
+  getStockAlerts,
+  getStockDetails,
+  createStockDetail,
+  getStockAiAnalysis,
+  runStockAiAnalysis,
+} from '../../api/stocks'
 import { getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import { updateDetail, deleteDetail } from '../../api/plans'
 import { extractTradeFromImage } from '../../api/ocr'
-import type { JsonObject, StockChartData, StockAlertItem, TradeDetail } from '../../types'
+import type { JsonObject, StockAiAnalysisRecord, StockAiAnalysisSection, StockChartData, StockAlertItem, TradeDetail } from '../../types'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const statusColors: Record<string, string> = {
@@ -59,6 +76,8 @@ const StockDetail: React.FC = () => {
   const [ocrRawText, setOcrRawText] = useState<string>('')
   const [coreStarred, setCoreStarred] = useState(false)
   const [coreStarLoading, setCoreStarLoading] = useState(false)
+  const [aiAnalysis, setAiAnalysis] = useState<StockAiAnalysisRecord | null>(null)
+  const [aiLoadingMode, setAiLoadingMode] = useState<'fast' | 'deep' | null>(null)
   const [quickRecordForm] = Form.useForm()
   const [detailForm] = Form.useForm()
   const [editDetailForm] = Form.useForm()
@@ -188,6 +207,25 @@ const StockDetail: React.FC = () => {
 
   useEffect(() => {
     if (!tsCode) {
+      setAiAnalysis(null)
+      return
+    }
+    let cancelled = false
+    getStockAiAnalysis(tsCode)
+      .then((res) => {
+        if (cancelled) return
+        setAiAnalysis(res.data.analysis ? res.data as StockAiAnalysisRecord : null)
+      })
+      .catch(() => {
+        if (!cancelled) setAiAnalysis(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tsCode])
+
+  useEffect(() => {
+    if (!tsCode) {
       setCoreStarred(false)
       return
     }
@@ -218,6 +256,25 @@ const StockDetail: React.FC = () => {
       message.error('操作失败，请稍后重试')
     } finally {
       setCoreStarLoading(false)
+    }
+  }
+
+  const handleRunAiAnalysis = async (mode: 'fast' | 'deep') => {
+    if (!tsCode || aiLoadingMode) return
+    setAiLoadingMode(mode)
+    try {
+      const res = await runStockAiAnalysis(tsCode, {
+        mode,
+        scope: 'stock_detail',
+        force_refresh: true,
+      })
+      setAiAnalysis(res.data)
+      message.success(mode === 'fast' ? '快速分析完成' : '深度分析完成')
+    } catch (error: unknown) {
+      const maybeResponse = (error as { response?: { data?: { message?: string } } }).response
+      message.error(maybeResponse?.data?.message || 'AI 分析失败，请检查模型配置或稍后重试')
+    } finally {
+      setAiLoadingMode(null)
     }
   }
 
@@ -375,6 +432,46 @@ const StockDetail: React.FC = () => {
     },
   ]
 
+  const ratingColor = (rating?: string) => {
+    if (rating === '强关注') return 'red'
+    if (rating === '观察') return 'blue'
+    if (rating === '谨慎') return 'orange'
+    if (rating === '回避') return 'default'
+    return 'default'
+  }
+
+  const trendColor = (trend?: string) => {
+    if (trend === '上涨') return 'green'
+    if (trend === '下跌') return 'red'
+    return 'default'
+  }
+
+  const renderAiSection = (title: string, section?: StockAiAnalysisSection) => (
+    <Col xs={24} lg={12}>
+      <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 12, minHeight: 132 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{title}</span>
+          {section?.score != null && <Tag>{section.score}</Tag>}
+        </div>
+        <div style={{ color: 'var(--text-primary)', lineHeight: 1.7 }}>{section?.conclusion || '数据不足'}</div>
+        {section?.evidence?.length ? (
+          <div style={{ marginTop: 8, color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.7 }}>
+            {section.evidence.slice(0, 3).map((item, idx) => (
+              <div key={idx}>· {item}</div>
+            ))}
+          </div>
+        ) : null}
+        {section?.risk && (
+          <div style={{ marginTop: 8, color: 'var(--color-down)', fontSize: 12 }}>风险：{section.risk}</div>
+        )}
+      </div>
+    </Col>
+  )
+
+  const ai = aiAnalysis?.analysis
+  const plan = ai?.watch_plan
+  const qualityWarnings = ai?.data_quality?.warnings || []
+
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
       {poolNavStocks.length > 0 && (
@@ -529,6 +626,116 @@ const StockDetail: React.FC = () => {
         }
       >
         <div ref={chartRef} style={{ width: '100%', height: 520 }} />
+      </Card>
+
+      <Card
+        title="AI 智能分析"
+        style={{ marginBottom: 16 }}
+        extra={
+          <Space>
+            {aiAnalysis?.model_name && <Tag>{aiAnalysis.model_name}</Tag>}
+            <Button
+              size="small"
+              icon={<RobotOutlined />}
+              loading={aiLoadingMode === 'fast'}
+              disabled={!!aiLoadingMode}
+              onClick={() => handleRunAiAnalysis('fast')}
+            >
+              快速分析
+            </Button>
+            <Button
+              type="primary"
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={aiLoadingMode === 'deep'}
+              disabled={!!aiLoadingMode}
+              onClick={() => handleRunAiAnalysis('deep')}
+            >
+              深度分析
+            </Button>
+          </Space>
+        }
+      >
+        {!ai ? (
+          <div style={{ color: 'var(--text-muted)', minHeight: 76, display: 'flex', alignItems: 'center' }}>
+            点击右上角按钮生成基于系统行情、消息、交易记录的结构化研究摘要。
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Progress
+                type="dashboard"
+                size={76}
+                percent={Math.max(0, Math.min(100, Number(ai.score) || 0))}
+                format={() => `${ai.score || 0}`}
+              />
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <Space style={{ marginBottom: 8 }} wrap>
+                  <Tag color={ratingColor(ai.rating)}>{ai.rating || '观察'}</Tag>
+                  <Tag color={trendColor(ai.trend)}>{ai.trend || '震荡'}</Tag>
+                  {ai.time_horizon && <Tag>{ai.time_horizon}</Tag>}
+                  <Tag>置信度 {ai.confidence ?? '-'}</Tag>
+                </Space>
+                <div style={{ color: 'var(--text-primary)', fontSize: 15, lineHeight: 1.8 }}>
+                  {ai.summary || '暂无摘要'}
+                </div>
+                <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: 12 }}>
+                  分析时间：
+                  {aiAnalysis?.ai_analyzed_at ? dayjs(aiAnalysis.ai_analyzed_at).format('YYYY-MM-DD HH:mm:ss') : '-'}
+                  {aiAnalysis?.data_trade_date ? ` · 数据交易日：${aiAnalysis.data_trade_date}` : ''}
+                </div>
+              </div>
+            </div>
+
+            <Row gutter={[12, 12]}>
+              {renderAiSection('技术面', ai.sections?.technical)}
+              {renderAiSection('基本面', ai.sections?.fundamental)}
+              {renderAiSection('消息面', ai.sections?.news)}
+              {renderAiSection('交易观察', ai.sections?.trading)}
+            </Row>
+
+            <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>观察计划</div>
+              <Row gutter={[12, 8]}>
+                <Col xs={24} md={8}>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>支撑</div>
+                  <div>{plan?.key_levels?.support?.length ? plan.key_levels.support.join(' / ') : '-'}</div>
+                </Col>
+                <Col xs={24} md={8}>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>压力</div>
+                  <div>{plan?.key_levels?.pressure?.length ? plan.key_levels.pressure.join(' / ') : '-'}</div>
+                </Col>
+                <Col xs={24} md={8}>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>风险线</div>
+                  <div>{plan?.key_levels?.risk_line ?? '-'}</div>
+                </Col>
+              </Row>
+              <Row gutter={[12, 8]} style={{ marginTop: 10 }}>
+                <Col xs={24} md={8}>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>触发条件</div>
+                  <div>{plan?.trigger_conditions?.length ? plan.trigger_conditions.join('；') : '-'}</div>
+                </Col>
+                <Col xs={24} md={8}>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>失效条件</div>
+                  <div>{plan?.invalid_conditions?.length ? plan.invalid_conditions.join('；') : '-'}</div>
+                </Col>
+                <Col xs={24} md={8}>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>复查时机</div>
+                  <div>{plan?.next_review || '-'}</div>
+                </Col>
+              </Row>
+            </div>
+
+            {qualityWarnings.length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                message={`数据质量 ${ai.data_quality?.score ?? '-'}：${qualityWarnings.slice(0, 3).join('；')}`}
+              />
+            )}
+            {ai.disclaimer && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{ai.disclaimer}</div>}
+          </div>
+        )}
       </Card>
 
       <Card>
