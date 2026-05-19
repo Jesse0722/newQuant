@@ -10,8 +10,8 @@ import {
   listStocks, addStock, deleteStock, updateStock, importCSV, exportStocksCSV,
   getCoreWatchCodes, toggleCoreWatch,
 } from '../../api/pools'
-import { searchStocks } from '../../api/stocks'
-import { aiAnalyzeStock, getStockChartWithMarks } from '../../api/strategy'
+import { runStockAiAnalysis, searchStocks } from '../../api/stocks'
+import { getStockChartWithMarks } from '../../api/strategy'
 import { syncPool, getTaskStatus } from '../../api/sync'
 import { getPoolRules, createPoolRule, deleteRule, listTemplates } from '../../api/monitor'
 import type {
@@ -74,6 +74,7 @@ const PoolList: React.FC = () => {
   const [coreWatchCodes, setCoreWatchCodes] = useState<Set<string>>(new Set())
   const [coreWatchBusyTsCode, setCoreWatchBusyTsCode] = useState<string | null>(null)
   const [aiAnalyzingStockId, setAiAnalyzingStockId] = useState<string | null>(null)
+  const [aiAnalyzingMode, setAiAnalyzingMode] = useState<'fast' | 'deep' | null>(null)
 
   const initialLoaded = useRef(false)
   const listRef = useRef<HTMLDivElement>(null)
@@ -648,25 +649,33 @@ const PoolList: React.FC = () => {
     setNoteEditingStockId(null)
   }
 
-  const handleAnalyzeStock = async () => {
+  const handleAnalyzeStock = async (mode: 'fast' | 'deep') => {
     if (!selectedStock || !activePoolId) return
     setAiAnalyzingStockId(selectedStock.id)
+    setAiAnalyzingMode(mode)
     try {
-      const res = await aiAnalyzeStock({ ts_code: selectedStock.ts_code, stock_id: selectedStock.id })
+      const res = await runStockAiAnalysis(selectedStock.ts_code, {
+        mode,
+        scope: 'watch_pool',
+        pool_id: activePoolId,
+        watch_stock_id: selectedStock.id,
+        force_refresh: true,
+      })
       const analysisText = JSON.stringify(res.data.analysis, null, 2)
-      const analyzedAt = res.data.ai_analyzed_at
+      const analyzedAt = res.data.ai_analyzed_at || undefined
       setStocks(prev => prev.map(s => (
         s.id === selectedStock.id
           ? { ...s, ai_analysis: analysisText, ai_analyzed_at: analyzedAt }
           : s
       )))
-      message.success('AI 分析完成')
+      message.success(mode === 'fast' ? '快速分析完成' : '深度分析完成')
     } catch (error: unknown) {
       const maybeResponse = (error as { response?: { data?: { message?: string } } }).response
       const msg = maybeResponse?.data?.message || 'AI 分析失败，请稍后重试'
       message.error(msg)
     } finally {
       setAiAnalyzingStockId(null)
+      setAiAnalyzingMode(null)
     }
   }
 
@@ -779,6 +788,7 @@ const PoolList: React.FC = () => {
         {/* Right panel: detail */}
         <div style={{ flex: 1, minWidth: 0, padding: '12px 16px', overflowY: 'auto' }}>
           <PoolStockDetailPanel
+            aiAnalyzingMode={aiAnalyzingMode}
             aiAnalyzingStockId={aiAnalyzingStockId}
             chartData={chartData}
             chartLoading={chartLoading}

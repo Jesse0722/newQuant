@@ -72,6 +72,7 @@ python scripts/run_scheduler.py
 - `DEEPSEEK_API_KEY`: DeepSeek API Key，股票详情 AI 分析使用 DeepSeek V4 时必填
 - `DEEPSEEK_MODEL`: 深度分析模型，默认 `deepseek-v4-pro`
 - `DEEPSEEK_FAST_MODEL`: 快速分析模型，默认 `deepseek-v4-flash`
+- `AI_ANALYSIS_X_COLLECT_ENABLED`: AI 分析前是否按股票补采 X recent search，默认开启；依赖 `X_API_BEARER_TOKEN`
 - `X_API_BEARER_TOKEN`: X 舆情采集 Bearer Token，可选；使用消息中心“采集X”时必填
 - `X_API_BASE_URL`: X API base URL，默认 `https://api.twitter.com`
 

@@ -111,16 +111,52 @@ const BuyRadarPage: React.FC = () => {
     }
     const byCode = new Map<string, BuySignal>()
     results.forEach((r) => {
+      const strategyId = r.strategy_id || ''
+      const strategyName = r.strategy_name || strategyId || '未知策略'
+      const strategyDescription = r.strategy_description || ''
       ;(r.signals || []).forEach((s) => {
+        const enriched: BuySignal = {
+          ...s,
+          strategy_id: s.strategy_id || strategyId,
+          strategy_name: s.strategy_name || strategyName,
+          strategy_description: s.strategy_description || strategyDescription,
+        }
+        const isStrategyHit = !['tracking', 'invalidated'].includes(enriched.signal_status)
         const cur = byCode.get(s.ts_code)
         if (!cur) {
-          byCode.set(s.ts_code, s)
+          byCode.set(s.ts_code, {
+            ...enriched,
+            matched_strategies: isStrategyHit
+              ? [{
+                  strategy_id: enriched.strategy_id || strategyId,
+                  strategy_name: enriched.strategy_name || strategyName,
+                  strategy_description: enriched.strategy_description || strategyDescription,
+                  signal_status: enriched.signal_status,
+                  signal_score: enriched.signal_score || 0,
+                }]
+              : [],
+          })
           return
         }
+        const existingMatches = cur.matched_strategies || []
+        const nextMatches = isStrategyHit
+          ? [
+              ...existingMatches.filter((m) => m.strategy_id !== (enriched.strategy_id || strategyId)),
+              {
+                strategy_id: enriched.strategy_id || strategyId,
+                strategy_name: enriched.strategy_name || strategyName,
+                strategy_description: enriched.strategy_description || strategyDescription,
+                signal_status: enriched.signal_status,
+                signal_score: enriched.signal_score || 0,
+              },
+            ]
+          : existingMatches
         const curRank = statusOrder[cur.signal_status] ?? 9
-        const nextRank = statusOrder[s.signal_status] ?? 9
-        if (nextRank < curRank || (nextRank === curRank && (s.signal_score || 0) > (cur.signal_score || 0))) {
-          byCode.set(s.ts_code, s)
+        const nextRank = statusOrder[enriched.signal_status] ?? 9
+        if (nextRank < curRank || (nextRank === curRank && (enriched.signal_score || 0) > (cur.signal_score || 0))) {
+          byCode.set(s.ts_code, { ...enriched, matched_strategies: nextMatches })
+        } else {
+          byCode.set(s.ts_code, { ...cur, matched_strategies: nextMatches })
         }
       })
     })

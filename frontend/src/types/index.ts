@@ -594,6 +594,16 @@ export interface BuySignal {
   ts_code: string
   name: string
   industry?: string
+  strategy_id?: string
+  strategy_name?: string
+  strategy_description?: string
+  matched_strategies?: Array<{
+    strategy_id: string
+    strategy_name: string
+    strategy_description?: string
+    signal_status: BuySignalStatus
+    signal_score: number
+  }>
   signal_status: BuySignalStatus
   signal_score: number
   life_line_date: string | null
@@ -624,6 +634,7 @@ export interface BuySignalScanResult {
   approaching_count: number
   strategy_id?: string
   strategy_name?: string
+  strategy_description?: string
   scan_data_mode?: 'intraday_merged' | 'historical_only'
   as_of?: string
   intraday_provisional?: boolean

@@ -496,3 +496,119 @@ def collect_x_recent_posts(db: Session, body: MessageXCollectRequest) -> Message
         MessageSourceImportRequest(items=items, aggregate=body.aggregate),
     )
     return MessageXCollectOut(query=query, raw_count=len(payload.get("data") or []), imported=imported)
+
+
+def build_x_stock_analysis_query(
+    ts_code: str,
+    stock_name: str | None = None,
+    industry: str | None = None,
+    themes: list[str] | None = None,
+) -> str:
+    symbol = ts_code.split(".")[0] if ts_code else ""
+    use_plain_symbol = bool(symbol and not symbol.isdigit())
+    stock_terms = [
+        item
+        for item in (stock_name, ts_code, symbol if use_plain_symbol else None, industry, *(themes or [])[:4])
+        if item and len(str(item).strip()) >= 2
+    ]
+    seen: set[str] = set()
+    normalized_terms: list[str] = []
+    for term in stock_terms:
+        text = str(term).strip()
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_terms.append(f'"{text}"' if " " in text else text)
+
+    hard_catalysts = [
+        "订单",
+        "合同",
+        "中标",
+        "采购",
+        "供货",
+        "出货",
+        "交付",
+        "量产",
+        "order",
+        "contract",
+        '"purchase order"',
+        '"supply agreement"',
+        "shipment",
+        "delivery",
+        "tender",
+        "award",
+    ]
+    if not normalized_terms:
+        normalized_terms = [ts_code]
+    stock_part = " OR ".join(normalized_terms[:10])
+    catalyst_part = " OR ".join(hard_catalysts)
+    return f"(({stock_part}) ({catalyst_part})) -is:retweet -is:reply"
+
+
+def collect_x_stock_analysis_posts(
+    db: Session,
+    ts_code: str,
+    stock_name: str | None = None,
+    industry: str | None = None,
+    themes: list[str] | None = None,
+    trade_date: str | None = None,
+    max_results: int = 10,
+) -> dict[str, Any]:
+    trade_date = trade_date or today_yyyymmdd()
+    query = build_x_stock_analysis_query(ts_code, stock_name=stock_name, industry=industry, themes=themes)
+    payload = _fetch_x_recent_search(query, max_results)
+    users = _author_lookup(payload)
+    source_items: list[MessageSourceItemCreate] = []
+
+    for post in payload.get("data") or []:
+        text = post.get("text") or ""
+        metrics = post.get("public_metrics") or {}
+        if _is_low_quality_post(text, metrics):
+            continue
+        author = users.get(str(post.get("author_id")), {})
+        username = author.get("username") or str(post.get("author_id") or "")
+        quality_score = _text_quality_score(text, metrics)
+        theme = (themes or [None])[0] or industry or "个股消息"
+        heat_score = _score_from_metrics(4, metrics)
+        credibility_score = min(100, max(35, 45 + quality_score // 3))
+        source_items.append(
+            MessageSourceItemCreate(
+                trade_date=trade_date,
+                channel="X",
+                source_name=username,
+                external_id=str(post.get("id")),
+                content=text,
+                url=f"https://x.com/{username}/status/{post.get('id')}" if username and post.get("id") else None,
+                published_at=_parse_x_datetime(post.get("created_at")),
+                theme=theme,
+                ts_code=ts_code,
+                stock_name=stock_name,
+                tags=["stock_ai_analysis", f"quality:{quality_score}"],
+                sentiment="neutral",
+                heat_score=heat_score,
+                credibility_score=credibility_score,
+                raw_payload=post,
+            )
+        )
+
+    if not source_items:
+        return {
+            "query": query,
+            "raw_count": len(payload.get("data") or []),
+            "created_count": 0,
+            "skipped_count": 0,
+            "aggregation": None,
+        }
+
+    imported = import_source_items(
+        db,
+        MessageSourceImportRequest(items=source_items, aggregate=True),
+    )
+    return {
+        "query": query,
+        "raw_count": len(payload.get("data") or []),
+        "created_count": imported.created_count,
+        "skipped_count": imported.skipped_count,
+        "aggregation": imported.aggregation.model_dump() if imported.aggregation else None,
+    }

@@ -199,6 +199,17 @@ const SignalDetail: React.FC<Props> = ({
   const statusCfg = STATUS_LABELS[signal.signal_status] || STATUS_LABELS.tracking
   const starred = coreWatchCodes.has(signal.ts_code)
   const starBusy = coreWatchBusyTsCode === signal.ts_code
+  const strategyMatches = signal.matched_strategies?.length
+    ? signal.matched_strategies
+    : signal.strategy_name
+      ? [{
+          strategy_id: signal.strategy_id || signal.strategy_name,
+          strategy_name: signal.strategy_name,
+          strategy_description: signal.strategy_description,
+          signal_status: signal.signal_status,
+          signal_score: signal.signal_score,
+        }]
+      : []
 
   return (
     <div style={{ overflowY: 'auto', height: '100%', padding: '0 0 16px 0' }}>
@@ -218,6 +229,7 @@ const SignalDetail: React.FC<Props> = ({
           <span style={{ fontSize: 18, fontWeight: 700, marginRight: 8 }}>{signal.name}</span>
           <span style={{ fontSize: 14, color: '#8c8c8c', marginRight: 12 }}>{signal.ts_code}</span>
           {signal.industry && <Tag>{signal.industry}</Tag>}
+          {signal.strategy_name && <Tag color="blue">{signal.strategy_name}</Tag>}
           <Tag color={statusCfg.color}>{statusCfg.text}</Tag>
         </div>
         <Button size="small" onClick={() => navigate(`/stocks/${signal.ts_code}`)}>
@@ -288,6 +300,28 @@ const SignalDetail: React.FC<Props> = ({
       </Card>
 
       {/* 信号条件明细 */}
+      {strategyMatches.length > 0 && (
+        <Card size="small" title="命中策略" style={{ marginBottom: 12 }}>
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            {strategyMatches.map((m) => {
+              const cfg = STATUS_LABELS[m.signal_status] || STATUS_LABELS.tracking
+              return (
+                <div key={m.strategy_id}>
+                  <Tag color={cfg.color} style={{ marginBottom: 4 }}>
+                    {m.strategy_name} · {cfg.text} · {m.signal_score}
+                  </Tag>
+                  {m.strategy_description && (
+                    <div style={{ fontSize: 12, color: '#595959', lineHeight: 1.6 }}>
+                      {m.strategy_description}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </Space>
+        </Card>
+      )}
+
       <Card size="small" title="买点条件检查">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {signal.met_conditions.map((c) => (

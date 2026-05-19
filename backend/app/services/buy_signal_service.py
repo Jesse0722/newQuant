@@ -1216,7 +1216,13 @@ def _finalize(signals: list[dict], strategy_id: str, **meta) -> dict:
             -s.get("signal_score", 0),
         )
     )
-    name = STRATEGY_REGISTRY.get(strategy_id, {}).get("name", strategy_id)
+    strategy_info = STRATEGY_REGISTRY.get(strategy_id, {})
+    name = strategy_info.get("name", strategy_id)
+    description = strategy_info.get("description", "")
+    for sig in signals:
+        sig.setdefault("strategy_id", strategy_id)
+        sig.setdefault("strategy_name", name)
+        sig.setdefault("strategy_description", description)
     out = {
         "signals": signals,
         "scan_time": datetime.now().isoformat(),
@@ -1229,6 +1235,7 @@ def _finalize(signals: list[dict], strategy_id: str, **meta) -> dict:
         "approaching_count": sum(1 for s in signals if s["signal_status"] == "approaching"),
         "strategy_id": strategy_id,
         "strategy_name": name,
+        "strategy_description": description,
     }
     out.update(meta)
     return out

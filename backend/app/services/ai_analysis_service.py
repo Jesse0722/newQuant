@@ -12,7 +12,7 @@ import pandas as pd
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.message import MessageOpportunity, MessageSourceItem
+from app.models.message import MessageOpportunity, MessageSourceItem, MessageTopic
 from app.models.pool import WatchPool, WatchStock
 from app.models.stock import DailyQuote, StockAiAnalysis, StockBasic
 from app.models.trade import TradeDetail
@@ -21,17 +21,46 @@ from app.services.limit_up_tactics import TACTIC_REGISTRY, common_pre_filter
 from app.services.llm_client import call_llm_model
 from app.services.sync_service import sync_daily, sync_stock_info
 from app.services.trading_session import latest_daily_k_trade_date_str
+from app.services.x_message_service import collect_x_stock_analysis_posts
 
 PROMPT_VERSION = "1.0"
 DISCLAIMER = "仅基于系统内数据生成，用于研究记录，不构成投资建议"
+ORDER_SIGNAL_KEYWORDS = (
+    "订单",
+    "定单",
+    "合同",
+    "中标",
+    "招标",
+    "采购",
+    "供货",
+    "出货",
+    "交付",
+    "量产",
+    "产能",
+    "订单落地",
+    "大单",
+    "框架协议",
+    "order",
+    "contract",
+    "purchase order",
+    "supply agreement",
+    "delivery",
+    "shipment",
+    "backlog",
+    "bookings",
+    "award",
+    "tender",
+)
 
 ANALYSIS_PROMPT_TEMPLATE = """你是专业的A股研究助手。请只基于输入 JSON 中的系统数据进行分析。
 
 硬性规则：
 1. 不得承诺收益，不得使用“必涨、稳赚、确定买入”等表达。
 2. 输入中缺失的基本面、消息面或交易数据，必须明确写“数据不足”，不得猜测。
-3. 每个结论应尽量引用输入中的客观证据。
-4. 只返回 JSON，不要返回 markdown，不要补充解释。
+3. 基本面只能基于 fundamental 中的基础画像、流通规模、上市年限、市场活跃度等字段；不要编造营收、利润、PE/PB。
+4. 消息面优先判断 news.order_signals 是否存在订单、合同、中标、采购、出货、交付、量产等硬催化；没有则明确写“暂无订单/合同类消息”。
+5. 每个结论应尽量引用输入中的客观证据。
+6. 只返回 JSON，不要返回 markdown，不要补充解释。
 
 输出 JSON 格式：
 {{
@@ -200,6 +229,94 @@ def _volume_summary(snapshot: dict) -> str:
     return "近5日量能平稳"
 
 
+def _parse_trade_date(value: str | None) -> datetime | None:
+    if not value or len(value) != 8:
+        return None
+    try:
+        return datetime.strptime(value, "%Y%m%d")
+    except Exception:
+        return None
+
+
+def _years_between(start: str | None, end: str | None) -> float | None:
+    start_dt = _parse_trade_date(start)
+    end_dt = _parse_trade_date(end)
+    if not start_dt or not end_dt:
+        return None
+    return round(max(0, (end_dt - start_dt).days) / 365.25, 1)
+
+
+def _classify_float_cap(float_market_cap_yuan: float | None) -> str | None:
+    if float_market_cap_yuan is None:
+        return None
+    yi = float_market_cap_yuan / 100000000
+    if yi >= 1000:
+        return "超大盘"
+    if yi >= 300:
+        return "大盘"
+    if yi >= 100:
+        return "中大盘"
+    if yi >= 50:
+        return "中盘"
+    return "小盘"
+
+
+def _build_fundamental_snapshot(basic: StockBasic | None, latest: pd.Series, latest_date: str) -> dict:
+    close = _to_float(latest.get("close"))
+    float_share = _to_float(latest.get("float_share")) or (_to_float(basic.float_share) if basic else None)
+    # Tushare float_share 通常为万股；估算流通市值 = 万股 * 10000 * 元。
+    float_market_cap_yuan = close * float_share * 10000 if close is not None and float_share is not None else None
+    latest_amount_yuan = _to_float(latest.get("amount"))
+    if latest_amount_yuan is not None:
+        # daily_quote.amount 在系统内沿用行情源原始口径，多数为千元；仅作为市场活跃度近似值。
+        latest_amount_yuan = latest_amount_yuan * 1000
+
+    available_fields = []
+    for key, value in (
+        ("industry", basic.industry if basic else None),
+        ("area", basic.area if basic else None),
+        ("market", basic.market if basic else None),
+        ("list_date", basic.list_date if basic else None),
+        ("float_share", float_share),
+        ("turnover_rate", latest.get("turnover_rate")),
+    ):
+        if value is not None and value != "":
+            available_fields.append(key)
+
+    missing_fields = [
+        label
+        for key, label in (
+            ("financial_report", "财报指标"),
+            ("valuation", "估值指标"),
+            ("revenue_profit", "营收/利润增速"),
+            ("shareholder", "股东结构"),
+        )
+    ]
+
+    return {
+        "available": bool(available_fields),
+        "available_fields": available_fields,
+        "missing_fields": missing_fields,
+        "profile": {
+            "industry": basic.industry if basic else None,
+            "area": basic.area if basic else None,
+            "market": basic.market if basic else None,
+            "list_date": basic.list_date if basic else None,
+            "listed_years": _years_between(basic.list_date if basic else None, latest_date),
+        },
+        "scale_liquidity": {
+            "float_share_10k_shares": _round(float_share),
+            "float_market_cap_yuan_est": _round(float_market_cap_yuan, 0),
+            "float_market_cap_yi_est": _round(float_market_cap_yuan / 100000000 if float_market_cap_yuan else None),
+            "float_cap_bucket": _classify_float_cap(float_market_cap_yuan),
+            "turnover_rate": _round(latest.get("turnover_rate")),
+            "latest_amount_yuan_est": _round(latest_amount_yuan, 0),
+            "latest_amount_yi_est": _round(latest_amount_yuan / 100000000 if latest_amount_yuan else None),
+        },
+        "limitations": "当前系统尚未接入营收、利润、现金流、PE/PB 等完整财务指标，基本面结论仅能做基础画像和流动性判断。",
+    }
+
+
 def _build_strategy_hits(df: pd.DataFrame, limit_up_date: str | None) -> list[dict]:
     if not limit_up_date:
         return []
@@ -227,7 +344,13 @@ def _build_strategy_hits(df: pd.DataFrame, limit_up_date: str | None) -> list[di
     return hits
 
 
-def _build_data_quality(df: pd.DataFrame, latest_date: str | None, messages: list[dict], trades: list[dict]) -> dict:
+def _build_data_quality(
+    df: pd.DataFrame,
+    latest_date: str | None,
+    news: dict,
+    trades: list[dict],
+    fundamental: dict,
+) -> dict:
     score = 0
     warnings: list[str] = []
     if len(df) >= 120:
@@ -243,10 +366,17 @@ def _build_data_quality(df: pd.DataFrame, latest_date: str | None, messages: lis
     else:
         warnings.append("缺少最新交易日")
 
-    warnings.append("系统暂未接入完整财务指标，基本面置信度受限")
+    if fundamental.get("available"):
+        score += 10
+        if fundamental.get("missing_fields"):
+            warnings.append("基本面仅含基础画像/流通规模，未含完整财报与估值指标")
+    else:
+        warnings.append("系统暂未接入可用基本面字段，基本面置信度受限")
 
-    if messages:
+    if news.get("items"):
         score += 20
+        if news.get("order_signals"):
+            score += 5
     else:
         warnings.append("近30日暂无系统内消息面记录")
 
@@ -308,7 +438,64 @@ def get_latest_stock_analysis(db: Session, ts_code: str) -> dict | None:
     return _record_to_response(record) if record else None
 
 
-def _query_messages(db: Session, ts_code: str) -> list[dict]:
+def _text_contains_order_signal(*parts: Any) -> bool:
+    text = " ".join(str(part or "") for part in parts).lower()
+    return any(keyword.lower() in text for keyword in ORDER_SIGNAL_KEYWORDS)
+
+
+def _order_signal_keywords(*parts: Any) -> list[str]:
+    text = " ".join(str(part or "") for part in parts).lower()
+    return [keyword for keyword in ORDER_SIGNAL_KEYWORDS if keyword.lower() in text][:6]
+
+
+def _topic_map(db: Session, topic_ids: list[str]) -> dict[str, MessageTopic]:
+    if not topic_ids:
+        return {}
+    rows = db.query(MessageTopic).filter(MessageTopic.id.in_(topic_ids)).all()
+    return {row.id: row for row in rows}
+
+
+def _recent_stock_themes(db: Session, ts_code: str) -> list[str]:
+    rows = (
+        db.query(MessageOpportunity.theme)
+        .filter(MessageOpportunity.ts_code == ts_code)
+        .order_by(MessageOpportunity.trade_date.desc(), MessageOpportunity.opportunity_score.desc())
+        .limit(5)
+        .all()
+    )
+    themes: list[str] = []
+    for (theme,) in rows:
+        if theme and theme not in themes:
+            themes.append(theme)
+    return themes
+
+
+def _collect_x_for_analysis(db: Session, ts_code: str, basic: StockBasic | None) -> dict:
+    enabled = (os.getenv("AI_ANALYSIS_X_COLLECT_ENABLED") or "true").strip().lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return {"attempted": False, "status": "disabled"}
+
+    themes = _recent_stock_themes(db, ts_code)
+    if basic and basic.industry and basic.industry not in themes:
+        themes.append(basic.industry)
+
+    try:
+        result = collect_x_stock_analysis_posts(
+            db,
+            ts_code=ts_code,
+            stock_name=basic.name if basic else None,
+            industry=basic.industry if basic else None,
+            themes=themes,
+            max_results=10,
+        )
+        db.expire_all()
+        return {"attempted": True, "status": "ok", **result}
+    except Exception as e:
+        db.rollback()
+        return {"attempted": True, "status": "failed", "message": str(e)[:180]}
+
+
+def _query_messages(db: Session, ts_code: str) -> dict:
     cutoff = (datetime.utcnow() - timedelta(days=45)).strftime("%Y%m%d")
     opportunities = (
         db.query(MessageOpportunity)
@@ -324,9 +511,17 @@ def _query_messages(db: Session, ts_code: str) -> list[dict]:
         .limit(6)
         .all()
     )
+    topics = _topic_map(db, [o.topic_id for o in opportunities if o.topic_id])
     items: list[dict] = []
+    order_signals: list[dict] = []
+    themes: dict[str, dict] = {}
+
     for o in opportunities:
-        items.append({
+        topic = topics.get(o.topic_id) if o.topic_id else None
+        catalysts = o.catalysts or []
+        risks = o.risks or []
+        order_like = _text_contains_order_signal(o.reason, catalysts, risks, o.theme)
+        row = {
             "type": "opportunity",
             "trade_date": o.trade_date,
             "theme": o.theme,
@@ -335,11 +530,33 @@ def _query_messages(db: Session, ts_code: str) -> list[dict]:
             "credibility_score": o.credibility_score,
             "risk_score": o.risk_score,
             "reason": o.reason,
-            "catalysts": o.catalysts or [],
-            "risks": o.risks or [],
-        })
+            "catalysts": catalysts,
+            "risks": risks,
+            "order_signal": order_like,
+            "order_keywords": _order_signal_keywords(o.reason, catalysts, risks, o.theme),
+            "topic_heat_score": topic.heat_score if topic else None,
+            "topic_crowding_score": topic.crowding_score if topic else None,
+            "topic_lifecycle_stage": topic.lifecycle_stage if topic else None,
+        }
+        items.append(row)
+        theme_row = themes.setdefault(o.theme, {"theme": o.theme, "count": 0, "max_heat_score": 0, "max_risk_score": 0})
+        theme_row["count"] += 1
+        theme_row["max_heat_score"] = max(theme_row["max_heat_score"], o.heat_score)
+        theme_row["max_risk_score"] = max(theme_row["max_risk_score"], o.risk_score)
+        if order_like:
+            order_signals.append({
+                "source_type": "opportunity",
+                "trade_date": o.trade_date,
+                "theme": o.theme,
+                "score": o.opportunity_score,
+                "reason": o.reason,
+                "matched_keywords": row["order_keywords"],
+                "catalysts": catalysts,
+            })
+
     for s in sources:
-        items.append({
+        order_like = _text_contains_order_signal(s.title, s.content, s.tags, s.theme)
+        row = {
             "type": "source",
             "trade_date": s.trade_date,
             "channel": s.channel,
@@ -349,8 +566,49 @@ def _query_messages(db: Session, ts_code: str) -> list[dict]:
             "sentiment": s.sentiment,
             "heat_score": s.heat_score,
             "credibility_score": s.credibility_score,
-        })
-    return items[:12]
+            "order_signal": order_like,
+            "order_keywords": _order_signal_keywords(s.title, s.content, s.tags, s.theme),
+        }
+        items.append(row)
+        if s.theme:
+            theme_row = themes.setdefault(s.theme, {"theme": s.theme, "count": 0, "max_heat_score": 0, "max_risk_score": 0})
+            theme_row["count"] += 1
+            theme_row["max_heat_score"] = max(theme_row["max_heat_score"], s.heat_score)
+        if order_like:
+            order_signals.append({
+                "source_type": "source",
+                "trade_date": s.trade_date,
+                "channel": s.channel,
+                "theme": s.theme,
+                "title": s.title,
+                "content": (s.content or "")[:220],
+                "matched_keywords": row["order_keywords"],
+                "credibility_score": s.credibility_score,
+            })
+
+    heat_scores = [int(item.get("heat_score") or 0) for item in items if item.get("heat_score") is not None]
+    credibility_scores = [int(item.get("credibility_score") or 0) for item in items if item.get("credibility_score") is not None]
+    return {
+        "available": bool(items),
+        "window_days": 45,
+        "items": items[:12],
+        "order_signals": order_signals[:8],
+        "order_signal_count": len(order_signals),
+        "has_order_signal": bool(order_signals),
+        "themes": sorted(themes.values(), key=lambda x: (x["max_heat_score"], x["count"]), reverse=True)[:6],
+        "summary_metrics": {
+            "message_count": len(items),
+            "theme_count": len(themes),
+            "avg_heat_score": round(sum(heat_scores) / len(heat_scores), 1) if heat_scores else None,
+            "avg_credibility_score": round(sum(credibility_scores) / len(credibility_scores), 1) if credibility_scores else None,
+            "latest_trade_date": max([str(item.get("trade_date") or "") for item in items], default=None),
+        },
+        "interpretation_hint": (
+            "存在订单/合同/中标/采购/出货等硬催化线索，请优先评估真实性、金额/客户/交付节点是否明确。"
+            if order_signals
+            else "近45日系统消息中未识别到订单/合同/中标/采购/出货等硬催化线索。"
+        ),
+    }
 
 
 def _query_trades(db: Session, ts_code: str) -> list[dict]:
@@ -389,6 +647,7 @@ def _build_snapshot(db: Session, ts_code: str, watch_stock_id: str | None = None
 
     sync_meta = _ensure_analysis_kline_fresh(db, ts_code)
     basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+    x_collect_meta = _collect_x_for_analysis(db, ts_code, basic)
     df = _build_df(db, ts_code, limit=250)
     if df.empty or len(df) < 40:
         raise ValueError("K线数据不足（至少需要 40 个交易日）")
@@ -407,7 +666,9 @@ def _build_snapshot(db: Session, ts_code: str, watch_stock_id: str | None = None
 
     recent_lows = sorted([_round(x) for x in win20["low"].tail(10).nsmallest(3).tolist() if _round(x) is not None])
     recent_highs = sorted([_round(x) for x in win20["high"].tail(10).nlargest(3).tolist() if _round(x) is not None])
-    messages = _query_messages(db, ts_code)
+    news = _query_messages(db, ts_code)
+    news["x_collect_meta"] = x_collect_meta
+    fundamental = _build_fundamental_snapshot(basic, latest, latest_date)
     trades = _query_trades(db, ts_code)
 
     snapshot = {
@@ -458,14 +719,8 @@ def _build_snapshot(db: Session, ts_code: str, watch_stock_id: str | None = None
             "limit_up_date": watch_stock.limit_up_date if watch_stock else None,
             "limit_up_tactics": _build_strategy_hits(df, watch_stock.limit_up_date if watch_stock else None),
         },
-        "fundamental": {
-            "available": False,
-            "reason": "当前系统暂未接入完整财务指标，仅有行业、地区、上市日期等基础信息。",
-        },
-        "news": {
-            "available": bool(messages),
-            "items": messages,
-        },
+        "fundamental": fundamental,
+        "news": news,
         "user_context": {
             "pool_id": pool_id,
             "pool_name": pool.name if pool else None,
@@ -474,7 +729,7 @@ def _build_snapshot(db: Session, ts_code: str, watch_stock_id: str | None = None
             "trades": trades,
         },
     }
-    snapshot["data_quality"] = _build_data_quality(df, latest_date, messages, trades)
+    snapshot["data_quality"] = _build_data_quality(df, latest_date, news, trades, fundamental)
     return snapshot
 
 

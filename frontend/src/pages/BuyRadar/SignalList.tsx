@@ -93,6 +93,11 @@ const SignalList: React.FC<Props> = ({
                   </span>
                 </Tooltip>
                 {s.name}
+                {s.strategy_name && (
+                  <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 5px' }}>
+                    {s.strategy_name}
+                  </Tag>
+                )}
                 {(s.signal_persist_days || 0) >= 2 && (
                   <Tag color="purple" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 5px' }}>
                     连续{s.signal_persist_days}天
@@ -131,6 +136,15 @@ const SignalList: React.FC<Props> = ({
             {s.signal_status === 'approaching' && s.unmet_conditions.length > 0 && (
               <div style={{ fontSize: 11, color: '#fa8c16', marginTop: 2 }}>
                 差{s.unmet_conditions.length}条件: {s.unmet_conditions.slice(0, 2).join('、')}
+              </div>
+            )}
+            {(s.matched_strategies?.length || 0) > 1 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                {s.matched_strategies?.map((m) => (
+                  <Tag key={m.strategy_id} color="geekblue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 5px' }}>
+                    {m.strategy_name}
+                  </Tag>
+                ))}
               </div>
             )}
           </div>

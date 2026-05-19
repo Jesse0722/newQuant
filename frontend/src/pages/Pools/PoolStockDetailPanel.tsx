@@ -13,6 +13,7 @@ import type React from 'react'
 import type { AiAnalysisResult, StockChartDataWithMarks, WatchStock } from '../../types'
 
 interface PoolStockDetailPanelProps {
+  aiAnalyzingMode: 'fast' | 'deep' | null
   aiAnalyzingStockId: string | null
   chartData: StockChartDataWithMarks | null
   chartLoading: boolean
@@ -20,7 +21,7 @@ interface PoolStockDetailPanelProps {
   chartRef: React.RefObject<HTMLDivElement | null>
   coreWatchBusyTsCode: string | null
   coreWatchCodes: Set<string>
-  onAnalyzeStock: () => void
+  onAnalyzeStock: (mode: 'fast' | 'deep') => void
   onDeleteStock: (stockId: string) => void
   onEditNote: () => void
   onSetChartPeriod: (period: number) => void
@@ -46,7 +47,26 @@ function trendColor(trend?: string) {
   return 'default'
 }
 
+function ratingColor(rating?: string) {
+  if (rating === '强关注') return 'red'
+  if (rating === '观察') return 'blue'
+  if (rating === '谨慎') return 'orange'
+  return 'default'
+}
+
+function scorePercent(score?: number) {
+  const value = Number(score) || 0
+  return Math.max(0, Math.min(100, value <= 10 ? value * 10 : value))
+}
+
+type RichAiAnalysisResult = AiAnalysisResult & {
+  rating?: string
+  confidence?: number
+  time_horizon?: string
+}
+
 const PoolStockDetailPanel: React.FC<PoolStockDetailPanelProps> = ({
+  aiAnalyzingMode,
   aiAnalyzingStockId,
   chartData,
   chartLoading,
@@ -72,8 +92,9 @@ const PoolStockDetailPanel: React.FC<PoolStockDetailPanelProps> = ({
     )
   }
 
-  const ai = parseAiAnalysis(selectedStock.ai_analysis)
+  const ai = parseAiAnalysis(selectedStock.ai_analysis) as RichAiAnalysisResult | null
   const isCoreWatch = coreWatchCodes.has(selectedStock.ts_code)
+  const isAnalyzingCurrentStock = aiAnalyzingStockId === selectedStock.id
 
   return (
     <div style={{ overflowY: 'auto', height: '100%', padding: '0 0 16px' }}>
@@ -200,21 +221,38 @@ const PoolStockDetailPanel: React.FC<PoolStockDetailPanelProps> = ({
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
           <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>AI 智能分析</span>
-          <Tooltip title="分析当前股票">
-            <Button
-              type="text"
-              size="small"
-              icon={<RobotOutlined />}
-              loading={aiAnalyzingStockId === selectedStock.id}
-              onClick={onAnalyzeStock}
-              style={{ color: 'var(--accent)' }}
-            />
-          </Tooltip>
+          <Space size={4}>
+            <Tooltip title="使用 deepseek-v4-flash，适合快速刷新观察结论">
+              <Button
+                type="text"
+                size="small"
+                icon={<RobotOutlined />}
+                loading={isAnalyzingCurrentStock && aiAnalyzingMode === 'fast'}
+                disabled={isAnalyzingCurrentStock && aiAnalyzingMode !== 'fast'}
+                onClick={() => onAnalyzeStock('fast')}
+                style={{ color: 'var(--accent)' }}
+              >
+                快速
+              </Button>
+            </Tooltip>
+            <Tooltip title="使用 deepseek-v4-pro，适合结合基本面、消息面和观察池上下文做深度分析">
+              <Button
+                type="text"
+                size="small"
+                loading={isAnalyzingCurrentStock && aiAnalyzingMode === 'deep'}
+                disabled={isAnalyzingCurrentStock && aiAnalyzingMode !== 'deep'}
+                onClick={() => onAnalyzeStock('deep')}
+                style={{ color: 'var(--accent)' }}
+              >
+                深度
+              </Button>
+            </Tooltip>
+          </Space>
         </div>
         <div style={{ padding: '12px 16px' }}>
           {!ai ? (
             <div style={{ color: 'var(--text-muted)', minHeight: 80, lineHeight: 1.8, fontSize: 13 }}>
-              点击右上角按钮进行 AI 分析，结果将独立保存，不覆盖手动备注。
+              使用快速或深度分析生成研究摘要，结果将独立保存，不覆盖手动备注。
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -222,12 +260,15 @@ const PoolStockDetailPanel: React.FC<PoolStockDetailPanelProps> = ({
                 <Progress
                   type="dashboard"
                   size={72}
-                  percent={Math.max(0, Math.min(100, (Number(ai.score) || 0) * 10))}
-                  format={() => `${ai.score || 0}/10`}
+                  percent={scorePercent(ai.score)}
+                  format={() => `${scorePercent(ai.score)}`}
                 />
                 <div>
-                  <div style={{ marginBottom: 4 }}>
+                  <div style={{ marginBottom: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {ai.rating && <Tag color={ratingColor(ai.rating)}>{ai.rating}</Tag>}
                     <Tag color={trendColor(ai.trend)}>{ai.trend || '震荡'}</Tag>
+                    {ai.time_horizon && <Tag>{ai.time_horizon}</Tag>}
+                    {ai.confidence != null && <Tag>置信度 {ai.confidence}</Tag>}
                   </div>
                   <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
                     分析时间：
