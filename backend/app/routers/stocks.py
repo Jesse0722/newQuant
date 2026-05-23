@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+import json
+import threading
+import time
+import urllib.request
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models.stock import StockBasic, DailyQuote
 from app.models.monitor import Alert
 from app.models.trade import TradeDetail
@@ -14,6 +18,7 @@ from app.services.indicator import calc_ma, calc_macd, calc_rsi
 from app.services.buy_signal_service import get_signal_marks
 from app.services.ai_analysis_service import analyze_stock_detail, get_latest_stock_analysis
 from app.services.sync_service import sync_stock_info, sync_daily, sync_daily_backward
+from app.tasks.background import get_task_status, submit_task, task_registry
 from app.services.trading_session import shanghai_trade_date_str, latest_daily_k_trade_date_str
 from app.services.tushare_adapter import tushare_adapter, TushareAdapter, TencentAdapter, BaoStockAdapter, AkshareAdapter
 from app.exceptions import AppError
@@ -23,6 +28,36 @@ from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
 
+_CONCEPT_CACHE_TTL_SEC = 6 * 3600
+_concept_cache_lock = threading.Lock()
+_concept_cache: dict[str, tuple[float, list[str]]] = {}
+_ai_task_lock = threading.Lock()
+_ai_task_keys: dict[str, str] = {}
+_CONCEPT_EXCLUDE_KEYWORDS = (
+    "板块",
+    "大盘股",
+    "小盘股",
+    "中盘股",
+    "大盘价值",
+    "行业龙头",
+    "周期股",
+    "近期新高",
+    "破增发价股",
+    "东方财富热股",
+    "昨日",
+    "最近",
+    "标准普尔",
+    "富时罗素",
+    "MSCI",
+    "沪股通",
+    "深股通",
+    "融资融券",
+    "HS300",
+    "上证",
+    "深证",
+    "深成",
+)
+
 
 class StockAiAnalysisRequest(BaseModel):
     mode: str = Field("deep", description="fast 或 deep")
@@ -30,6 +65,35 @@ class StockAiAnalysisRequest(BaseModel):
     pool_id: str | None = None
     watch_stock_id: str | None = None
     force_refresh: bool = False
+
+
+def _run_stock_ai_analysis_task(task_id: str, ts_code: str, payload: dict):
+    task = task_registry.get(task_id)
+    db = SessionLocal()
+    try:
+        if task:
+            task.message = "AI 深度分析中..."
+            task.progress = 0.2
+        record = analyze_stock_detail(
+            db,
+            ts_code,
+            mode=payload.get("mode", "deep"),
+            scope=payload.get("scope", "stock_detail"),
+            pool_id=payload.get("pool_id"),
+            watch_stock_id=payload.get("watch_stock_id"),
+            force_refresh=payload.get("force_refresh", False),
+        )
+        if task:
+            task.result = record
+            task.message = "AI 深度分析完成"
+            task.progress = 1.0
+    finally:
+        task_key = payload.get("_task_key")
+        if task_key:
+            with _ai_task_lock:
+                if _ai_task_keys.get(task_key) == task_id:
+                    _ai_task_keys.pop(task_key, None)
+        db.close()
 
 
 @router.get("/search")
@@ -71,6 +135,59 @@ def _scalar_json_safe(v):
 
 def _chart_quotes_json_safe(records: list[dict]) -> list[dict]:
     return [{k: _scalar_json_safe(val) for k, val in row.items()} for row in records]
+
+
+def _eastmoney_f10_code(ts_code: str) -> str:
+    code = str(ts_code).split(".")[0]
+    suffix = str(ts_code).split(".")[-1].upper() if "." in str(ts_code) else ""
+    if suffix == "SH":
+        return f"SH{code}"
+    if suffix == "BJ":
+        return f"BJ{code}"
+    return f"SZ{code}"
+
+
+def _is_useful_concept_tag(name: str) -> bool:
+    text = name.strip()
+    if not text:
+        return False
+    return not any(k in text for k in _CONCEPT_EXCLUDE_KEYWORDS)
+
+
+def _fetch_stock_concept_tags(ts_code: str) -> list[str]:
+    now = time.time()
+    with _concept_cache_lock:
+        hit = _concept_cache.get(ts_code)
+        if hit and hit[0] > now:
+            return hit[1]
+
+    em_code = _eastmoney_f10_code(ts_code)
+    url = f"https://emweb.securities.eastmoney.com/PC_HSF10/CoreConception/PageAjax?code={em_code}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": f"https://emweb.securities.eastmoney.com/PC_HSF10/CoreConception/Index?type=web&code={em_code}",
+        },
+    )
+    tags: list[str] = []
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+        boards = raw.get("ssbk") if isinstance(raw, dict) else []
+        for item in boards or []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("BOARD_NAME") or "").strip()
+            if _is_useful_concept_tag(name) and name not in tags:
+                tags.append(name)
+    except Exception:
+        tags = []
+
+    tags = tags[:24]
+    with _concept_cache_lock:
+        _concept_cache[ts_code] = (now + _CONCEPT_CACHE_TTL_SEC, tags)
+    return tags
 
 
 def _enrich_basic_from_fallbacks(db: Session, ts_code: str, basic: StockBasic | None) -> StockBasic | None:
@@ -385,6 +502,9 @@ def get_stock_chart(
             basic = None
     if not basic:
         raise AppError(code=5001, message="股票不存在", status_code=404)
+    concept_tags = _fetch_stock_concept_tags(ts_code)
+    if not concept_tags and basic.industry:
+        concept_tags = [basic.industry]
 
     sync_meta = None
     depth_meta = None
@@ -402,16 +522,23 @@ def get_stock_chart(
         .all()
     )
     if not quotes:
-        return {"basic": _basic_dict(basic), "quotes": [], "indicators": {}}
+        empty_df = pd.DataFrame(columns=["date", "open", "high", "low", "close", "vol", "amount", "pct_chg", "turnover_rate"])
+        df = _backfill_sparse_chart_from_remote(db, ts_code, empty_df, period)
+        if df.empty:
+            return {"basic": _basic_dict(basic, concept_tags), "quotes": [], "indicators": {}}
+    else:
+        quotes.reverse()
+        df = pd.DataFrame([{
+            "date": q.trade_date,
+            "open": q.open, "high": q.high, "low": q.low, "close": q.close,
+            "pre_close": q.pre_close, "change": q.change,
+            "vol": q.vol, "amount": q.amount, "pct_chg": q.pct_chg,
+            "turnover_rate": q.turnover_rate,
+        } for q in quotes])
 
-    quotes.reverse()
-    df = pd.DataFrame([{
-        "date": q.trade_date,
-        "open": q.open, "high": q.high, "low": q.low, "close": q.close,
-        "pre_close": q.pre_close, "change": q.change,
-        "vol": q.vol, "amount": q.amount, "pct_chg": q.pct_chg,
-        "turnover_rate": q.turnover_rate,
-    } for q in quotes])
+    for col in ("pre_close", "change"):
+        if col not in df.columns:
+            df[col] = None
     if "pct_chg" in df.columns:
         miss = df["pct_chg"].isna()
         if miss.any():
@@ -435,7 +562,7 @@ def get_stock_chart(
     if len(df) < max(30, period // 2) or gap_days >= 12:
         df = _backfill_sparse_chart_from_remote(db, ts_code, df, period)
     if df.empty:
-        return {"basic": _basic_dict(basic), "quotes": [], "indicators": {}}
+        return {"basic": _basic_dict(basic, concept_tags), "quotes": [], "indicators": {}}
 
     ma5 = _nan_to_none(calc_ma(df, 5))
     ma10 = _nan_to_none(calc_ma(df, 10))
@@ -447,7 +574,7 @@ def get_stock_chart(
     sl = slice(tail, None)
 
     result = {
-        "basic": _basic_dict(basic),
+        "basic": _basic_dict(basic, concept_tags),
         "quotes": _chart_quotes_json_safe(df.iloc[sl].to_dict("records")),
         "indicators": {
             "ma5": ma5[sl],
@@ -502,6 +629,49 @@ def get_stock_ai_analysis(ts_code: str, db: Session = Depends(get_db)):
     return record
 
 
+@router.post("/{ts_code}/ai-analysis-task")
+def create_stock_ai_analysis_task(ts_code: str, body: StockAiAnalysisRequest):
+    payload = body.model_dump()
+    payload["mode"] = payload.get("mode") or "deep"
+    task_key = json.dumps(
+        {
+            "ts_code": ts_code,
+            "mode": payload.get("mode"),
+            "scope": payload.get("scope"),
+            "pool_id": payload.get("pool_id"),
+            "watch_stock_id": payload.get("watch_stock_id"),
+            "force_refresh": payload.get("force_refresh"),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    with _ai_task_lock:
+        existing_task_id = _ai_task_keys.get(task_key)
+        existing = task_registry.get(existing_task_id) if existing_task_id else None
+        if existing and existing.status == "running":
+            return {"task_id": existing.id, "deduped": True}
+        payload["_task_key"] = task_key
+        task_id = submit_task("stock_ai_analysis", _run_stock_ai_analysis_task, ts_code, payload)
+        _ai_task_keys[task_key] = task_id
+        return {"task_id": task_id, "deduped": False}
+
+
+@router.get("/ai-analysis-tasks/{task_id}")
+def get_stock_ai_analysis_task(task_id: str):
+    status = get_task_status(task_id)
+    if not status:
+        raise AppError(code=1004, message="任务不存在", status_code=404)
+    return {
+        "task_id": status.id,
+        "type": status.type,
+        "status": status.status,
+        "progress": status.progress,
+        "message": status.message,
+        "result": status.result,
+        "created_at": status.created_at.isoformat() + "Z",
+    }
+
+
 @router.post("/{ts_code}/ai-analysis")
 def run_stock_ai_analysis(ts_code: str, body: StockAiAnalysisRequest, db: Session = Depends(get_db)):
     try:
@@ -553,7 +723,7 @@ def create_stock_detail(ts_code: str, body: TradeDetailCreate, db: Session = Dep
     return TradeDetailOut.model_validate(detail)
 
 
-def _basic_dict(basic: StockBasic) -> dict:
+def _basic_dict(basic: StockBasic, concept_tags: list[str] | None = None) -> dict:
     return {
         "ts_code": basic.ts_code,
         "name": basic.name,
@@ -561,4 +731,5 @@ def _basic_dict(basic: StockBasic) -> dict:
         "area": basic.area,
         "market": basic.market,
         "list_date": basic.list_date,
+        "concept_tags": concept_tags or [],
     }

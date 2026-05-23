@@ -10,9 +10,9 @@ import {
   listStocks, addStock, deleteStock, updateStock, importCSV, exportStocksCSV,
   getCoreWatchCodes, toggleCoreWatch,
 } from '../../api/pools'
-import { runStockAiAnalysis, searchStocks } from '../../api/stocks'
+import { runStockAiAnalysis, runStockAiAnalysisTask, searchStocks } from '../../api/stocks'
 import { getStockChartWithMarks } from '../../api/strategy'
-import { syncPool, getTaskStatus } from '../../api/sync'
+import { syncPool } from '../../api/sync'
 import { getPoolRules, createPoolRule, deleteRule, listTemplates } from '../../api/monitor'
 import type {
   JsonObject, JsonValue, Pool, WatchStock, MonitorRule, MonitorTemplate,
@@ -23,6 +23,11 @@ import PoolStockDetailPanel from './PoolStockDetailPanel'
 import PoolStockListItem from './PoolStockListItem'
 import PoolSidebar from './PoolSidebar'
 import PoolToolbar from './PoolToolbar'
+import {
+  subscribeNotifications,
+  upsertNotification,
+  type AppNotification,
+} from '../../services/notificationCenter'
 
 const PAGE_SIZE = 50
 type ChartMark = Record<string, unknown>
@@ -237,6 +242,32 @@ const PoolList: React.FC = () => {
       }
     })
   }, [fetchPools, refreshCoreWatch])
+
+  useEffect(() => {
+    return subscribeNotifications((items: AppNotification[]) => {
+      const completed = items.filter((item) =>
+        item.status === 'success' &&
+        (
+          (item.kind === 'stock_ai_analysis' && item.meta?.watchStockId && item.meta.result?.analysis) ||
+          (item.kind === 'sync_task' && item.meta?.tsCode === activePoolId)
+        )
+      )
+      if (!completed.length) return
+      if (completed.some((item) => item.kind === 'sync_task' && item.meta?.tsCode === activePoolId)) {
+        loadInitial(activePoolId)
+        fetchPools().catch(() => {})
+      }
+      setStocks(prev => prev.map((stock) => {
+        const item = completed.find((n) => n.kind === 'stock_ai_analysis' && n.meta?.watchStockId === stock.id)
+        if (!item?.meta?.result) return stock
+        return {
+          ...stock,
+          ai_analysis: JSON.stringify(item.meta.result.analysis, null, 2),
+          ai_analyzed_at: item.meta.result.ai_analyzed_at || stock.ai_analyzed_at,
+        }
+      }))
+    })
+  }, [activePoolId, fetchPools, loadInitial])
 
   useEffect(() => {
     if (activePoolId) loadInitial(activePoolId)
@@ -608,19 +639,29 @@ const PoolList: React.FC = () => {
     setSyncing(true)
     try {
       const res = await syncPool(activePoolId)
-      const taskId = res.data.task_id
-      const poll = setInterval(async () => {
-        try {
-          const st = await getTaskStatus(taskId)
-          if (st.data.status === 'completed' || st.data.status === 'failed') {
-            clearInterval(poll)
-            setSyncing(false)
-            message[st.data.status === 'completed' ? 'success' : 'error'](st.data.status === 'completed' ? '同步完成' : '同步失败')
-            loadInitial(activePoolId)
-          }
-        } catch { clearInterval(poll); setSyncing(false) }
-      }, 2000)
-    } catch { setSyncing(false) }
+      const now = new Date().toISOString()
+      upsertNotification({
+        id: `sync-task:${res.data.task_id}`,
+        kind: 'sync_task',
+        status: 'running',
+        title: `${activePool?.name || '股票池'} 同步中`,
+        description: '任务已提交，完成后会在顶部消息中心提醒',
+        createdAt: now,
+        updatedAt: now,
+        read: false,
+        taskId: res.data.task_id,
+        link: '/pools',
+        meta: {
+          tsCode: activePoolId,
+          stockName: activePool?.name || '股票池',
+        },
+      })
+      message.success('同步任务已提交，可稍后在顶部消息中心查看')
+    } catch {
+      message.error('同步任务提交失败')
+    } finally {
+      setSyncing(false)
+    }
   }
 
   const handleTogglePin = async (stock: WatchStock) => {
@@ -654,6 +695,36 @@ const PoolList: React.FC = () => {
     setAiAnalyzingStockId(selectedStock.id)
     setAiAnalyzingMode(mode)
     try {
+      if (mode === 'deep') {
+        const res = await runStockAiAnalysisTask(selectedStock.ts_code, {
+          mode,
+          scope: 'watch_pool',
+          pool_id: activePoolId,
+          watch_stock_id: selectedStock.id,
+          force_refresh: true,
+        })
+        const now = new Date().toISOString()
+        upsertNotification({
+          id: `stock-ai-analysis:${res.data.task_id}`,
+          kind: 'stock_ai_analysis',
+          status: 'running',
+          title: `${selectedStock.stock_name || selectedStock.ts_code} 深度分析中`,
+          description: '任务已提交，完成后会在顶部消息中心提醒',
+          createdAt: now,
+          updatedAt: now,
+          read: false,
+          taskId: res.data.task_id,
+          link: `/stocks/${selectedStock.ts_code}`,
+          meta: {
+            tsCode: selectedStock.ts_code,
+            stockName: selectedStock.stock_name,
+            watchStockId: selectedStock.id,
+            mode,
+          },
+        })
+        message.success('深度分析已提交，可稍后在顶部消息中心查看')
+        return
+      }
       const res = await runStockAiAnalysis(selectedStock.ts_code, {
         mode,
         scope: 'watch_pool',

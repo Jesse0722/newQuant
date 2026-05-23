@@ -903,6 +903,9 @@ class AkshareAdapter:
             out["name"] = zt.get("名称", "")
             out["trade_date"] = trade_date
             out["nums"] = pd.to_numeric(zt.get("连板数"), errors="coerce").fillna(0).astype(int).astype(str)
+            if "所属行业" in zt.columns:
+                out["industry"] = zt["所属行业"]
+                return out[["ts_code", "name", "trade_date", "nums", "industry"]]
             return out[["ts_code", "name", "trade_date", "nums"]]
         except Exception as e:
             logger.warning("get_limit_step: %s", str(e)[:120])

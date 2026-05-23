@@ -11,7 +11,14 @@ import {
 } from '@ant-design/icons'
 import axios from 'axios'
 import { getDashboard } from '../../api/dashboard'
-import type { DashboardData, DashboardFlowSectorRow, DashboardLimitLadderRow } from '../../types'
+import type {
+  DashboardData,
+  DashboardFlowSectorRow,
+  DashboardLimitLadderRow,
+  DashboardSectorStock,
+  DashboardThsHotSector,
+  DashboardThsHotStock,
+} from '../../types'
 import StatCard from '../../components/StatCard'
 
 function parseDashboardError(err: unknown): { message: string; hint?: string } {
@@ -32,12 +39,6 @@ function parseDashboardError(err: unknown): { message: string; hint?: string } {
   return { message: '加载失败' }
 }
 
-const PctCell: React.FC<{ value?: number | null }> = ({ value }) => {
-  if (value == null || Number.isNaN(value)) return <span style={{ color: 'var(--text-muted)' }}>-</span>
-  const up = value >= 0
-  return <span className={up ? 'up mono' : 'down mono'}>{up ? '+' : ''}{value.toFixed(2)}%</span>
-}
-
 const LadderTags: React.FC<{
   title: string
   icon: React.ReactNode
@@ -45,34 +46,117 @@ const LadderTags: React.FC<{
   tone: 'up' | 'down'
   onGoStock: (tsCode: string) => void
 }> = ({ title, icon, data, tone, onGoStock }) => {
-  const top = data.slice(0, 12)
+  const groups = useMemo(() => {
+    const sorted = [...data].sort((a, b) => {
+      const an = Number.parseInt(String(a.nums ?? '0'), 10) || 0
+      const bn = Number.parseInt(String(b.nums ?? '0'), 10) || 0
+      if (bn !== an) return bn - an
+      return String(a.ts_code || '').localeCompare(String(b.ts_code || ''))
+    })
+    const m = new Map<number, DashboardLimitLadderRow[]>()
+    sorted.forEach((row) => {
+      const n = Number.parseInt(String(row.nums ?? '0'), 10) || 0
+      const key = n > 0 ? n : 1
+      m.set(key, [...(m.get(key) ?? []), row])
+    })
+    return Array.from(m.entries()).map(([nums, rows]) => ({ nums, rows }))
+  }, [data])
+  const toneColor = tone === 'up' ? 'var(--color-up)' : 'var(--color-down)'
+  const toneBg = tone === 'up' ? 'var(--color-up-dim)' : 'var(--color-down-dim)'
   return (
     <div className="glow-card" style={{ padding: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ color: tone === 'up' ? 'var(--color-up)' : 'var(--color-down)' }}>{icon}</span>
-        <span style={{ fontWeight: 700 }}>{title}</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: toneColor }}>{icon}</span>
+          <span style={{ fontWeight: 700 }}>{title}</span>
+        </div>
+        <span className="mono" style={{ color: 'var(--text-muted)', fontSize: 12 }}>{data.length}家</span>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {top.length === 0 && <span style={{ color: 'var(--text-muted)' }}>暂无数据</span>}
-        {top.map((x) => (
-          <Tag
-            key={`${x.ts_code}-${x.trade_date}`}
-            style={{
-              cursor: 'pointer',
-              border: 'none',
-              background: tone === 'up' ? 'var(--color-up-dim)' : 'var(--color-down-dim)',
-              color: tone === 'up' ? 'var(--color-up)' : 'var(--color-down)',
-              fontFamily: 'var(--font-mono)',
-              paddingInline: 8,
-            }}
-            onClick={() => onGoStock(x.ts_code)}
-          >
-            {x.name} {x.nums}板
-          </Tag>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 420, overflowY: 'auto', paddingRight: 4 }}>
+        {groups.length === 0 && <span style={{ color: 'var(--text-muted)' }}>暂无数据</span>}
+        {groups.map((group) => (
+          <div key={group.nums} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 10, alignItems: 'start' }}>
+            <div
+              className="mono"
+              style={{
+                position: 'sticky',
+                top: 0,
+                color: toneColor,
+                fontWeight: 700,
+                lineHeight: '24px',
+              }}
+            >
+              {group.nums}板
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {group.rows.map((x) => (
+                <Tooltip key={`${x.ts_code}-${x.trade_date}`} title={[x.ts_code, x.industry].filter(Boolean).join(' · ')}>
+                  <Tag
+                    style={{
+                      cursor: 'pointer',
+                      border: 'none',
+                      background: toneBg,
+                      color: toneColor,
+                      fontFamily: 'var(--font-mono)',
+                      paddingInline: 8,
+                      marginInlineEnd: 0,
+                    }}
+                    onClick={() => onGoStock(x.ts_code)}
+                  >
+                    {x.name}
+                  </Tag>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     </div>
   )
+}
+
+const SectorStockTags: React.FC<{
+  stocks?: DashboardSectorStock[]
+  tone: 'up' | 'down'
+  onGoStock: (tsCode: string) => void
+}> = ({ stocks = [], tone, onGoStock }) => {
+  if (stocks.length === 0) return <span style={{ color: 'var(--text-muted)' }}>-</span>
+  const toneColor = tone === 'up' ? 'var(--color-up)' : 'var(--color-down)'
+  const toneBg = tone === 'up' ? 'var(--color-up-dim)' : 'var(--color-down-dim)'
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {stocks.map((stock) => (
+        <Tooltip key={`${stock.ts_code}-${stock.name}`} title={stock.ts_code || undefined}>
+          <Tag
+            style={{
+              cursor: stock.ts_code ? 'pointer' : 'default',
+              border: 'none',
+              background: toneBg,
+              color: toneColor,
+              marginInlineEnd: 0,
+              maxWidth: 110,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+            onClick={() => stock.ts_code && onGoStock(stock.ts_code)}
+          >
+            {stock.name || stock.ts_code}
+          </Tag>
+        </Tooltip>
+      ))}
+    </div>
+  )
+}
+
+const HotValue: React.FC<{ value?: number | null }> = ({ value }) => {
+  if (value == null || Number.isNaN(value)) return <span style={{ color: 'var(--text-muted)' }}>-</span>
+  if (value >= 10000) return <span className="mono">{(value / 10000).toFixed(1)}万</span>
+  return <span className="mono">{Math.round(value).toLocaleString()}</span>
+}
+
+const PctValue: React.FC<{ value?: number | null }> = ({ value }) => {
+  if (value == null || Number.isNaN(value)) return <span style={{ color: 'var(--text-muted)' }}>-</span>
+  return <span className={value >= 0 ? 'up mono' : 'down mono'}>{value >= 0 ? '+' : ''}{value.toFixed(2)}%</span>
 }
 
 const Dashboard: React.FC = () => {
@@ -106,6 +190,10 @@ const Dashboard: React.FC = () => {
     () => data?.outflow_ladder ?? [],
     [data],
   )
+  const topInflowSectors = useMemo(() => inflowSectors.slice(0, 5), [inflowSectors])
+  const topOutflowSectors = useMemo(() => outflowSectors.slice(0, 5), [outflowSectors])
+  const thsHotStocks: DashboardThsHotStock[] = useMemo(() => data?.ths_hot?.stocks ?? [], [data])
+  const thsHotSectors: DashboardThsHotSector[] = useMemo(() => data?.ths_hot?.sectors ?? [], [data])
 
   const summary = useMemo(() => {
     const s = data?.summary
@@ -138,27 +226,89 @@ const Dashboard: React.FC = () => {
     { title: '排名', dataIndex: 'rank', key: 'rank', width: 58 },
     { title: '流入板块', dataIndex: 'name', key: 'name', width: 140 },
     { title: <Tooltip title="当日该板块涨停股票数量"><span>涨停家数</span></Tooltip>, dataIndex: 'up_nums', key: 'up_nums', width: 90, render: (v?: number | null) => <span className="up mono">{v ?? '-'}</span> },
-    { title: <Tooltip title="当日该板块连板股票数量"><span>连板数</span></Tooltip>, dataIndex: 'cons_nums', key: 'cons_nums', width: 80, render: (v?: number | null) => (v == null ? '-' : v) },
     {
-      title: (
-        <Tooltip title="涨停板块口径的强度值，非板块指数日涨幅">
-          <span>板块强度</span>
-        </Tooltip>
+      title: '具体股票',
+      dataIndex: 'stocks',
+      key: 'stocks',
+      render: (stocks?: DashboardSectorStock[]) => (
+        <SectorStockTags stocks={stocks} tone="up" onGoStock={(tsCode) => navigate(`/stocks/${tsCode}`)} />
       ),
-      dataIndex: 'pct_chg',
-      key: 'pct_chg',
-      width: 92,
-      render: (v?: number | null) => <PctCell value={v} />,
     },
-    { title: <Tooltip title="该板块内连板梯队分布"><span>连板高度</span></Tooltip>, dataIndex: 'up_stat', key: 'up_stat', render: (v?: string | null) => v || '-' },
   ]
 
   const outflowColumns = [
     { title: '排名', dataIndex: 'rank', key: 'rank', width: 58 },
     { title: '流出板块', dataIndex: 'name', key: 'name', width: 140 },
     { title: <Tooltip title="当日该板块跌停股票数量"><span>跌停家数</span></Tooltip>, dataIndex: 'down_nums', key: 'down_nums', width: 90, render: (v?: number | null) => <span className="down mono">{v ?? '-'}</span> },
-    { title: <Tooltip title="板块内跌停梯队最高连续次数"><span>连续跌停</span></Tooltip>, dataIndex: 'max_limit_times', key: 'max_limit_times', width: 90, render: (v?: number | null) => (v == null ? '-' : v) },
-    { title: '板块强度', dataIndex: 'pct_chg', key: 'pct_chg', width: 92, render: (v?: number | null) => <PctCell value={v} /> },
+    {
+      title: '具体股票',
+      dataIndex: 'stocks',
+      key: 'stocks',
+      render: (stocks?: DashboardSectorStock[]) => (
+        <SectorStockTags stocks={stocks} tone="down" onGoStock={(tsCode) => navigate(`/stocks/${tsCode}`)} />
+      ),
+    },
+  ]
+
+  const thsHotStockColumns = [
+    { title: '排名', dataIndex: 'rank', key: 'rank', width: 58, render: (v?: number) => <span className="mono">{v ?? '-'}</span> },
+    {
+      title: '个股',
+      dataIndex: 'name',
+      key: 'name',
+      width: 132,
+      render: (_: string, row: DashboardThsHotStock) => (
+        <Tooltip title={row.ts_code || row.code || undefined}>
+          <span
+            style={{ cursor: row.ts_code ? 'pointer' : 'default', fontWeight: 600 }}
+            onClick={() => row.ts_code && navigate(`/stocks/${row.ts_code}`)}
+          >
+            {row.name}
+          </span>
+        </Tooltip>
+      ),
+    },
+    { title: '热度', dataIndex: 'hot', key: 'hot', width: 86, render: (v?: number | null) => <HotValue value={v} /> },
+    { title: '涨跌幅', dataIndex: 'pct_chg', key: 'pct_chg', width: 82, render: (v?: number | null) => <PctValue value={v} /> },
+    {
+      title: '标签',
+      dataIndex: 'concept_tags',
+      key: 'concept_tags',
+      render: (tags?: string[], row?: DashboardThsHotStock) => (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {row?.popularity_tag && <Tag color="volcano" style={{ marginInlineEnd: 0 }}>{row.popularity_tag}</Tag>}
+          {(tags ?? []).slice(0, 2).map((tag) => <Tag key={tag} style={{ marginInlineEnd: 0 }}>{tag}</Tag>)}
+        </div>
+      ),
+    },
+  ]
+
+  const thsHotSectorColumns = [
+    { title: '排名', dataIndex: 'rank', key: 'rank', width: 58, render: (v?: number) => <span className="mono">{v ?? '-'}</span> },
+    {
+      title: '板块',
+      dataIndex: 'name',
+      key: 'name',
+      width: 136,
+      render: (v: string, row: DashboardThsHotSector) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontWeight: 600 }}>{v}</span>
+          <Tag color={row.type === 'concept' ? 'blue' : 'cyan'} style={{ marginInlineEnd: 0 }}>{row.type_label || row.type}</Tag>
+        </div>
+      ),
+    },
+    { title: '热度', dataIndex: 'hot', key: 'hot', width: 86, render: (v?: number | null) => <HotValue value={v} /> },
+    { title: '涨跌幅', dataIndex: 'pct_chg', key: 'pct_chg', width: 82, render: (v?: number | null) => <PctValue value={v} /> },
+    {
+      title: '状态',
+      key: 'tags',
+      render: (_: unknown, row: DashboardThsHotSector) => (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {row.tag && <Tag color="red" style={{ marginInlineEnd: 0 }}>{row.tag}</Tag>}
+          {row.hot_tag && <Tag style={{ marginInlineEnd: 0 }}>{row.hot_tag}</Tag>}
+        </div>
+      ),
+    },
   ]
 
   if (loading && !data && !error) {
@@ -231,9 +381,46 @@ const Dashboard: React.FC = () => {
           流入 {summary.inflow_limit_count} / 流出 {summary.outflow_limit_count}
           {summary.flow_ratio != null ? ` · 强弱比 ${summary.flow_ratio}` : ''}
           · 绝对净差 {netAbs}
-          <Tooltip title="板块强度按当日入榜个股涨跌幅均值聚合，属于情绪口径，不等同于行业指数涨跌幅。">
-            <span style={{ marginLeft: 8, color: 'var(--accent)', cursor: 'help' }}>板块强度计算说明</span>
-          </Tooltip>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="glow-card" style={{ padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FireOutlined style={{ color: 'var(--color-warn)' }} />
+              <span style={{ fontWeight: 700 }}>同花顺人气排名 Top 100</span>
+            </div>
+            <span className="mono" style={{ color: 'var(--text-muted)', fontSize: 12 }}>{thsHotStocks.length}只</span>
+          </div>
+          <Table
+            dataSource={thsHotStocks}
+            columns={thsHotStockColumns}
+            rowKey={(r) => `${r.rank}-${r.ts_code || r.code}`}
+            pagination={false}
+            size="small"
+            scroll={{ x: 620, y: 360 }}
+            locale={{ emptyText: <span style={{ color: 'var(--text-muted)' }}>{data?.ths_hot?.error || '暂无人气数据'}</span> }}
+          />
+        </div>
+
+        <div className="glow-card" style={{ padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ThunderboltOutlined style={{ color: 'var(--accent)' }} />
+              <span style={{ fontWeight: 700 }}>同花顺热门板块 Top 20</span>
+            </div>
+            <span className="mono" style={{ color: 'var(--text-muted)', fontSize: 12 }}>概念+行业</span>
+          </div>
+          <Table
+            dataSource={thsHotSectors}
+            columns={thsHotSectorColumns}
+            rowKey={(r) => `${r.type}-${r.code}-${r.rank}`}
+            pagination={false}
+            size="small"
+            scroll={{ x: 620, y: 360 }}
+            locale={{ emptyText: <span style={{ color: 'var(--text-muted)' }}>{data?.ths_hot?.error || '暂无板块热榜'}</span> }}
+          />
         </div>
       </div>
 
@@ -241,15 +428,15 @@ const Dashboard: React.FC = () => {
         <div className="glow-card" style={{ padding: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <ThunderboltOutlined style={{ color: 'var(--color-up)' }} />
-            <span style={{ fontWeight: 700 }}>资金流入板块（涨停）</span>
+            <span style={{ fontWeight: 700 }}>资金流入最强板块 Top 5</span>
           </div>
           <Table
-            dataSource={inflowSectors}
+            dataSource={topInflowSectors}
             columns={inflowColumns}
             rowKey={(r) => `${r.name}-${r.rank ?? ''}`}
             pagination={false}
             size="small"
-            scroll={{ x: 640 }}
+            scroll={{ x: 660 }}
             locale={{ emptyText: <span style={{ color: 'var(--text-muted)' }}>暂无流入数据</span> }}
           />
         </div>
@@ -257,15 +444,15 @@ const Dashboard: React.FC = () => {
         <div className="glow-card" style={{ padding: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <FallOutlined style={{ color: 'var(--color-down)' }} />
-            <span style={{ fontWeight: 700 }}>资金流出板块（跌停）</span>
+            <span style={{ fontWeight: 700 }}>资金流出最弱板块 Top 5</span>
           </div>
           <Table
-            dataSource={outflowSectors}
+            dataSource={topOutflowSectors}
             columns={outflowColumns}
             rowKey={(r) => `${r.name}-${r.rank ?? ''}`}
             pagination={false}
             size="small"
-            scroll={{ x: 560 }}
+            scroll={{ x: 660 }}
             locale={{ emptyText: <span style={{ color: 'var(--text-muted)' }}>暂无流出数据</span> }}
           />
         </div>

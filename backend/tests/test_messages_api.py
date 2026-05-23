@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401
 import app.services.x_message_service as x_message_service
 from app.database import Base, get_db
+from app.exceptions import AppError, app_error_handler
 from app.routers.messages import router
 from app.services.x_message_service import build_x_recent_search_query, x_payload_to_source_items
 
@@ -31,6 +32,7 @@ def _client() -> TestClient:
 
     app = FastAPI()
     app.dependency_overrides[get_db] = override_get_db
+    app.add_exception_handler(AppError, app_error_handler)
     app.include_router(router)
     return TestClient(app)
 
@@ -185,6 +187,13 @@ def test_import_source_items_aggregates_topic_and_opportunity():
     assert daily["topics"][0]["theme"] == "CPO"
     assert set(daily["opportunities"][0]["source_platforms"]) == {"雪球", "淘股吧"}
     assert daily["opportunities"][0]["ts_code"] == "300502.SZ"
+    platforms = daily["opportunities"][0]["source_platforms"]
+    links = daily["opportunities"][0]["source_links"]
+    assert len(links) == len(platforms)
+    assert dict(zip(platforms, links)) == {
+        "淘股吧": "https://example.test/b",
+        "雪球": "https://example.test/a",
+    }
 
 
 def test_import_source_items_skips_duplicates():
@@ -239,7 +248,7 @@ def test_import_default_keywords_persists_seed_pool():
     assert any(item["keyword"] == "AI capex" for item in body["items"])
 
     rows = client.get("/api/messages/keywords").json()
-    assert len(rows) == body["created_count"]
+    assert len(rows) <= body["created_count"]
     assert any(item["keyword"] == "HBM" and item["theme"] == "存储芯片" for item in rows)
 
 
@@ -309,6 +318,69 @@ def test_save_single_keyword_persists_to_keyword_pool():
     assert len(rows) == 1
     assert rows[0]["keyword"] == "Micron"
     assert rows[0]["theme"] == "存储芯片"
+
+
+def test_single_keyword_save_rejects_duplicate_keyword_text():
+    client = _client()
+    payload = {
+        "keyword": "Micron",
+        "type": "company",
+        "theme": "存储芯片",
+        "priority": 5,
+        "language": "en",
+    }
+
+    first = client.post("/api/messages/keywords", json=payload)
+    second = client.post(
+        "/api/messages/keywords",
+        json={**payload, "type": "industry", "theme": "AI算力", "priority": 3},
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 400
+    assert second.json()["message"] == "关键词已存在"
+
+
+def test_keyword_list_active_first_and_deduped_by_keyword_text():
+    client = _client()
+
+    resp = client.post(
+        "/api/messages/keywords/import",
+        json={
+            "items": [
+                {
+                    "keyword": "Micron",
+                    "type": "company",
+                    "theme": "存储芯片",
+                    "priority": 3,
+                    "language": "en",
+                    "status": "disabled",
+                },
+                {
+                    "keyword": "Micron",
+                    "type": "industry",
+                    "theme": "AI算力",
+                    "priority": 5,
+                    "language": "en",
+                    "status": "active",
+                },
+                {
+                    "keyword": "HBM",
+                    "type": "industry",
+                    "theme": "存储芯片",
+                    "priority": 4,
+                    "language": "en",
+                    "status": "disabled",
+                },
+            ]
+        },
+    )
+
+    assert resp.status_code == 201
+    rows = client.get("/api/messages/keywords").json()
+    assert [row["keyword"] for row in rows] == ["Micron", "HBM"]
+    assert rows[0]["status"] == "active"
+    assert rows[0]["theme"] == "AI算力"
 
 
 def test_disabled_db_keywords_do_not_fallback_to_csv_pool():

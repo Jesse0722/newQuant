@@ -7,6 +7,7 @@ START_SCRIPT="$ROOT_DIR/start-dev.sh"
 
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+HOST="${HOST:-127.0.0.1}"
 
 kill_by_port() {
   local port="$1"
@@ -45,7 +46,9 @@ kill_by_pattern() {
 echo "[restart] stopping existing dev processes..."
 kill_by_pattern "uvicorn app.main:app"
 kill_by_pattern "vite --host 127.0.0.1"
+kill_by_pattern "vite --host 0.0.0.0"
 kill_by_pattern "npm run dev -- --host 127.0.0.1"
+kill_by_pattern "npm run dev -- --host 0.0.0.0"
 
 kill_by_port "$BACKEND_PORT"
 kill_by_port "$FRONTEND_PORT"

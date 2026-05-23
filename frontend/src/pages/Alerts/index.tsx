@@ -13,14 +13,15 @@ import {
   Tooltip,
   Typography,
 } from 'antd'
+import { StarFilled, StarOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
   listAlerts,
   updateAlert,
-  createPlanFromAlert,
   batchDismissPendingAlerts,
   batchDeleteDismissedAlerts,
 } from '../../api/alerts'
+import { getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import type { Alert } from '../../types'
 
 const LS_TIP = 'buyAlert:iaTipDismissed'
@@ -39,6 +40,8 @@ const Alerts: React.FC = () => {
   const [tab, setTab] = useState('pending')
   const [page, setPage] = useState(1)
   const [showTip, setShowTip] = useState(() => localStorage.getItem(LS_TIP) !== '1')
+  const [coreWatchCodes, setCoreWatchCodes] = useState<Set<string>>(new Set())
+  const [coreWatchBusyTsCode, setCoreWatchBusyTsCode] = useState<string | null>(null)
   const navigate = useNavigate()
 
   const requestAlerts = useCallback((status: string, currentPage: number) => {
@@ -53,6 +56,12 @@ const Alerts: React.FC = () => {
   useEffect(() => {
     requestAlerts(tab, page)
   }, [page, requestAlerts, tab])
+
+  useEffect(() => {
+    getCoreWatchCodes()
+      .then((res) => setCoreWatchCodes(new Set(res.data.ts_codes || [])))
+      .catch(() => {})
+  }, [])
 
   const refreshAlerts = useCallback((status = tab, currentPage = page) => {
     setLoading(true)
@@ -86,11 +95,29 @@ const Alerts: React.FC = () => {
     refreshAlerts()
   }
 
-  const handleCreatePlan = async (id: string) => {
-    await createPlanFromAlert(id)
-    message.success('交易计划已创建')
-    notifyAlertsChanged()
-    refreshAlerts()
+  const handleToggleCoreWatch = async (r: Alert) => {
+    if (!r.ts_code || coreWatchBusyTsCode) return
+    const starred = coreWatchCodes.has(r.ts_code)
+    setCoreWatchBusyTsCode(r.ts_code)
+    try {
+      await toggleCoreWatch({
+        ts_code: r.ts_code,
+        starred: !starred,
+        limit_up_date: r.buy_signal?.life_line_date || undefined,
+        source: 'buy_alert',
+      })
+      setCoreWatchCodes((prev) => {
+        const next = new Set(prev)
+        if (starred) next.delete(r.ts_code)
+        else next.add(r.ts_code)
+        return next
+      })
+      message.success(starred ? '已取消特别关注' : '已加入「核心关注」股票池')
+    } catch {
+      message.error('标星失败，请稍后重试')
+    } finally {
+      setCoreWatchBusyTsCode(null)
+    }
   }
 
   const handleBatchDismiss = async () => {
@@ -239,21 +266,30 @@ const Alerts: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 150,
       fixed: 'right' as const,
-      render: (_: unknown, r: Alert) =>
-        r.status === 'pending' ? (
-          <Space>
-            <Button size="small" type="primary" onClick={() => handleCreatePlan(r.id)}>
-              创建计划
-            </Button>
+      render: (_: unknown, r: Alert) => {
+        const starred = coreWatchCodes.has(r.ts_code)
+        const busy = coreWatchBusyTsCode === r.ts_code
+        return (
+          <Space size={6}>
+            <Tooltip title={starred ? '取消特别关注' : '加入核心关注'}>
+              <Button
+                size="small"
+                type="text"
+                loading={busy}
+                icon={starred ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
+                onClick={() => handleToggleCoreWatch(r)}
+              />
+            </Tooltip>
+            {r.status === 'pending' && (
             <Popconfirm title="确定忽略？" onConfirm={() => handleDismiss(r.id)}>
               <Button size="small">忽略</Button>
             </Popconfirm>
+            )}
           </Space>
-        ) : r.plan_id ? (
-          <Typography.Link onClick={() => navigate(`/plans?expand=${r.plan_id}`)}>查看计划</Typography.Link>
-        ) : null,
+        )
+      },
     },
   ]
 

@@ -24,12 +24,17 @@ import {
   createStockDetail,
   getStockAiAnalysis,
   runStockAiAnalysis,
+  runStockAiAnalysisTask,
 } from '../../api/stocks'
 import { getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import { updateDetail, deleteDetail } from '../../api/plans'
 import { extractTradeFromImage } from '../../api/ocr'
 import type { JsonObject, StockAiAnalysisRecord, StockAiAnalysisSection, StockChartData, StockAlertItem, TradeDetail } from '../../types'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
+import { getNotifications, subscribeNotifications, upsertNotification } from '../../services/notificationCenter'
+
+const SHOW_STOCK_DETAIL_TRADING_ENTRIES = false
+const SHOW_STOCK_DETAIL_ALERTS_AND_DETAILS = false
 
 const statusColors: Record<string, string> = {
   pending: 'default', active: 'blue', completed: 'green', cancelled: 'red', processed: 'purple',
@@ -49,6 +54,13 @@ interface StockDetailLocationState {
   poolName?: string
 }
 
+interface StockDetailProps {
+  embedded?: boolean
+  tsCode?: string
+  stockNote?: string
+  onEditNote?: () => void
+}
+
 interface DetailFormValues {
   trade_date?: dayjs.Dayjs
   trade_time?: string
@@ -59,8 +71,9 @@ interface DetailFormValues {
   exec_note?: string
 }
 
-const StockDetail: React.FC = () => {
-  const { tsCode } = useParams<{ tsCode: string }>()
+const StockDetail: React.FC<StockDetailProps> = ({ embedded = false, tsCode: propTsCode, stockNote, onEditNote }) => {
+  const { tsCode: routeTsCode } = useParams<{ tsCode: string }>()
+  const tsCode = propTsCode || routeTsCode
   const navigate = useNavigate()
   const location = useLocation()
   const [chartData, setChartData] = useState<StockChartData | null>(null)
@@ -85,10 +98,10 @@ const StockDetail: React.FC = () => {
   const chartInstance = useRef<echarts.ECharts | null>(null)
   const locationState = (location.state as StockDetailLocationState | null) ?? null
   const poolNavStocks = useMemo<PoolNavStock[]>(
-    () => (Array.isArray(locationState?.stockList) ? locationState.stockList : []),
-    [locationState?.stockList]
+    () => (embedded ? [] : (Array.isArray(locationState?.stockList) ? locationState.stockList : [])),
+    [embedded, locationState?.stockList]
   )
-  const poolName = locationState?.poolName
+  const poolName = embedded ? undefined : locationState?.poolName
   const currentNavIndex = poolNavStocks.findIndex((s) => s.ts_code === tsCode)
 
   const jumpToStock = useCallback((idx: number) => {
@@ -201,8 +214,10 @@ const StockDetail: React.FC = () => {
   useEffect(() => {
     if (!tsCode) return
     getStockChart(tsCode, period).then((res) => setChartData(res.data))
-    getStockAlerts(tsCode).then((res) => setAlerts(res.data))
-    fetchDetails()
+    if (SHOW_STOCK_DETAIL_ALERTS_AND_DETAILS) {
+      getStockAlerts(tsCode).then((res) => setAlerts(res.data))
+      fetchDetails()
+    }
   }, [tsCode, period, fetchDetails])
 
   useEffect(() => {
@@ -222,6 +237,21 @@ const StockDetail: React.FC = () => {
     return () => {
       cancelled = true
     }
+  }, [tsCode])
+
+  useEffect(() => {
+    if (!tsCode) return
+    return subscribeNotifications((items) => {
+      const completed = items.find((item) =>
+        item.kind === 'stock_ai_analysis' &&
+        item.status === 'success' &&
+        item.meta?.tsCode === tsCode &&
+        item.meta?.result?.analysis
+      )
+      if (completed?.meta?.result) {
+        setAiAnalysis(completed.meta.result)
+      }
+    })
   }, [tsCode])
 
   useEffect(() => {
@@ -263,6 +293,43 @@ const StockDetail: React.FC = () => {
     if (!tsCode || aiLoadingMode) return
     setAiLoadingMode(mode)
     try {
+      if (mode === 'deep') {
+        const running = getNotifications().find((item) =>
+          item.kind === 'stock_ai_analysis' &&
+          item.status === 'running' &&
+          item.meta?.tsCode === tsCode &&
+          item.meta?.mode === 'deep'
+        )
+        if (running) {
+          message.info('该股票的深度分析已在队列中，请在顶部消息中心查看进度')
+          return
+        }
+        const res = await runStockAiAnalysisTask(tsCode, {
+          mode,
+          scope: 'stock_detail',
+          force_refresh: true,
+        })
+        const now = new Date().toISOString()
+        upsertNotification({
+          id: `stock-ai-analysis:${res.data.task_id}`,
+          kind: 'stock_ai_analysis',
+          status: 'running',
+          title: `${basic?.name || tsCode} 深度分析中`,
+          description: res.data.deduped ? '已有同样分析任务正在执行，已复用该任务' : '任务已提交，完成后会在顶部消息中心提醒',
+          createdAt: now,
+          updatedAt: now,
+          read: false,
+          taskId: res.data.task_id,
+          link: `/stocks/${tsCode}`,
+          meta: {
+            tsCode,
+            stockName: basic?.name || tsCode,
+            mode,
+          },
+        })
+        message.success(res.data.deduped ? '已复用正在执行的深度分析任务' : '深度分析已提交')
+        return
+      }
       const res = await runStockAiAnalysis(tsCode, {
         mode,
         scope: 'stock_detail',
@@ -550,12 +617,16 @@ const StockDetail: React.FC = () => {
                   {coreStarred ? '已加星' : '加星'}
                 </Button>
               </Tooltip>
-              <Button size="small" icon={<ThunderboltOutlined />} onClick={openQuickRecordModal}>
-                快速记录
-              </Button>
-              <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openDetailModal}>
-                添加明细
-              </Button>
+              {SHOW_STOCK_DETAIL_TRADING_ENTRIES && (
+                <>
+                  <Button size="small" icon={<ThunderboltOutlined />} onClick={openQuickRecordModal}>
+                    快速记录
+                  </Button>
+                  <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openDetailModal}>
+                    添加明细
+                  </Button>
+                </>
+              )}
             </Space>
           }
         >
@@ -595,6 +666,18 @@ const StockDetail: React.FC = () => {
               </>
             )}
           </Row>
+          <div style={{ marginTop: 14 }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 8 }}>概念题材</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {(basic.concept_tags ?? []).length > 0 ? (
+                basic.concept_tags?.map((tag) => (
+                  <Tag key={tag} color="blue" style={{ marginInlineEnd: 0 }}>{tag}</Tag>
+                ))
+              ) : (
+                <span style={{ color: 'var(--text-muted)' }}>暂无数据</span>
+              )}
+            </div>
+          </div>
         </Card>
       )}
 
@@ -625,8 +708,37 @@ const StockDetail: React.FC = () => {
           </Space>
         }
       >
-        <div ref={chartRef} style={{ width: '100%', height: 520 }} />
+        {chartData && chartData.quotes.length === 0 ? (
+          <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+            K 线数据不足，请先同步该股票历史行情
+          </div>
+        ) : (
+          <div ref={chartRef} style={{ width: '100%', height: embedded ? 440 : 520 }} />
+        )}
       </Card>
+
+      {(stockNote !== undefined || onEditNote) && (
+        <Card
+          title="股票备注"
+          style={{ marginBottom: 16 }}
+          extra={onEditNote ? (
+            <Button size="small" icon={<EditOutlined />} onClick={onEditNote}>
+              编辑备注
+            </Button>
+          ) : null}
+        >
+          <div
+            style={{
+              minHeight: 70,
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.8,
+              color: stockNote?.trim() ? 'var(--text-primary)' : 'var(--text-muted)',
+            }}
+          >
+            {stockNote?.trim() ? stockNote : '暂无备注'}
+          </div>
+        </Card>
+      )}
 
       <Card
         title="AI 智能分析"
@@ -738,26 +850,28 @@ const StockDetail: React.FC = () => {
         )}
       </Card>
 
-      <Card>
-        <Tabs
-          items={[
-            {
-              key: 'alerts',
-              label: `监控提醒 (${alerts.length})`,
-              children: (
-                <Table dataSource={alerts} columns={alertColumns} rowKey="id" size="small" pagination={false} />
-              ),
-            },
-            {
-              key: 'details',
-              label: `交易明细 (${details.length})`,
-              children: (
-                <Table dataSource={details} columns={detailColumns} rowKey="id" size="small" pagination={false} />
-              ),
-            },
-          ]}
-        />
-      </Card>
+      {SHOW_STOCK_DETAIL_ALERTS_AND_DETAILS && (
+        <Card>
+          <Tabs
+            items={[
+              {
+                key: 'alerts',
+                label: `监控提醒 (${alerts.length})`,
+                children: (
+                  <Table dataSource={alerts} columns={alertColumns} rowKey="id" size="small" pagination={false} />
+                ),
+              },
+              {
+                key: 'details',
+                label: `交易明细 (${details.length})`,
+                children: (
+                  <Table dataSource={details} columns={detailColumns} rowKey="id" size="small" pagination={false} />
+                ),
+              },
+            ]}
+          />
+        </Card>
+      )}
 
       {/* 快速记录 - 上传截图 OCR */}
       <Modal

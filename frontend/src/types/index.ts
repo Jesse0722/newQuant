@@ -43,6 +43,7 @@ export interface StockBasicInfo {
   area?: string
   market?: string
   list_date?: string
+  concept_tags?: string[]
 }
 
 export interface StockAiAnalysisSection {
@@ -282,6 +283,12 @@ export interface DashboardLimitLadderRow {
   industry?: string | null
 }
 
+export interface DashboardSectorStock {
+  ts_code?: string | null
+  name?: string | null
+  nums?: string | null
+}
+
 export interface DashboardFlowSectorRow {
   rank?: string | null
   name: string
@@ -292,6 +299,44 @@ export interface DashboardFlowSectorRow {
   cons_nums?: number | null
   max_limit_times?: number | null
   up_stat?: string | null
+  stocks?: DashboardSectorStock[]
+}
+
+export interface DashboardThsHotStock {
+  rank: number
+  ts_code?: string | null
+  code?: string | null
+  market?: number | null
+  name: string
+  hot?: number | null
+  pct_chg?: number | null
+  rank_chg?: number | null
+  concept_tags?: string[]
+  popularity_tag?: string | null
+  analyse_title?: string | null
+}
+
+export interface DashboardThsHotSector {
+  rank: number
+  code?: string | null
+  market?: number | null
+  name: string
+  type: 'concept' | 'industry' | string
+  type_label?: string | null
+  hot?: number | null
+  pct_chg?: number | null
+  rank_chg?: number | null
+  tag?: string | null
+  hot_tag?: string | null
+  etf_name?: string | null
+  etf_pct_chg?: number | null
+}
+
+export interface DashboardThsHotPayload {
+  source?: string
+  stocks: DashboardThsHotStock[]
+  sectors: DashboardThsHotSector[]
+  error?: string | null
 }
 
 export interface DashboardSummary {
@@ -316,6 +361,7 @@ export interface DashboardData {
   outflow_sectors?: DashboardFlowSectorRow[]
   outflow_ladder?: DashboardLimitLadderRow[]
   summary?: DashboardSummary
+  ths_hot?: DashboardThsHotPayload
 }
 
 export interface TaskStatus {
@@ -381,7 +427,7 @@ export interface Pagination<T> {
   total: number
 }
 
-// ---------- 消息中心 ----------
+// ---------- 题材挖掘 ----------
 
 export type MessageLifecycleStage = 'early' | 'spreading' | 'climax' | 'cooling' | string
 export type MessageSentiment = 'positive' | 'neutral' | 'negative' | string

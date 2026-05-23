@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip, Modal, DatePicker, Progress, Table, Row, Col, Statistic } from 'antd'
 import { ScanOutlined, BarChartOutlined, BellOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
@@ -13,6 +12,7 @@ import { getAlertsPendingCount } from '../../api/alerts'
 import { listPools, getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import SignalList from './SignalList'
 import SignalDetail from './SignalDetail'
+import Alerts from '../Alerts'
 import type {
   BuySignal,
   BuySignalStatus,
@@ -27,8 +27,8 @@ type FilterStatus = 'all' | BuySignalStatus
 const ALL_STRATEGY_ID = 'all'
 
 const BuyRadarPage: React.FC = () => {
-  const navigate = useNavigate()
   const [pendingAlertCount, setPendingAlertCount] = useState(0)
+  const [alertsOpen, setAlertsOpen] = useState(false)
   const [pools, setPools] = useState<Pool[]>([])
   const [activePoolId, setActivePoolId] = useState('')
   const [strategies, setStrategies] = useState<BuyStrategy[]>([])
@@ -422,7 +422,7 @@ const BuyRadarPage: React.FC = () => {
                 type="text"
                 aria-label="买点提醒"
                 icon={<BellOutlined style={{ fontSize: 18 }} />}
-                onClick={() => navigate('/alerts?from=radar')}
+                onClick={() => setAlertsOpen(true)}
               />
             </Badge>
           </Tooltip>
@@ -529,6 +529,20 @@ const BuyRadarPage: React.FC = () => {
           </span>
         </div>
       </div>
+
+      <Modal
+        title="买点提醒"
+        open={alertsOpen}
+        onCancel={() => {
+          setAlertsOpen(false)
+          refreshPendingAlerts()
+        }}
+        width={1280}
+        footer={null}
+        destroyOnClose
+      >
+        <Alerts />
+      </Modal>
 
       <Modal
         title="策略回测验证"

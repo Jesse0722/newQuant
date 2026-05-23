@@ -34,3 +34,24 @@ export const runStockAiAnalysis = (tsCode: string, data: {
   watch_stock_id?: string | null
   force_refresh?: boolean
 }) => client.post<StockAiAnalysisRecord>(`/stocks/${tsCode}/ai-analysis`, data)
+
+export interface StockAiAnalysisTaskStatus {
+  task_id: string
+  type: string
+  status: 'running' | 'completed' | 'failed'
+  progress: number
+  message: string
+  result?: StockAiAnalysisRecord | null
+  created_at: string
+}
+
+export const runStockAiAnalysisTask = (tsCode: string, data: {
+  mode?: 'fast' | 'deep'
+  scope?: string
+  pool_id?: string | null
+  watch_stock_id?: string | null
+  force_refresh?: boolean
+}) => client.post<{ task_id: string; deduped?: boolean }>(`/stocks/${tsCode}/ai-analysis-task`, data)
+
+export const getStockAiAnalysisTask = (taskId: string) =>
+  client.get<StockAiAnalysisTaskStatus>(`/stocks/ai-analysis-tasks/${taskId}`)

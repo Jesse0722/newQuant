@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 import threading
 import time as time_module
+import urllib.parse
+import urllib.request
 from typing import Any
 
 import pandas as pd
@@ -13,10 +15,11 @@ from app.services.tushare_adapter import MarketDataProvider, TushareAdapter, tus
 from app.utils import normalize_ts_code
 
 DASHBOARD_LIMIT_BOARD_CACHE_TTL_SEC = 60
+THS_HOT_BASE_URL = "https://dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1"
 
 _cache_lock = threading.Lock()
-# trade_date -> (expires_at_epoch, (sectors, ladder))
-_cache: dict[str, tuple[float, tuple[list[dict], list[dict], list[dict], list[dict], dict[str, Any]]]] = {}
+# trade_date -> (expires_at_epoch, (sectors, ladder, outflow_sectors, outflow_ladder, summary, ths_hot))
+_cache: dict[str, tuple[float, tuple[list[dict], list[dict], list[dict], list[dict], dict[str, Any], dict[str, Any]]]] = {}
 
 
 def _parse_rank(s: Any) -> tuple[int, int]:
@@ -65,6 +68,141 @@ def _df_to_records(df: pd.DataFrame) -> list[dict]:
     return records
 
 
+def _safe_float(v: Any) -> float | None:
+    try:
+        if v is None or pd.isna(v):
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(v: Any) -> int | None:
+    try:
+        if v is None or pd.isna(v):
+            return None
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
+
+def _fetch_ths_json(path: str, params: dict[str, Any]) -> dict[str, Any]:
+    query = urllib.parse.urlencode(params)
+    url = f"{THS_HOT_BASE_URL}/{path}?{query}" if query else f"{THS_HOT_BASE_URL}/{path}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://eq.10jqka.com.cn/frontend/thsTopRank/index.html",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        import json
+
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _format_ths_tags(tag: Any) -> dict[str, Any]:
+    if not isinstance(tag, dict):
+        return {"concept_tags": [], "popularity_tag": None}
+    concepts = tag.get("concept_tag")
+    if not isinstance(concepts, list):
+        concepts = []
+    return {
+        "concept_tags": [str(x) for x in concepts if x],
+        "popularity_tag": tag.get("popularity_tag"),
+    }
+
+
+def _fetch_ths_hot_stocks(limit: int = 100) -> list[dict[str, Any]]:
+    raw = _fetch_ths_json("stock", {"stock_type": "a", "type": "day", "list_type": "normal"})
+    rows = ((raw.get("data") or {}).get("stock_list") or []) if isinstance(raw, dict) else []
+    out: list[dict[str, Any]] = []
+    for idx, r in enumerate(rows[:limit], start=1):
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("code") or "").zfill(6)
+        ts_code = None
+        if code:
+            try:
+                ts_code = normalize_ts_code(code)
+            except Exception:
+                ts_code = code
+        tags = _format_ths_tags(r.get("tag"))
+        out.append({
+            "rank": _safe_int(r.get("order")) or idx,
+            "ts_code": ts_code,
+            "code": code,
+            "market": _safe_int(r.get("market")),
+            "name": r.get("name") or code,
+            "hot": _safe_float(r.get("rate")),
+            "pct_chg": _safe_float(r.get("rise_and_fall")),
+            "rank_chg": _safe_int(r.get("hot_rank_chg")) or 0,
+            "concept_tags": tags["concept_tags"],
+            "popularity_tag": tags["popularity_tag"],
+            "analyse_title": r.get("analyse_title"),
+        })
+    return out
+
+
+def _fetch_ths_hot_sector_type(sector_type: str) -> list[dict[str, Any]]:
+    raw = _fetch_ths_json("plate", {"type": sector_type})
+    rows = ((raw.get("data") or {}).get("plate_list") or []) if isinstance(raw, dict) else []
+    type_label = "概念" if sector_type == "concept" else "行业"
+    out: list[dict[str, Any]] = []
+    for idx, r in enumerate(rows, start=1):
+        if not isinstance(r, dict):
+            continue
+        out.append({
+            "rank": _safe_int(r.get("order")) or idx,
+            "code": r.get("code"),
+            "market": _safe_int(r.get("market_id")),
+            "name": r.get("name") or r.get("code"),
+            "type": sector_type,
+            "type_label": type_label,
+            "hot": _safe_float(r.get("rate")),
+            "pct_chg": _safe_float(r.get("rise_and_fall")),
+            "rank_chg": _safe_int(r.get("hot_rank_chg")) or 0,
+            "tag": r.get("tag"),
+            "hot_tag": r.get("hot_tag"),
+            "etf_name": r.get("etf_name"),
+            "etf_pct_chg": _safe_float(r.get("etf_rise_and_fall")),
+        })
+    return out
+
+
+def _fetch_ths_hot_sectors(limit: int = 20) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for sector_type in ("concept", "industry"):
+        try:
+            rows.extend(_fetch_ths_hot_sector_type(sector_type))
+        except Exception:
+            continue
+    rows.sort(key=lambda r: (-(r.get("hot") or 0), r.get("rank") or 999999, str(r.get("code") or "")))
+    for idx, row in enumerate(rows[:limit], start=1):
+        row["rank"] = idx
+    return rows[:limit]
+
+
+def _fetch_ths_hot_payload() -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "source": "ths.hot_list",
+        "stocks": [],
+        "sectors": [],
+        "error": None,
+    }
+    try:
+        payload["stocks"] = _fetch_ths_hot_stocks(limit=100)
+    except Exception as e:
+        payload["error"] = f"stocks: {str(e)[:160]}"
+    try:
+        payload["sectors"] = _fetch_ths_hot_sectors(limit=20)
+    except Exception as e:
+        msg = f"sectors: {str(e)[:160]}"
+        payload["error"] = msg if not payload["error"] else f"{payload['error']}; {msg}"
+    return payload
+
+
 def _sort_sectors(records: list[dict]) -> list[dict]:
     return sorted(records, key=_sector_sort_key)
 
@@ -81,6 +219,25 @@ def _ladder_sort_key(row: dict) -> tuple:
 
 def _sort_ladder(records: list[dict]) -> list[dict]:
     return sorted(records, key=_ladder_sort_key)
+
+
+def _stock_chip(row: dict) -> dict[str, Any]:
+    return {
+        "ts_code": row.get("ts_code"),
+        "name": row.get("name") or row.get("ts_code"),
+        "nums": row.get("nums"),
+    }
+
+
+def _attach_inflow_sector_stocks(sectors: list[dict], ladder: list[dict]) -> None:
+    by_industry: dict[str, list[dict[str, Any]]] = {}
+    for row in ladder:
+        industry = row.get("industry")
+        if not industry:
+            continue
+        by_industry.setdefault(str(industry), []).append(_stock_chip(row))
+    for row in sectors:
+        row["stocks"] = by_industry.get(str(row.get("name") or ""), [])
 
 
 def _enrich_ladder_industry(ladder: list[dict]) -> None:
@@ -112,7 +269,7 @@ def _enrich_ladder_industry(ladder: list[dict]) -> None:
         if not code:
             row["industry"] = None
             continue
-        row["industry"] = m.get(str(code))
+        row["industry"] = row.get("industry") or m.get(str(code))
 
 
 def _fetch_limit_list_d(trade_date: str, limit_type: str) -> pd.DataFrame:
@@ -178,7 +335,7 @@ def _fetch_limit_down_from_akshare(trade_date: str) -> pd.DataFrame:
     name_col = _pick("名称", "name", "证券简称")
     ind_col = _pick("所属行业", "industry", "行业")
     pct_col = _pick("涨跌幅", "pct_chg")
-    times_col = _pick("连板数", "连续跌停天数", "limit_times")
+    times_col = _pick("连板数", "连续跌停", "连续跌停天数", "limit_times")
 
     if code_col is None:
         return pd.DataFrame()
@@ -291,15 +448,28 @@ def _build_outflow_sectors(df_down: pd.DataFrame) -> list[dict]:
         .reset_index()
     )
     g = g.sort_values(["down_nums", "pct_chg"], ascending=[False, True]).reset_index(drop=True)
+    stocks_by_industry: dict[str, list[dict[str, Any]]] = {}
+    detail = df.copy()
+    detail["limit_times"] = detail["limit_times"].fillna(1).astype(int)
+    detail = detail.sort_values(["industry", "limit_times", "ts_code"], ascending=[True, False, True])
+    for _, stock in detail.iterrows():
+        industry = str(stock.get("industry") or "其他")
+        stocks_by_industry.setdefault(industry, []).append({
+            "ts_code": stock.get("ts_code"),
+            "name": stock.get("name") or stock.get("ts_code"),
+            "nums": str(int(stock.get("limit_times") or 1)),
+        })
     out: list[dict] = []
     for i, r in g.iterrows():
+        industry = r.get("industry") or "其他"
         out.append({
             "rank": str(i + 1),
-            "name": r.get("industry") or "其他",
+            "name": industry,
             "down_nums": int(r.get("down_nums") or 0),
             "pct_chg": float(r.get("pct_chg") or 0.0),
             "max_limit_times": int(r.get("max_limit_times") or 0),
             "trade_date": None,
+            "stocks": stocks_by_industry.get(str(industry), []),
         })
     return out
 
@@ -363,7 +533,7 @@ def get_limit_market_board_payload(
     with _cache_lock:
         hit = _cache.get(td)
         if hit and hit[0] > now:
-            sectors, ladder, outflow_sectors, outflow_ladder, summary = hit[1]
+            sectors, ladder, outflow_sectors, outflow_ladder, summary, ths_hot = hit[1]
             return {
                 "trade_date": td,
                 "resolved_by": resolved_by,
@@ -374,6 +544,7 @@ def get_limit_market_board_payload(
                 "outflow_sectors": outflow_sectors,
                 "outflow_ladder": outflow_ladder,
                 "summary": summary,
+                "ths_hot": ths_hot,
             }
 
     df_s = ad.get_limit_cpt_list(td)
@@ -385,6 +556,7 @@ def get_limit_market_board_payload(
     except Exception:
         for row in ladder:
             row.setdefault("industry", None)
+    _attach_inflow_sector_stocks(sectors, ladder)
 
     outflow_source = "none"
     df_down = _fetch_limit_list_d(td, "D")
@@ -403,7 +575,8 @@ def get_limit_market_board_payload(
     outflow_sectors = _build_outflow_sectors(df_down)
     outflow_ladder = _sort_ladder(_build_outflow_ladder(df_down, td))
     summary = _build_summary(sectors, ladder, outflow_sectors, outflow_ladder, outflow_source=outflow_source)
-    payload_body = (sectors, ladder, outflow_sectors, outflow_ladder, summary)
+    ths_hot = _fetch_ths_hot_payload()
+    payload_body = (sectors, ladder, outflow_sectors, outflow_ladder, summary, ths_hot)
 
     with _cache_lock:
         _cache[td] = (now + DASHBOARD_LIMIT_BOARD_CACHE_TTL_SEC, payload_body)
@@ -418,4 +591,5 @@ def get_limit_market_board_payload(
         "outflow_sectors": outflow_sectors,
         "outflow_ladder": outflow_ladder,
         "summary": summary,
+        "ths_hot": ths_hot,
     }

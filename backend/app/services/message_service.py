@@ -61,6 +61,19 @@ def _merge_unique(*groups: list[str] | None) -> list[str]:
     return result
 
 
+def _source_links_by_channel(channels: list[str], items: list[MessageSourceItem]) -> list[str]:
+    links: list[str] = []
+    seen: set[str] = set()
+    for channel in channels:
+        link = next((item.url for item in items if item.channel == channel and item.url), "")
+        if link and link not in seen:
+            links.append(link)
+            seen.add(link)
+        else:
+            links.append("")
+    return links
+
+
 def create_or_update_topic(db: Session, body: MessageTopicCreate) -> MessageTopic:
     trade_date = body.trade_date or today_yyyymmdd()
     topic = (
@@ -168,10 +181,10 @@ def _upsert_aggregated_opportunity(
     if risk_score >= 70:
         action_suggestion = "risk_watch"
 
-    source_links = _merge_unique([item.url for item in items if item.url])
+    source_links = _source_links_by_channel(channels, items)
     catalysts = _merge_unique(*[item.tags for item in items])
     reason = f"{theme} 在 {len(channels)} 个渠道出现共振，近 {len(items)} 条消息提及 {stock_name or ts_code}。"
-    if source_links:
+    if any(source_links):
         reason += " 已保留来源链接便于复盘。"
 
     existing = (

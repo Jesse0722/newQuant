@@ -55,6 +55,49 @@ LOW_VALUE_PATTERNS = (
     "dm me",
 )
 
+STOCK_ANALYSIS_CATALYST_TERMS = (
+    "订单",
+    "订单量",
+    "在手订单",
+    "合同",
+    "中标",
+    "采购",
+    "供货",
+    "出货",
+    "交付",
+    "量产",
+    "扩产",
+    "产能",
+    "产能利用率",
+    "大客户",
+    "客户导入",
+    "营收",
+    "收入指引",
+    "毛利率",
+    "市占率",
+    "order",
+    "contract",
+    '"purchase order"',
+    '"supply agreement"',
+    "shipment",
+    '"shipment volume"',
+    "delivery",
+    "tender",
+    "award",
+    "backlog",
+    "bookings",
+    "capacity",
+    '"capacity expansion"',
+    "ramp",
+    "utilization",
+    '"customer win"',
+    '"design win"',
+    "guidance",
+    "revenue",
+    "margin",
+    '"market share"',
+)
+
 
 @dataclass(frozen=True)
 class KeywordSeed:
@@ -134,6 +177,36 @@ def _keyword_out(row: MessageKeywordSeed) -> MessageSeedKeywordOut:
     )
 
 
+def _normalized_keyword(value: str) -> str:
+    return " ".join(value.strip().lower().split())
+
+
+def _sort_keyword_rows(rows: list[MessageKeywordSeed]) -> list[MessageKeywordSeed]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            0 if row.status == "active" else 1,
+            -row.priority,
+            row.theme,
+            row.keyword.lower(),
+            row.type,
+            row.language,
+        ),
+    )
+
+
+def _dedupe_keyword_rows(rows: list[MessageKeywordSeed]) -> list[MessageKeywordSeed]:
+    result: list[MessageKeywordSeed] = []
+    seen: set[str] = set()
+    for row in _sort_keyword_rows(rows):
+        key = _normalized_keyword(row.keyword)
+        if key in seen:
+            continue
+        result.append(row)
+        seen.add(key)
+    return result
+
+
 def import_keyword_seeds(db: Session, body: MessageKeywordImportRequest) -> MessageKeywordImportOut:
     created = 0
     updated = 0
@@ -191,6 +264,15 @@ def import_keyword_seeds(db: Session, body: MessageKeywordImportRequest) -> Mess
 
 
 def save_keyword_seed(db: Session, body: MessageSeedKeywordCreate) -> MessageSeedKeywordOut:
+    keyword = body.keyword.strip()
+    existing_rows = db.query(MessageKeywordSeed).all()
+    if any(_normalized_keyword(row.keyword) == _normalized_keyword(keyword) for row in existing_rows):
+        raise AppError(
+            code=5104,
+            message="关键词已存在",
+            detail=f"「{keyword}」已在关键词池中，请直接调整现有记录的状态或优先级。",
+            status_code=400,
+        )
     result = import_keyword_seeds(db, MessageKeywordImportRequest(items=[body]))
     if not result.items:
         raise AppError(code=5103, message="关键词保存失败", detail="没有生成可保存的关键词记录", status_code=400)
@@ -219,10 +301,9 @@ def import_default_keyword_seeds(db: Session) -> MessageKeywordImportOut:
 def list_keyword_seed_rows(db: Session) -> list[MessageSeedKeywordOut]:
     rows = (
         db.query(MessageKeywordSeed)
-        .order_by(MessageKeywordSeed.priority.desc(), MessageKeywordSeed.theme.asc(), MessageKeywordSeed.keyword.asc())
         .all()
     )
-    return [_keyword_out(row) for row in rows]
+    return [_keyword_out(row) for row in _dedupe_keyword_rows(rows)]
 
 
 def load_x_account_seeds() -> list[XAccountSeed]:
@@ -408,6 +489,16 @@ def _mapping_heat_bonus(weight: float) -> int:
     return max(0, min(12, int(round(weight * 10))))
 
 
+def _matched_stock_analysis_terms(text: str) -> list[str]:
+    lower_text = text.lower()
+    matched: list[str] = []
+    for term in STOCK_ANALYSIS_CATALYST_TERMS:
+        normalized = term.strip('"')
+        if normalized.lower() in lower_text:
+            matched.append(normalized)
+    return matched[:8]
+
+
 def x_payload_to_source_items(
     payload: dict[str, Any],
     trade_date: str,
@@ -446,7 +537,8 @@ def x_payload_to_source_items(
             ts_code = mapping.ts_code or None
             stock_name = mapping.stock_name or None
             theme = mapping.theme or base_theme
-            tags = list(dict.fromkeys(base_tags + mapping.tags))
+            catalyst_terms = _matched_stock_analysis_terms(text)
+            tags = list(dict.fromkeys(base_tags + mapping.tags + catalyst_terms))
             heat_score = min(100, base_heat + _mapping_heat_bonus(mapping.weight))
             credibility_score = min(100, max(35, 45 + quality_score // 3 + _mapping_heat_bonus(mapping.weight)))
             item = MessageSourceItemCreate(
@@ -521,28 +613,10 @@ def build_x_stock_analysis_query(
         seen.add(key)
         normalized_terms.append(f'"{text}"' if " " in text else text)
 
-    hard_catalysts = [
-        "订单",
-        "合同",
-        "中标",
-        "采购",
-        "供货",
-        "出货",
-        "交付",
-        "量产",
-        "order",
-        "contract",
-        '"purchase order"',
-        '"supply agreement"',
-        "shipment",
-        "delivery",
-        "tender",
-        "award",
-    ]
     if not normalized_terms:
         normalized_terms = [ts_code]
     stock_part = " OR ".join(normalized_terms[:10])
-    catalyst_part = " OR ".join(hard_catalysts)
+    catalyst_part = " OR ".join(STOCK_ANALYSIS_CATALYST_TERMS)
     return f"(({stock_part}) ({catalyst_part})) -is:retweet -is:reply"
 
 
@@ -572,6 +646,7 @@ def collect_x_stock_analysis_posts(
         theme = (themes or [None])[0] or industry or "个股消息"
         heat_score = _score_from_metrics(4, metrics)
         credibility_score = min(100, max(35, 45 + quality_score // 3))
+        catalyst_terms = _matched_stock_analysis_terms(text)
         source_items.append(
             MessageSourceItemCreate(
                 trade_date=trade_date,
@@ -584,7 +659,7 @@ def collect_x_stock_analysis_posts(
                 theme=theme,
                 ts_code=ts_code,
                 stock_name=stock_name,
-                tags=["stock_ai_analysis", f"quality:{quality_score}"],
+                tags=list(dict.fromkeys(["stock_ai_analysis", *catalyst_terms, f"quality:{quality_score}"])),
                 sentiment="neutral",
                 heat_score=heat_score,
                 credibility_score=credibility_score,

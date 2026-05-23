@@ -23,6 +23,7 @@
 | -- | `plans/2026-03-02-v1-implementation-plan.md` | V1 详细实施计划：5 个 Phase、28 个任务，含文件路径、代码片段、验证步骤 | 已定稿 |
 | -- | `plans/舆情分析模块需求.md` | 消息中心 PRD：每日题材、个股机会、平台角色、验收标准 | MVP 已实现 |
 | -- | `plans/2026-05-14-message-opportunity-technical-design.md` | 消息中心与 X 舆情采集技术方案：原始消息层、X recent search、种子池、A 股映射、API、验证步骤 | MVP 已实现 |
+| -- | `plans/2026-05-22-task-notification-center-design.md` | 顶部任务消息中心设计：异步任务完成通知、任务收件箱、分期范围；策略回溯/回测放第二期 | 进行中 |
 | -- | `plans/2026-03-01-涨停回调买入策略.md` | 涨停回调买入策略实施方案（已实施） | 已归档 |
 | -- | `plans/2026-04-14-五日均线不破策略.md` | 五日均线不破（`ma5_hold_pullback`）量化口径与回测说明 | 已归档 |
 | -- | `PLANNING_WITH_SUPERPOWERS.md` | Superpowers 问答式规划流程说明 | 参考 |

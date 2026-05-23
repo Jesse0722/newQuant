@@ -11,6 +11,7 @@ import {
 } from '../../api/strategy'
 import { listPools, batchAddStocks, quickCreatePool } from '../../api/pools'
 import type { JsonObject, JsonValue, Pool } from '../../types'
+import { upsertNotification } from '../../services/notificationCenter'
 
 const MAX_CONDITIONS = 10
 const AI_DESC_MAX = 200
@@ -222,6 +223,22 @@ const StrategyPage: React.FC = () => {
     try {
       const res = await runAiScreen({ description: desc, scope: scope || 'full' })
       setTaskId(res.data.task_id)
+      const now = new Date().toISOString()
+      upsertNotification({
+        id: `ai-screen:${res.data.task_id}`,
+        kind: 'ai_screen',
+        status: 'running',
+        title: 'AI 智能选股中',
+        description: '任务已提交，完成后会在顶部消息中心提醒',
+        createdAt: now,
+        updatedAt: now,
+        read: false,
+        taskId: res.data.task_id,
+        link: '/strategy',
+        meta: {
+          mode: 'deep',
+        },
+      })
     } catch {
       setLoading(false)
     }

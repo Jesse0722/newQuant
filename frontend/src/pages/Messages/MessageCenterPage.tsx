@@ -89,10 +89,29 @@ const keywordStatusOptions = [
 const keywordRowKey = (row: MessageSeedKeyword) =>
   `${row.keyword}-${row.type}-${row.theme}-${row.language}`
 
+const normalizedKeyword = (value?: string) => (value || '').trim().toLowerCase().replace(/\s+/g, ' ')
+
+const sortAndDedupeKeywords = (rows: MessageSeedKeyword[]) => {
+  const sorted = [...rows].sort((a, b) => {
+    if (a.status !== b.status) return a.status === 'active' ? -1 : 1
+    if (a.priority !== b.priority) return b.priority - a.priority
+    const themeOrder = a.theme.localeCompare(b.theme, 'zh-Hans-CN')
+    if (themeOrder) return themeOrder
+    return a.keyword.localeCompare(b.keyword, 'zh-Hans-CN')
+  })
+  const seen = new Set<string>()
+  return sorted.filter((row) => {
+    const key = normalizedKeyword(row.keyword)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 const upsertKeywordRows = (rows: MessageSeedKeyword[], next: MessageSeedKeyword) => {
-  const nextKey = keywordRowKey(next)
-  const filtered = rows.filter((row) => keywordRowKey(row) !== nextKey)
-  return [next, ...filtered]
+  const nextKey = normalizedKeyword(next.keyword)
+  const filtered = rows.filter((row) => normalizedKeyword(row.keyword) !== nextKey)
+  return sortAndDedupeKeywords([next, ...filtered])
 }
 
 const formatTradeDate = (value: string) =>
@@ -106,6 +125,12 @@ const errorText = (error: unknown, fallback: string) => {
   const messageText = apiError.response?.data?.message
   const detailText = apiError.response?.data?.detail
   return detailText ? `${messageText || fallback}：${detailText}` : (messageText || fallback)
+}
+
+const sourceLinkForPlatform = (row: MessageOpportunity, index: number) => {
+  const link = row.source_links?.[index]
+  if (link) return link
+  return row.source_platforms.length === 1 ? row.source_links?.find(Boolean) : undefined
 }
 
 const stageTag = (stage: MessageLifecycleStage) => {
@@ -144,7 +169,7 @@ const MessageCenterPage: React.FC = () => {
         return res.data.topics.some((t) => t.theme === prev) ? prev : 'all'
       })
     } catch (error) {
-      message.error(errorText(error, '加载消息中心失败'))
+      message.error(errorText(error, '加载题材挖掘失败'))
     } finally {
       setLoading(false)
     }
@@ -211,7 +236,7 @@ const MessageCenterPage: React.FC = () => {
     setKeywordLoading(true)
     try {
       const res = await listMessageKeywords()
-      setKeywords(res.data)
+      setKeywords(sortAndDedupeKeywords(res.data))
     } catch (error) {
       message.error(errorText(error, '加载关键词失败'))
     } finally {
@@ -248,10 +273,22 @@ const MessageCenterPage: React.FC = () => {
   const handleAddKeyword = async (values: MessageSeedKeywordInput) => {
     setKeywordSaving(true)
     try {
+      const keyword = values.keyword.trim()
+      const theme = values.theme.trim()
+      if (!keyword || !theme) {
+        message.warning('请输入关键词和题材')
+        return
+      }
+      const duplicated = keywords.some((row) => normalizedKeyword(row.keyword) === normalizedKeyword(keyword))
+      if (duplicated) {
+        keywordForm.setFields([{ name: 'keyword', errors: ['关键词已存在'] }])
+        message.warning(`关键词「${keyword}」已存在`)
+        return
+      }
       const payload: MessageSeedKeywordInput = {
-        keyword: values.keyword.trim(),
+        keyword,
         type: values.type || 'industry',
-        theme: values.theme.trim(),
+        theme,
         priority: values.priority || 3,
         language: values.language || 'en',
         status: values.status || 'active',
@@ -379,7 +416,17 @@ const MessageCenterPage: React.FC = () => {
       width: 180,
       render: (_: unknown, row: MessageOpportunity) => (
         <Space size={[4, 4]} wrap>
-          {row.source_platforms.map((item) => <Tag key={item} color="blue">{item}</Tag>)}
+          {row.source_platforms.map((item, index) => {
+            const link = sourceLinkForPlatform(row, index)
+            const tag = <Tag color="blue" style={link ? { cursor: 'pointer' } : undefined}>{item}</Tag>
+            return link ? (
+              <a key={`${item}-${link}`} href={link} target="_blank" rel="noreferrer">
+                {tag}
+              </a>
+            ) : (
+              <React.Fragment key={item}>{tag}</React.Fragment>
+            )
+          })}
         </Space>
       ),
     },
@@ -426,9 +473,9 @@ const MessageCenterPage: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <section style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
         <div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>今日消息</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>题材挖掘</div>
           <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: 22 }}>
-            题材与个股机会
+            今日题材与个股机会
           </h2>
           <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
             {daily ? formatTradeDate(daily.trade_date) : '-'} · 聚焦 AI 产业链传播与映射
@@ -552,7 +599,20 @@ const MessageCenterPage: React.FC = () => {
             onFinish={handleAddKeyword}
             initialValues={{ type: 'industry', priority: 5, language: 'en', status: 'active' }}
           >
-            <Form.Item name="keyword" rules={[{ required: true, message: '请输入关键词' }]}>
+            <Form.Item
+              name="keyword"
+              rules={[
+                { required: true, message: '请输入关键词' },
+                {
+                  validator: (_, value) => {
+                    const key = normalizedKeyword(value)
+                    if (!key) return Promise.resolve()
+                    const duplicated = keywords.some((row) => normalizedKeyword(row.keyword) === key)
+                    return duplicated ? Promise.reject(new Error('关键词已存在')) : Promise.resolve()
+                  },
+                },
+              ]}
+            >
               <Input placeholder="关键词 / 公司名" style={{ width: 160 }} />
             </Form.Item>
             <Form.Item name="theme" rules={[{ required: true, message: '请输入题材' }]}>

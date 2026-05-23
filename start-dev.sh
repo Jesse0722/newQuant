@@ -8,6 +8,7 @@ FRONTEND_DIR="$ROOT_DIR/frontend"
 
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+HOST="${HOST:-127.0.0.1}"
 
 BACKEND_PID=""
 FRONTEND_PID=""
@@ -46,17 +47,17 @@ if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
   exit 1
 fi
 
-echo "[start] backend: http://127.0.0.1:${BACKEND_PORT}"
+echo "[start] backend: http://${HOST}:${BACKEND_PORT}"
 (
   cd "$BACKEND_DIR"
-  ./venv/bin/uvicorn app.main:app --host 127.0.0.1 --port "$BACKEND_PORT"
+  ./venv/bin/uvicorn app.main:app --host "$HOST" --port "$BACKEND_PORT"
 ) &
 BACKEND_PID=$!
 
-echo "[start] frontend: http://127.0.0.1:${FRONTEND_PORT}"
+echo "[start] frontend: http://${HOST}:${FRONTEND_PORT}"
 (
   cd "$FRONTEND_DIR"
-  npm run dev -- --host 127.0.0.1 --port "$FRONTEND_PORT"
+  npm run dev -- --host "$HOST" --port "$FRONTEND_PORT"
 ) &
 FRONTEND_PID=$!
 
