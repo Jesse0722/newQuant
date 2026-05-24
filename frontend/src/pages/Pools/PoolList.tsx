@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   Button, Modal, Form, Input, InputNumber,
   Upload, message, Popconfirm, Select, AutoComplete,
@@ -23,6 +24,7 @@ import PoolStockDetailPanel from './PoolStockDetailPanel'
 import PoolStockListItem from './PoolStockListItem'
 import PoolSidebar from './PoolSidebar'
 import PoolToolbar from './PoolToolbar'
+import MainWaveResearchPanel from './MainWaveResearchPanel'
 import {
   subscribeNotifications,
   upsertNotification,
@@ -39,6 +41,8 @@ interface CsvImportResult {
 }
 
 const PoolList: React.FC = () => {
+  const navigate = useNavigate()
+  const { poolId: routePoolId } = useParams<{ poolId?: string }>()
   const [pools, setPools] = useState<Pool[]>([])
   const [activePoolId, setActivePoolId] = useState('')
   const [stocks, setStocks] = useState<WatchStock[]>([])
@@ -140,6 +144,10 @@ const PoolList: React.FC = () => {
   /* ===== Computed ===== */
 
   const activePool = pools.find(p => p.id === activePoolId)
+  const isMainWavePool = useMemo(() => {
+    const text = `${activePool?.name || ''} ${activePool?.description || ''}`
+    return text.includes('主升浪')
+  }, [activePool?.description, activePool?.name])
 
   const selectedStock = stocks.find(s => s.ts_code === selectedCode) || null
   const selectedIndex = stocks.findIndex(s => s.ts_code === selectedCode)
@@ -237,11 +245,28 @@ const PoolList: React.FC = () => {
     refreshCoreWatch()
     fetchPools().then(data => {
       if (!initialLoaded.current && data.length > 0) {
-        setActivePoolId(data[0].id)
+        const routedPool = routePoolId ? data.find(pool => pool.id === routePoolId) : null
+        const nextPoolId = routedPool?.id || data[0].id
+        setActivePoolId(nextPoolId)
+        if (!routePoolId || !routedPool) {
+          navigate(`/pools/${nextPoolId}`, { replace: true })
+        }
         initialLoaded.current = true
       }
     })
-  }, [fetchPools, refreshCoreWatch])
+  }, [fetchPools, navigate, refreshCoreWatch, routePoolId])
+
+  useEffect(() => {
+    if (!initialLoaded.current || !routePoolId || routePoolId === activePoolId) return
+    if (pools.some(pool => pool.id === routePoolId)) {
+      setActivePoolId(routePoolId)
+    }
+  }, [activePoolId, pools, routePoolId])
+
+  const selectPool = useCallback((poolId: string) => {
+    setActivePoolId(poolId)
+    navigate(`/pools/${poolId}`)
+  }, [navigate])
 
   useEffect(() => {
     return subscribeNotifications((items: AppNotification[]) => {
@@ -502,8 +527,24 @@ const PoolList: React.FC = () => {
   const handleAddPool = async () => {
     const res = await createPool({ name: `新观察池 ${pools.length + 1}` })
     await fetchPools()
-    setActivePoolId(res.data.id)
+    selectPool(res.data.id)
     message.success('已创建')
+  }
+
+  const handleCreateMainWavePool = async () => {
+    const existing = pools.find(pool => `${pool.name} ${pool.description || ''}`.includes('主升浪'))
+    if (existing) {
+      selectPool(existing.id)
+      message.info('已切换到主升浪样本库')
+      return
+    }
+    const res = await createPool({
+      name: '主升浪样本库',
+      description: '主升浪趋势结构、MA20修复与板块共振研究池',
+    })
+    await fetchPools()
+    selectPool(res.data.id)
+    message.success('已创建主升浪样本库')
   }
 
   const handleDeletePool = (poolId: string) => {
@@ -512,7 +553,14 @@ const PoolList: React.FC = () => {
       onOk: async () => {
         await deletePool(poolId)
         const updated = await fetchPools()
-        if (activePoolId === poolId) setActivePoolId(updated.length > 0 ? updated[0].id : '')
+        if (activePoolId === poolId) {
+          const nextPoolId = updated.length > 0 ? updated[0].id : ''
+          if (nextPoolId) selectPool(nextPoolId)
+          else {
+            setActivePoolId('')
+            navigate('/pools', { replace: true })
+          }
+        }
         message.success('已删除')
       },
     })
@@ -529,10 +577,26 @@ const PoolList: React.FC = () => {
 
   const handleEditPool = async () => {
     const values = await poolForm.validateFields()
-    await updatePool(activePoolId, values)
-    message.success('更新成功')
-    setEditPoolModalOpen(false)
-    fetchPools()
+    const payload = {
+      ...values,
+      name: String(values.name || '').trim(),
+      description: values.description ? String(values.description).trim() : undefined,
+    }
+    if (!payload.name) {
+      message.warning('请输入观察池名称')
+      return
+    }
+    try {
+      const res = await updatePool(activePoolId, payload)
+      setPools(prev => prev.map(pool => (
+        pool.id === activePoolId ? { ...pool, ...res.data } : pool
+      )))
+      message.success('观察池已更新')
+      setEditPoolModalOpen(false)
+    } catch (error: unknown) {
+      const apiError = error as { response?: { data?: { message?: string } } }
+      message.error(apiError.response?.data?.message || '观察池更新失败')
+    }
   }
 
   const handleAddRule = async () => {
@@ -796,6 +860,7 @@ const PoolList: React.FC = () => {
         activePoolId={activePoolId}
         dragOverIndex={dragOverIndex}
         onAddPool={handleAddPool}
+        onCreateMainWavePool={handleCreateMainWavePool}
         onDeletePool={handleDeletePool}
         onDragEnd={handleTabDragEnd}
         onDragLeave={handleTabDragLeave}
@@ -804,7 +869,7 @@ const PoolList: React.FC = () => {
         onDrop={handleTabDrop}
         onEditPool={openEditPoolModal}
         onReload={() => loadInitial(activePoolId)}
-        onSelectPool={setActivePoolId}
+        onSelectPool={selectPool}
         onSync={handleSync}
         pools={pools}
         syncing={syncing}
@@ -812,6 +877,7 @@ const PoolList: React.FC = () => {
 
       {/* Main body: left-right split */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, border: '1px solid var(--border-default)', borderRadius: 10, background: 'var(--bg-card)', overflow: 'hidden' }}>
+        {!isMainWavePool && (
         <PoolSidebar
           activePool={activePool}
           circMvMax={circMvMax}
@@ -855,28 +921,45 @@ const PoolList: React.FC = () => {
           stocks={stocks}
           total={total}
         />
+        )}
 
         {/* Right panel: detail */}
         <div style={{ flex: 1, minWidth: 0, padding: '12px 16px', overflowY: 'auto' }}>
-          <PoolStockDetailPanel
-            aiAnalyzingMode={aiAnalyzingMode}
-            aiAnalyzingStockId={aiAnalyzingStockId}
-            chartData={chartData}
-            chartLoading={chartLoading}
-            chartPeriod={chartPeriod}
-            chartRef={chartDivRef}
-            coreWatchBusyTsCode={coreWatchBusyTsCode}
-            coreWatchCodes={coreWatchCodes}
-            onAnalyzeStock={handleAnalyzeStock}
-            onDeleteStock={handleDeleteStock}
-            onEditNote={openNoteModal}
-            onSetChartPeriod={setChartPeriod}
-            onSetSubIndicator={setSubIndicator}
-            onToggleCoreWatch={handleToggleCoreWatch}
-            onTogglePin={handleTogglePin}
-            selectedStock={selectedStock}
-            subIndicator={subIndicator}
-          />
+          {isMainWavePool ? (
+            <MainWaveResearchPanel
+              chartData={chartData}
+              chartLoading={chartLoading}
+              onAddStock={() => setAddModalOpen(true)}
+              onDeleteStock={handleDeleteStock}
+              onEditNote={openNoteModal}
+              onExport={handleExport}
+              onImport={() => setImportModalOpen(true)}
+              onSelectStock={setSelectedCode}
+              onTogglePin={handleTogglePin}
+              selectedStock={selectedStock}
+              stocks={stocks}
+            />
+          ) : (
+            <PoolStockDetailPanel
+              aiAnalyzingMode={aiAnalyzingMode}
+              aiAnalyzingStockId={aiAnalyzingStockId}
+              chartData={chartData}
+              chartLoading={chartLoading}
+              chartPeriod={chartPeriod}
+              chartRef={chartDivRef}
+              coreWatchBusyTsCode={coreWatchBusyTsCode}
+              coreWatchCodes={coreWatchCodes}
+              onAnalyzeStock={handleAnalyzeStock}
+              onDeleteStock={handleDeleteStock}
+              onEditNote={openNoteModal}
+              onSetChartPeriod={setChartPeriod}
+              onSetSubIndicator={setSubIndicator}
+              onToggleCoreWatch={handleToggleCoreWatch}
+              onTogglePin={handleTogglePin}
+              selectedStock={selectedStock}
+              subIndicator={subIndicator}
+            />
+          )}
         </div>
       </div>
 

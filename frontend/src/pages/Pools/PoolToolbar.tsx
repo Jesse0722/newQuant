@@ -1,4 +1,4 @@
-import { HolderOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons'
+import { HolderOutlined, LineChartOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons'
 import { Button, Space } from 'antd'
 import type React from 'react'
 import type { Pool } from '../../types'
@@ -8,6 +8,7 @@ interface PoolToolbarProps {
   activePoolId: string
   dragOverIndex: number | null
   onAddPool: () => void
+  onCreateMainWavePool: () => void
   onDeletePool: (poolId: string) => void
   onDragEnd: () => void
   onDragLeave: () => void
@@ -27,6 +28,7 @@ const PoolToolbar: React.FC<PoolToolbarProps> = ({
   activePoolId,
   dragOverIndex,
   onAddPool,
+  onCreateMainWavePool,
   onDeletePool,
   onDragEnd,
   onDragLeave,
@@ -97,11 +99,20 @@ const PoolToolbar: React.FC<PoolToolbarProps> = ({
         >
           + 新建
         </div>
+        {!pools.some(pool => `${pool.name} ${pool.description || ''}`.includes('主升浪')) && (
+          <div
+            onClick={onCreateMainWavePool}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: 13, cursor: 'pointer', borderRadius: 6, border: '1px dashed var(--accent-border)', color: 'var(--accent)' }}
+          >
+            <LineChartOutlined style={{ fontSize: 12 }} />
+            主升浪样本库
+          </div>
+        )}
       </div>
       {activePool && (
         <Space size="small" style={{ flexShrink: 0, marginLeft: 8 }}>
           <Button size="small" icon={<SyncOutlined spin={syncing} />} loading={syncing} onClick={onSync}>同步</Button>
-          <Button size="small" onClick={onEditPool}>编辑池</Button>
+          <Button size="small" onClick={onEditPool}>重命名/设置</Button>
           <Button size="small" icon={<ReloadOutlined />} onClick={onReload} />
         </Space>
       )}

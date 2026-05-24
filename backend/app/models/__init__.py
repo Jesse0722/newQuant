@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.models.stock import StockBasic, DailyQuote, StockAiAnalysis
+from app.models.sector import SectorBasic, StockSectorMap, SectorDailyQuote, SectorQuoteSyncState
 from app.models.pool import WatchPool, WatchStock
 from app.models.monitor import MonitorRule, Alert
 from app.models.trade import TradePlan, TradePlanStock, TradeDetail
@@ -10,6 +11,7 @@ from app.models.message import MessageKeywordSeed, MessageOpportunity, MessageSo
 
 __all__ = [
     "StockBasic", "DailyQuote", "StockAiAnalysis",
+    "SectorBasic", "StockSectorMap", "SectorDailyQuote", "SectorQuoteSyncState",
     "WatchPool", "WatchStock",
     "MonitorRule", "Alert",
     "TradePlan", "TradePlanStock", "TradeDetail",
