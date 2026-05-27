@@ -534,6 +534,7 @@ def get_stock_chart(
             "pre_close": q.pre_close, "change": q.change,
             "vol": q.vol, "amount": q.amount, "pct_chg": q.pct_chg,
             "turnover_rate": q.turnover_rate,
+            "float_share": q.float_share,
         } for q in quotes])
 
     for col in ("pre_close", "change"):
@@ -731,5 +732,6 @@ def _basic_dict(basic: StockBasic, concept_tags: list[str] | None = None) -> dic
         "area": basic.area,
         "market": basic.market,
         "list_date": basic.list_date,
+        "float_share": basic.float_share,
         "concept_tags": concept_tags or [],
     }

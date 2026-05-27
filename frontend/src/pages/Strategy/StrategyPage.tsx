@@ -1,22 +1,71 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
-  Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Space, Checkbox, message, Progress, DatePicker,
+  Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Space, Checkbox, message, Progress, DatePicker, Tag, Switch,
 } from 'antd'
 import { FilterOutlined, RobotOutlined, PlusOutlined, ThunderboltOutlined, ExperimentOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import {
-  getScreenTemplates, getLimitUpTemplates, runIndicatorScreen, runAiScreen, runLimitUpBuyPointScreen, runBacktest, getScreenResult,
-  type ScreenTemplate, type ScreenCondition, type ScreenResult, type BacktestResult,
+  getScreenTemplates, getLimitUpTemplates, runIndicatorScreen, runAiScreen, runLimitUpBuyPointScreen, runBacktest, getScreenResult, runMainWaveScreen,
+  type ScreenTemplate, type ScreenCondition, type ScreenResult, type BacktestResult, type MainWaveScreenParams, type MainWaveScreenResultItem,
 } from '../../api/strategy'
+import { listSectors, type SectorBasicItem } from '../../api/market'
 import { listPools, batchAddStocks, quickCreatePool } from '../../api/pools'
 import type { JsonObject, JsonValue, Pool } from '../../types'
 import { upsertNotification } from '../../services/notificationCenter'
 
 const MAX_CONDITIONS = 10
 const AI_DESC_MAX = 200
-type StrategyTabKey = 'indicator' | 'ai' | 'limit_up' | 'backtest'
+type StrategyTabKey = 'indicator' | 'main_wave' | 'ai' | 'limit_up' | 'backtest'
 type ConditionField = 'template_id' | 'params'
+
+const MAIN_WAVE_STATUS_OPTIONS = [
+  { value: 'main_wave_confirmed', label: '主升确认' },
+  { value: 'breakout_tracking', label: '突破跟踪' },
+  { value: 'watching', label: '观察中' },
+  { value: 'divergence_warning', label: '分歧预警' },
+  { value: 'exit_signal', label: '退出信号' },
+]
+
+const STRATEGY_TAB_OPTIONS: Array<{ key: StrategyTabKey; label: string }> = [
+  { key: 'indicator', label: '指标组合选股' },
+  { key: 'main_wave', label: '主升浪趋势' },
+  { key: 'limit_up', label: '涨停回调买点' },
+  { key: 'backtest', label: '策略回测' },
+  { key: 'ai', label: 'AI 智能选股' },
+]
+
+const isStrategyTabKey = (value: string | null): value is StrategyTabKey =>
+  STRATEGY_TAB_OPTIONS.some((item) => item.key === value)
+
+const MAIN_WAVE_STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  main_wave_confirmed: { label: '主升确认', color: 'green' },
+  breakout_tracking: { label: '突破跟踪', color: 'blue' },
+  watching: { label: '观察中', color: 'cyan' },
+  divergence_warning: { label: '分歧预警', color: 'orange' },
+  exit_signal: { label: '退出信号', color: 'red' },
+  invalidated: { label: '结构失效', color: 'default' },
+}
+
+const DEFAULT_MAIN_WAVE_PARAMS: MainWaveScreenParams = {
+  scope: 'full',
+  sector_codes: [],
+  sector_logic: 'any',
+  min_score: 70,
+  statuses: ['main_wave_confirmed', 'breakout_tracking', 'watching', 'divergence_warning'],
+  require_sector_resonance: true,
+  exclude_effective_break: true,
+  exclude_st: true,
+  min_data_days: 120,
+  min_price: 5,
+  max_price: null,
+  min_float_market_cap_yi: 30,
+  min_avg_amount_20d_yi: 2,
+  max_return_60d: 150,
+  max_ma20_distance_pct: 25,
+  min_sector_return_20d: 5,
+  min_relative_strength_20d: 0,
+}
 
 interface ApiErrorLike {
   response?: {
@@ -58,8 +107,13 @@ const StrategyPage: React.FC = () => {
   const [templates, setTemplates] = useState<ScreenTemplate[]>([])
   const [limitUpTemplates, setLimitUpTemplates] = useState<ScreenTemplate[]>([])
   const [pools, setPools] = useState<Pool[]>([])
-  const [activeTab, setActiveTab] = useState<StrategyTabKey>('indicator')
+  const [sectors, setSectors] = useState<SectorBasicItem[]>([])
+  const [activeTab, setActiveTab] = useState<StrategyTabKey>(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    return isStrategyTabKey(tab) ? tab : 'indicator'
+  })
   const [scope, setScope] = useState<string>('full')
+  const [mainWaveParams, setMainWaveParams] = useState<MainWaveScreenParams>(DEFAULT_MAIN_WAVE_PARAMS)
   const [conditions, setConditions] = useState<ScreenCondition[]>([])
   const [logic, setLogic] = useState<string>('and')
   const [limitUpConditions, setLimitUpConditions] = useState<ScreenCondition[]>([])
@@ -85,7 +139,26 @@ const StrategyPage: React.FC = () => {
     getScreenTemplates().then((r) => setTemplates(r.data))
     getLimitUpTemplates().then((r) => setLimitUpTemplates(r.data))
     listPools().then((r) => setPools(r.data))
+    listSectors({ sector_type: 'concept', limit: 500 }).then((r) => setSectors(r.data))
   }, [])
+
+  const updateMainWaveParams = (patch: Partial<MainWaveScreenParams>) => {
+    setMainWaveParams((prev) => ({ ...prev, ...patch }))
+  }
+
+  const switchStrategyTab = (key: StrategyTabKey) => {
+    setActiveTab(key)
+    const url = new URL(window.location.href)
+    url.searchParams.set('tab', key)
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+  }
+
+  const handleStrategyTabClick = (event: React.MouseEvent) => {
+    const target = event.target as HTMLElement
+    const text = target.closest?.('.ant-tabs-tab')?.textContent?.trim() || target.textContent?.trim()
+    const tab = STRATEGY_TAB_OPTIONS.find((item) => item.label === text)
+    if (tab) switchStrategyTab(tab.key)
+  }
 
   const addCondition = () => {
     if (conditions.length >= MAX_CONDITIONS) {
@@ -160,6 +233,25 @@ const StrategyPage: React.FC = () => {
       })
       setTaskId(res.data.task_id)
     } catch {
+      setLoading(false)
+    }
+  }
+
+  const runMainWave = async () => {
+    setLoading(true)
+    setResult(null)
+    setSelectedRows([])
+    try {
+      const payload: MainWaveScreenParams = {
+        ...mainWaveParams,
+        scope: mainWaveParams.scope || 'full',
+        sector_codes: mainWaveParams.sector_codes || [],
+      }
+      const res = await runMainWaveScreen(payload)
+      setTaskId(res.data.task_id)
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '主升浪选股提交失败')
       setLoading(false)
     }
   }
@@ -264,10 +356,12 @@ const StrategyPage: React.FC = () => {
     return () => clearInterval(poll)
   }, [taskId])
 
-  const resultItems = result?.ts_codes?.map((c) => ({
-    ts_code: c,
-    stock_name: result.stock_names?.[c] || '',
-  })) || []
+  const resultItems = result?.items?.length
+    ? result.items
+    : (result?.ts_codes?.map((c) => ({
+      ts_code: c,
+      stock_name: result.stock_names?.[c] || '',
+    })) || [])
 
   const handleBatchAdd = async (poolId: string) => {
     const codes = selectedRows.length > 0 ? selectedRows : resultItems.map((x) => x.ts_code)
@@ -336,13 +430,55 @@ const StrategyPage: React.FC = () => {
       render: (v: string) => <a onClick={() => navigate(`/stocks/${v}`)}>{v}</a>,
     },
     { title: '股票名称', dataIndex: 'stock_name', render: (v: string, r: { ts_code: string }) => <a onClick={() => navigate(`/stocks/${r.ts_code}`)}>{v || '-'}</a> },
+    ...(activeTab === 'main_wave' ? [
+      {
+        title: '状态',
+        dataIndex: 'status',
+        render: (v: string) => {
+          const meta = MAIN_WAVE_STATUS_LABEL[v] || { label: v || '-', color: 'default' }
+          return <Tag color={meta.color}>{meta.label}</Tag>
+        },
+      },
+      { title: '总分', dataIndex: 'total_score', sorter: (a: MainWaveScreenResultItem, b: MainWaveScreenResultItem) => Number(a.total_score || 0) - Number(b.total_score || 0) },
+      {
+        title: '评分拆解',
+        render: (_: unknown, r: MainWaveScreenResultItem) => (
+          <span>{r.trend_score ?? 0}/{r.structure_score ?? 0}/{r.pullback_repair_score ?? 0}/{r.sector_resonance_score ?? 0}</span>
+        ),
+      },
+      {
+        title: '共振板块',
+        render: (_: unknown, r: MainWaveScreenResultItem) => r.best_sector?.sector_name || '-',
+      },
+      {
+        title: '20日/60日',
+        render: (_: unknown, r: MainWaveScreenResultItem) => `${r.return_20d ?? '-'}% / ${r.return_60d ?? '-'}%`,
+      },
+      {
+        title: '相对板块',
+        dataIndex: 'relative_strength_20d',
+        render: (v: number | null) => v == null ? '-' : `${v}%`,
+      },
+    ] : []),
   ]
 
   return (
     <div>
-      <Card title="策略选股" extra={<FilterOutlined style={{ fontSize: 20 }} />}>
-        <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as StrategyTabKey)}>
-          <Tabs.TabPane tab="指标组合选股" key="indicator">
+      <Card
+        title="策略选股"
+        extra={<FilterOutlined style={{ fontSize: 20 }} />}
+        onClickCapture={handleStrategyTabClick}
+        onPointerDownCapture={handleStrategyTabClick}
+      >
+        <Tabs
+          activeKey={activeTab}
+          onChange={(k) => switchStrategyTab(k as StrategyTabKey)}
+          onTabClick={(k) => switchStrategyTab(k as StrategyTabKey)}
+          items={STRATEGY_TAB_OPTIONS.map((item) => ({ key: item.key, label: item.label }))}
+        />
+
+        {activeTab === 'indicator' && (
+          <>
             <div style={{ marginBottom: 16 }}>
               <Space wrap>
                 <span>选股范围：</span>
@@ -407,9 +543,108 @@ const StrategyPage: React.FC = () => {
             <Button type="primary" loading={loading} onClick={runIndicator}>
               执行选股
             </Button>
-          </Tabs.TabPane>
+          </>
+        )}
 
-          <Tabs.TabPane tab="涨停回调买点" key="limit_up">
+        {activeTab === 'main_wave' && (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <Space wrap>
+                <span>扫描范围：</span>
+                <Select
+                  value={mainWaveParams.scope}
+                  onChange={(v) => updateMainWaveParams({ scope: v })}
+                  style={{ width: 220 }}
+                  options={[
+                    { value: 'full', label: '全市场 A 股' },
+                    ...pools.map((p) => ({ value: p.id, label: `${p.name} (${p.stock_count})` })),
+                  ]}
+                />
+                <span>概念板块：</span>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  showSearch
+                  maxTagCount="responsive"
+                  value={mainWaveParams.sector_codes}
+                  onChange={(v) => updateMainWaveParams({ sector_codes: v })}
+                  placeholder="可选，指定后只扫这些概念成分"
+                  style={{ width: 360 }}
+                  optionFilterProp="label"
+                  options={sectors.map((s) => ({
+                    value: s.sector_code,
+                    label: `${s.sector_name} ${s.sector_code}`,
+                  }))}
+                />
+                <Select
+                  value={mainWaveParams.sector_logic}
+                  onChange={(v) => updateMainWaveParams({ sector_logic: v })}
+                  style={{ width: 110 }}
+                  options={[
+                    { value: 'any', label: '任一命中' },
+                    { value: 'all', label: '同时命中' },
+                  ]}
+                />
+              </Space>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <Space wrap>
+                <span>最低总分</span>
+                <InputNumber value={mainWaveParams.min_score} min={0} max={100} onChange={(v) => updateMainWaveParams({ min_score: Number(v ?? 70) })} style={{ width: 90 }} />
+                <span>状态</span>
+                <Select
+                  mode="multiple"
+                  value={mainWaveParams.statuses}
+                  onChange={(v) => updateMainWaveParams({ statuses: v })}
+                  style={{ width: 360 }}
+                  maxTagCount="responsive"
+                  options={MAIN_WAVE_STATUS_OPTIONS}
+                />
+                <span>最低数据日</span>
+                <InputNumber value={mainWaveParams.min_data_days} min={60} max={500} onChange={(v) => updateMainWaveParams({ min_data_days: Number(v ?? 120) })} style={{ width: 90 }} />
+              </Space>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <Space wrap>
+                <span>价格</span>
+                <InputNumber value={mainWaveParams.min_price ?? undefined} min={0} step={0.5} placeholder="最低" onChange={(v) => updateMainWaveParams({ min_price: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                <InputNumber value={mainWaveParams.max_price ?? undefined} min={0} step={0.5} placeholder="最高" onChange={(v) => updateMainWaveParams({ max_price: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                <span>流通市值(亿)</span>
+                <InputNumber value={mainWaveParams.min_float_market_cap_yi ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ min_float_market_cap_yi: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                <span>20日成交额(亿)</span>
+                <InputNumber value={mainWaveParams.min_avg_amount_20d_yi ?? undefined} min={0} step={0.5} onChange={(v) => updateMainWaveParams({ min_avg_amount_20d_yi: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                <span>60日涨幅上限</span>
+                <InputNumber value={mainWaveParams.max_return_60d ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ max_return_60d: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                <span>MA20乖离上限</span>
+                <InputNumber value={mainWaveParams.max_ma20_distance_pct ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ max_ma20_distance_pct: v == null ? null : Number(v) })} style={{ width: 90 }} />
+              </Space>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <Space wrap>
+                <span>板块20日涨幅</span>
+                <InputNumber value={mainWaveParams.min_sector_return_20d ?? undefined} onChange={(v) => updateMainWaveParams({ min_sector_return_20d: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                <span>相对板块强弱</span>
+                <InputNumber value={mainWaveParams.min_relative_strength_20d ?? undefined} onChange={(v) => updateMainWaveParams({ min_relative_strength_20d: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                <span>必须板块共振</span>
+                <Switch checked={mainWaveParams.require_sector_resonance} onChange={(v) => updateMainWaveParams({ require_sector_resonance: v })} />
+                <span>排除有效跌破MA20</span>
+                <Switch checked={mainWaveParams.exclude_effective_break} onChange={(v) => updateMainWaveParams({ exclude_effective_break: v })} />
+                <span>剔除ST</span>
+                <Switch checked={mainWaveParams.exclude_st} onChange={(v) => updateMainWaveParams({ exclude_st: v })} />
+              </Space>
+            </div>
+
+            <Button type="primary" loading={loading} onClick={runMainWave}>
+              执行主升浪选股
+            </Button>
+          </>
+        )}
+
+        {activeTab === 'limit_up' && (
+          <>
             <div style={{ marginBottom: 16 }}>
               <Space wrap>
                 <span>日期范围：</span>
@@ -480,9 +715,11 @@ const StrategyPage: React.FC = () => {
             <Button type="primary" icon={<ThunderboltOutlined />} loading={loading} onClick={runLimitUp}>
               执行选股
             </Button>
-          </Tabs.TabPane>
+          </>
+        )}
 
-          <Tabs.TabPane tab="策略回测" key="backtest">
+        {activeTab === 'backtest' && (
+          <>
             <div style={{ marginBottom: 16 }}>
               <Space wrap>
                 <span>日期范围：</span>
@@ -575,9 +812,11 @@ const StrategyPage: React.FC = () => {
                 )}
               </div>
             )}
-          </Tabs.TabPane>
+          </>
+        )}
 
-          <Tabs.TabPane tab="AI 智能选股" key="ai">
+        {activeTab === 'ai' && (
+          <>
             <div style={{ marginBottom: 16 }}>
               <p style={{ color: '#666', marginBottom: 8 }}>用一句话描述选股条件，如「找出 RSI 超卖且 MACD 即将金叉的银行股」</p>
               <Input.TextArea
@@ -604,8 +843,8 @@ const StrategyPage: React.FC = () => {
             <Button type="primary" icon={<RobotOutlined />} loading={loading} onClick={runAi}>
               AI 选股
             </Button>
-          </Tabs.TabPane>
-        </Tabs>
+          </>
+        )}
 
         {loading && result && (
           <div style={{ marginTop: 24 }}>

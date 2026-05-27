@@ -43,6 +43,7 @@ export interface StockBasicInfo {
   area?: string
   market?: string
   list_date?: string
+  float_share?: number | null
   concept_tags?: string[]
 }
 
@@ -114,6 +115,7 @@ export interface QuoteItem {
   amount: number
   pct_chg: number
   turnover_rate?: number | null
+  float_share?: number | null
 }
 
 export interface StockChartData {

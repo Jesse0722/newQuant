@@ -26,6 +26,7 @@ import PoolSidebar from './PoolSidebar'
 import PoolToolbar from './PoolToolbar'
 import MainWaveResearchPanel from './MainWaveResearchPanel'
 import {
+  getNotifications,
   subscribeNotifications,
   upsertNotification,
   type AppNotification,
@@ -91,6 +92,7 @@ const PoolList: React.FC = () => {
   const chartInstance = useRef<echarts.ECharts | null>(null)
   const chartCacheRef = useRef<Map<string, StockChartDataWithMarks>>(new Map())
   const chartReqSeqRef = useRef(0)
+  const processedNotificationKeysRef = useRef<Set<string>>(new Set())
   const selectedItemRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const limitUpDateFromStr = limitUpDateFrom ? limitUpDateFrom.format('YYYYMMDD') : ''
@@ -269,15 +271,22 @@ const PoolList: React.FC = () => {
   }, [navigate])
 
   useEffect(() => {
+    const completionKey = (item: AppNotification) => `${item.id}:${item.status}:${item.updatedAt}`
+    getNotifications()
+      .filter((item) => item.status === 'success')
+      .forEach((item) => processedNotificationKeysRef.current.add(completionKey(item)))
+
     return subscribeNotifications((items: AppNotification[]) => {
       const completed = items.filter((item) =>
         item.status === 'success' &&
+        !processedNotificationKeysRef.current.has(completionKey(item)) &&
         (
           (item.kind === 'stock_ai_analysis' && item.meta?.watchStockId && item.meta.result?.analysis) ||
           (item.kind === 'sync_task' && item.meta?.tsCode === activePoolId)
         )
       )
       if (!completed.length) return
+      completed.forEach((item) => processedNotificationKeysRef.current.add(completionKey(item)))
       if (completed.some((item) => item.kind === 'sync_task' && item.meta?.tsCode === activePoolId)) {
         loadInitial(activePoolId)
         fetchPools().catch(() => {})

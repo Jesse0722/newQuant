@@ -338,3 +338,132 @@ npm run build
 3. 为 `sector_quote_sync_state` 增加定时任务，每日休市后执行 `incremental`。
 4. 若后续有可用 Tushare DC token，可实现 `eastmoney_direct -> tushare_dc` 的同源备用链路。
 5. 当板块 K 线稳定后，再进入主升浪策略回测阶段，比较“纯趋势”和“趋势 + 题材共振”的收益差异。
+
+## 十一、策略选股入口设计
+
+主升浪策略最终归属到“策略选股”，观察池只负责承接、跟踪和复盘。
+
+第一版策略 ID：
+
+```text
+main_wave_trend_v1
+```
+
+### 11.1 选股范围
+
+| 范围 | 说明 |
+| --- | --- |
+| 全市场 | 基于本地 `stock_basic` + `daily_quote` 扫描，适合发现新方向 |
+| 指定观察池 | 只对某个观察池内股票评分，适合复核存量标的 |
+| 指定概念板块 | 基于 `stock_sector_map` 中的概念成分扫描，适合围绕题材做主升浪挖掘 |
+
+当用户指定概念板块时，板块共振计算优先使用用户指定板块；未指定时，系统使用“最相关概念板块”自动排序结果。
+
+### 11.2 参数分层
+
+硬过滤参数：
+
+| 参数 | 默认值 | 说明 |
+| --- | ---: | --- |
+| `min_data_days` | 120 | 至少具备 120 个交易日 K 线 |
+| `exclude_st` | true | 剔除 ST / 退市类标的 |
+| `min_price` | 5 | 最新价下限 |
+| `max_price` | 空 | 最新价上限，可选 |
+| `min_float_market_cap_yi` | 30 | 流通市值下限，单位亿元 |
+| `min_avg_amount_20d_yi` | 2 | 近 20 日平均成交额下限，单位亿元 |
+| `max_return_60d` | 150 | 近 60 日涨幅上限，避免末端加速追高 |
+| `max_ma20_distance_pct` | 25 | 最新价相对 MA20 最大乖离 |
+| `exclude_effective_break` | true | 排除有效跌破 MA20 的标的 |
+
+评分过滤参数：
+
+| 参数 | 默认值 | 说明 |
+| --- | ---: | --- |
+| `min_score` | 70 | 总分下限 |
+| `statuses` | 主升确认、突破跟踪、观察中、分歧预警 | 状态过滤 |
+| `require_sector_resonance` | true | 是否要求板块共振分大于 0 |
+| `min_sector_return_20d` | 5 | 指定或最相关概念 20 日涨幅下限 |
+| `min_relative_strength_20d` | 0 | 个股 20 日涨幅相对板块强弱下限 |
+
+### 11.3 指定概念板块
+
+指定概念板块支持多选，并提供两种逻辑：
+
+| 逻辑 | 说明 |
+| --- | --- |
+| `any` | 股票属于任一指定概念即可进入候选 |
+| `all` | 股票必须同时属于全部指定概念 |
+
+当前第一版依赖本地 `stock_sector_map` 已落库的概念成分关系。因此：
+
+- 已有映射的概念可以直接扫描；
+- 概念成分未同步完整时，扫描范围会偏窄；
+- 概念 K 线缺失时仍可输出趋势评分，但会按参数决定是否因缺少共振而过滤。
+
+### 11.4 输出字段
+
+策略选股结果除股票代码和名称外，还应返回：
+
+| 字段 | 说明 |
+| --- | --- |
+| `total_score` | 主升浪总分 |
+| `status` | 主升阶段 |
+| `trend_score` | 个股趋势分 |
+| `structure_score` | 主升结构分 |
+| `pullback_repair_score` | 回调修复分 |
+| `sector_resonance_score` | 题材共振分 |
+| `best_sector` | 本次用于共振的概念板块 |
+| `return_20d` / `return_60d` | 个股阶段涨幅 |
+| `relative_strength_20d` | 相对概念板块强弱 |
+| `ma20_state` | MA20 状态 |
+
+### 11.5 第一版实现边界
+
+本阶段实现：
+
+- 后端新增 `/api/strategy/main-wave-screen` 异步任务；
+- 前端策略选股页新增“主升浪趋势”入口；
+- 支持全市场、观察池、指定概念板块；
+- 支持关键硬过滤和题材共振过滤；
+- 支持一键加入观察池。
+
+暂不实现：
+
+- 历史回测；
+- 定时自动加入观察池；
+- 全量概念成分补齐任务；
+- 参数预设保存。
+
+### 11.6 实现验证
+
+后端测试：
+
+```bash
+cd /Users/lijiajun/ai-coding/newQuant/backend
+./venv/bin/pytest -q
+```
+
+结果：
+
+```text
+66 passed, 2 warnings
+```
+
+前端构建：
+
+```bash
+cd /Users/lijiajun/ai-coding/newQuant/frontend
+npm run build
+```
+
+结果：构建通过。Vite bundle 大小提示为既有提示，不影响功能。
+
+接口验证：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/strategy/main-wave-screen \
+  -H 'Content-Type: application/json' \
+  -d '{"scope":"32f4c307-3129-42c8-be81-ed1fe7903d9f","min_score":0,"require_sector_resonance":false,"exclude_effective_break":false,"min_data_days":60}'
+```
+
+结果：任务完成后返回 `items` 明细，包含总分、状态、评分拆解、共振板块、20/60 日涨幅和相对板块强弱。

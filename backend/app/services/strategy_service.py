@@ -5,12 +5,15 @@ import types
 from datetime import datetime, timedelta
 import time
 import pandas as pd
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
+from app.models.sector import StockSectorMap
 from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchPool, WatchStock
 from app.services.indicator import calc_ma, calc_macd, calc_rsi, calc_vol_ma, calc_n_day_high
+from app.services.main_wave_service import analyze_main_wave_stock
 from app.services.tushare_adapter import tushare_adapter
 from app.services.limit_up_service import fetch_limit_up_stocks_in_range
 from app.services.monitor_engine import _get_df, evaluate_template, TEMPLATE_INFO
@@ -37,6 +40,13 @@ SCREEN_TEMPLATES = {
     "breakout_high": {"name": "突破新高", "params": {"n": 60}},
     "price_vs_ma": {"name": "价格 vs 均线", "params": {"n": 20, "op": ">"}},
 }
+
+MAIN_WAVE_DEFAULT_STATUSES = [
+    "main_wave_confirmed",
+    "breakout_tracking",
+    "watching",
+    "divergence_warning",
+]
 
 
 def _get_df_from_db(db: Session, ts_code: str, limit: int = 250) -> pd.DataFrame:
@@ -172,6 +182,220 @@ def _fetch_full_market_daily(days: int = 60) -> dict[str, pd.DataFrame]:
         g = g.sort_values("trade_date").reset_index(drop=True)
         result[ts_code] = g
     return result
+
+
+def _latest_quote(db: Session, ts_code: str) -> DailyQuote | None:
+    return (
+        db.query(DailyQuote)
+        .filter(DailyQuote.ts_code == ts_code)
+        .order_by(DailyQuote.trade_date.desc())
+        .first()
+    )
+
+
+def _quote_count(db: Session, ts_code: str) -> int:
+    return db.query(DailyQuote).filter(DailyQuote.ts_code == ts_code).count()
+
+
+def _avg_amount_20d_yi(db: Session, ts_code: str) -> float | None:
+    rows = (
+        db.query(DailyQuote.amount)
+        .filter(DailyQuote.ts_code == ts_code, DailyQuote.amount.isnot(None))
+        .order_by(DailyQuote.trade_date.desc())
+        .limit(20)
+        .all()
+    )
+    vals = [float(r[0]) for r in rows if r[0] is not None]
+    if not vals:
+        return None
+    return round((sum(vals) / len(vals)) / 100000.0, 2)
+
+
+def _float_market_cap_yi(basic: StockBasic | None, latest: DailyQuote | None) -> float | None:
+    if not latest or latest.close is None:
+        return None
+    float_share = latest.float_share if latest.float_share is not None else (basic.float_share if basic else None)
+    if float_share is None:
+        return None
+    return round(float(latest.close) * float(float_share) / 10000.0, 2)
+
+
+def _main_wave_scope_codes(db: Session, scope: str, sector_codes: list[str], sector_logic: str) -> list[str]:
+    if sector_codes:
+        rows = (
+            db.query(StockSectorMap.ts_code, func.count(func.distinct(StockSectorMap.sector_code)).label("hit_count"))
+            .filter(
+                StockSectorMap.sector_type == "concept",
+                StockSectorMap.sector_code.in_(sector_codes),
+            )
+            .group_by(StockSectorMap.ts_code)
+            .all()
+        )
+        required = len(set(sector_codes))
+        if sector_logic == "all":
+            return [r.ts_code for r in rows if int(r.hit_count or 0) >= required]
+        return [r.ts_code for r in rows]
+
+    if scope == "full":
+        rows = (
+            db.query(StockBasic.ts_code)
+            .filter(or_(StockBasic.list_status == "L", StockBasic.list_status.is_(None)))
+            .all()
+        )
+        return [r[0] for r in rows]
+
+    pool = db.query(WatchPool).filter(WatchPool.id == scope).first()
+    if not pool:
+        raise ValueError("观察池不存在")
+    rows = db.query(WatchStock.ts_code).filter(WatchStock.pool_id == scope).all()
+    return [r[0] for r in rows]
+
+
+def _passes_main_wave_hard_filters(
+    db: Session,
+    ts_code: str,
+    params: dict,
+) -> tuple[bool, dict]:
+    basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+    latest = _latest_quote(db, ts_code)
+    if not latest or latest.close is None:
+        return False, {"skip_reason": "缺少最新行情"}
+
+    name = basic.name if basic else ""
+    if params.get("exclude_st", True) and ("ST" in name.upper() or "退" in name):
+        return False, {"skip_reason": "ST或退市风险"}
+
+    min_days = int(params.get("min_data_days") or 120)
+    if _quote_count(db, ts_code) < min_days:
+        return False, {"skip_reason": f"K线不足{min_days}日"}
+
+    close = float(latest.close)
+    min_price = params.get("min_price")
+    max_price = params.get("max_price")
+    if min_price is not None and close < float(min_price):
+        return False, {"skip_reason": "价格低于下限"}
+    if max_price is not None and close > float(max_price):
+        return False, {"skip_reason": "价格高于上限"}
+
+    cap_yi = _float_market_cap_yi(basic, latest)
+    min_cap = params.get("min_float_market_cap_yi")
+    if min_cap is not None and (cap_yi is None or cap_yi < float(min_cap)):
+        return False, {"skip_reason": "流通市值低于下限", "float_market_cap_yi": cap_yi}
+
+    avg_amount_yi = _avg_amount_20d_yi(db, ts_code)
+    min_amount = params.get("min_avg_amount_20d_yi")
+    if min_amount is not None and (avg_amount_yi is None or avg_amount_yi < float(min_amount)):
+        return False, {"skip_reason": "20日成交额低于下限", "avg_amount_20d_yi": avg_amount_yi}
+
+    return True, {
+        "float_market_cap_yi": cap_yi,
+        "avg_amount_20d_yi": avg_amount_yi,
+    }
+
+
+def _passes_main_wave_score_filters(item: dict, params: dict) -> bool:
+    if item.get("status") == "insufficient_data":
+        return False
+    if params.get("exclude_effective_break", True) and item.get("status") == "exit_signal":
+        return False
+    min_score = int(params.get("min_score") or 70)
+    if int(item.get("total_score") or 0) < min_score:
+        return False
+    statuses = params.get("statuses") or MAIN_WAVE_DEFAULT_STATUSES
+    if statuses and item.get("status") not in set(statuses):
+        return False
+
+    metrics = item.get("metrics") or {}
+    ma20 = item.get("ma20_state") or {}
+    max_return_60d = params.get("max_return_60d")
+    if max_return_60d is not None and metrics.get("return_60d") is not None:
+        if float(metrics["return_60d"]) > float(max_return_60d):
+            return False
+    max_ma20_distance = params.get("max_ma20_distance_pct")
+    if max_ma20_distance is not None and ma20.get("distance_pct") is not None:
+        if float(ma20["distance_pct"]) > float(max_ma20_distance):
+            return False
+
+    best_sector = metrics.get("best_sector") or {}
+    if params.get("require_sector_resonance", True) and int((item.get("scores") or {}).get("sector_resonance") or 0) <= 0:
+        return False
+    min_sector_return = params.get("min_sector_return_20d")
+    if min_sector_return is not None:
+        sector_return = best_sector.get("sector_return_20d")
+        if sector_return is None or float(sector_return) < float(min_sector_return):
+            return False
+    min_relative = params.get("min_relative_strength_20d")
+    if min_relative is not None:
+        relative = best_sector.get("relative_strength_20d")
+        if relative is None or float(relative) < float(min_relative):
+            return False
+    return True
+
+
+def _main_wave_result_item(item: dict) -> dict:
+    scores = item.get("scores") or {}
+    metrics = item.get("metrics") or {}
+    best_sector = metrics.get("best_sector") or {}
+    return {
+        "ts_code": item.get("ts_code"),
+        "stock_name": item.get("name") or "",
+        "total_score": item.get("total_score") or 0,
+        "status": item.get("status"),
+        "trend_score": scores.get("trend") or 0,
+        "structure_score": scores.get("structure") or 0,
+        "pullback_repair_score": scores.get("pullback_repair") or 0,
+        "sector_resonance_score": scores.get("sector_resonance") or 0,
+        "best_sector": best_sector,
+        "return_20d": metrics.get("return_20d"),
+        "return_60d": metrics.get("return_60d"),
+        "relative_strength_20d": best_sector.get("relative_strength_20d"),
+        "ma20_state": item.get("ma20_state"),
+        "float_market_cap_yi": metrics.get("float_market_cap_yi"),
+        "avg_amount_20d_yi": metrics.get("avg_amount_20d_yi"),
+    }
+
+
+def run_main_wave_screen(task_id: str, scope: str, params: dict):
+    """主升浪趋势策略选股：支持全市场、观察池、指定概念板块。"""
+    task = task_registry.get(task_id)
+    if not task:
+        return
+    db = SessionLocal()
+    try:
+        sector_codes = [str(x) for x in (params.get("sector_codes") or []) if x]
+        sector_logic = str(params.get("sector_logic") or "any")
+        task.message = "正在准备主升浪扫描范围..."
+        codes = _main_wave_scope_codes(db, scope or "full", sector_codes, sector_logic)
+        total = len(codes)
+        matched: list[dict] = []
+
+        for i, ts_code in enumerate(codes):
+            task.progress = (i + 1) / total if total else 1.0
+            task.message = f"主升浪扫描 {i + 1}/{total}"
+            ok, extra_metrics = _passes_main_wave_hard_filters(db, ts_code, params)
+            if not ok:
+                continue
+            item = analyze_main_wave_stock(db, ts_code, preferred_sector_codes=sector_codes or None)
+            item.setdefault("metrics", {}).update(extra_metrics)
+            if not _passes_main_wave_score_filters(item, params):
+                continue
+            matched.append(_main_wave_result_item(item))
+
+        matched.sort(key=lambda x: (-(int(x.get("total_score") or 0)), str(x.get("ts_code") or "")))
+        task.result = {
+            "ts_codes": [x["ts_code"] for x in matched if x.get("ts_code")],
+            "stock_names": {x["ts_code"]: x.get("stock_name", "") for x in matched if x.get("ts_code")},
+            "items": matched,
+            "total": len(matched),
+        }
+        task.status = "completed"
+        task.progress = 1.0
+        task.message = f"主升浪筛选完成，共 {len(matched)} 只"
+    except Exception as e:
+        task.status = "failed"
+        task.message = str(e)
+    finally:
+        db.close()
 
 
 def run_indicator_screen(task_id: str, scope: str, conditions: list[dict], logic: str):

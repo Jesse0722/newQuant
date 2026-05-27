@@ -19,6 +19,7 @@ export interface ScreenResult {
   message: string
   ts_codes: string[]
   stock_names: Record<string, string>
+  items?: MainWaveScreenResultItem[]
   total: number
 }
 
@@ -55,6 +56,57 @@ export const runLimitUpBuyPointScreen = (data: {
   conditions: ScreenCondition[]
   logic?: string
 }) => client.post<{ task_id: string }>('/strategy/limit-up-buy-point', data)
+
+export interface MainWaveScreenParams {
+  scope: string
+  sector_codes?: string[]
+  sector_logic?: 'any' | 'all'
+  min_score?: number
+  statuses?: string[]
+  require_sector_resonance?: boolean
+  exclude_effective_break?: boolean
+  exclude_st?: boolean
+  min_data_days?: number
+  min_price?: number | null
+  max_price?: number | null
+  min_float_market_cap_yi?: number | null
+  min_avg_amount_20d_yi?: number | null
+  max_return_60d?: number | null
+  max_ma20_distance_pct?: number | null
+  min_sector_return_20d?: number | null
+  min_relative_strength_20d?: number | null
+}
+
+export interface MainWaveScreenResultItem {
+  ts_code: string
+  stock_name: string
+  total_score?: number
+  status?: string
+  trend_score?: number
+  structure_score?: number
+  pullback_repair_score?: number
+  sector_resonance_score?: number
+  best_sector?: {
+    sector_code?: string
+    sector_name?: string
+    sector_type?: string
+    sector_return_20d?: number | null
+    relative_strength_20d?: number | null
+  } | null
+  return_20d?: number | null
+  return_60d?: number | null
+  relative_strength_20d?: number | null
+  ma20_state?: {
+    state?: string
+    distance_pct?: number | null
+    break_days?: number
+  } | null
+  float_market_cap_yi?: number | null
+  avg_amount_20d_yi?: number | null
+}
+
+export const runMainWaveScreen = (data: MainWaveScreenParams) =>
+  client.post<{ task_id: string }>('/strategy/main-wave-screen', data)
 
 export interface BacktestSignal {
   ts_code: string

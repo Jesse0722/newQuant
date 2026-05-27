@@ -76,6 +76,24 @@ export const syncSectors = (data: {
   failed: string[]
 }>('/market/sectors/sync', data)
 
+export interface SectorBasicItem {
+  sector_code: string
+  sector_name: string
+  sector_type: 'concept' | 'industry' | string
+  source: string
+  raw_code?: string | null
+  rank?: number | null
+  latest_pct_chg?: number | null
+  latest_hot?: number | null
+  updated_at?: string | null
+}
+
+export const listSectors = (params?: {
+  sector_type?: 'concept' | 'industry'
+  keyword?: string
+  limit?: number
+}) => client.get<SectorBasicItem[]>('/market/sectors', { params })
+
 export interface MainWaveSectorBackfillItem {
   sector_code: string
   sector_name: string

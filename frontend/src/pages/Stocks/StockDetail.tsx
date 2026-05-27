@@ -458,6 +458,10 @@ const StockDetail: React.FC<StockDetailProps> = ({ embedded = false, tsCode: pro
   const syncMeta = chartData?.sync_meta
   const latestPct = latestQuote?.pct_chg
   const hasLatestPct = latestPct != null && !Number.isNaN(Number(latestPct))
+  const latestFloatShare = latestQuote?.float_share ?? basic?.float_share
+  const marketCapYi = latestQuote?.close != null && latestFloatShare != null
+    ? latestQuote.close * latestFloatShare / 10000
+    : null
 
   const alertColumns = [
     { title: '触发日期', dataIndex: 'trigger_date', key: 'trigger_date' },
@@ -661,7 +665,11 @@ const StockDetail: React.FC<StockDetailProps> = ({ embedded = false, tsCode: pro
                   <Statistic title="成交量" value={latestQuote.vol} valueStyle={{ fontSize: 16 }} />
                 </Col>
                 <Col span={3}>
-                  <Statistic title="行情日期" value={latestQuote.date} valueStyle={{ fontSize: 16 }} />
+                  {marketCapYi != null && Number.isFinite(marketCapYi) ? (
+                    <Statistic title="市值(亿)" value={marketCapYi} precision={1} valueStyle={{ fontSize: 16 }} />
+                  ) : (
+                    <Statistic title="市值(亿)" value="-" valueStyle={{ fontSize: 16 }} />
+                  )}
                 </Col>
               </>
             )}

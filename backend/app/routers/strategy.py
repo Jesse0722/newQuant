@@ -14,12 +14,19 @@ from app.schemas.strategy import (
     AiScreenRequest,
     AiAnalyzeRequest,
     LimitUpBuyPointRequest,
+    MainWaveScreenRequest,
     BacktestRequest,
     BacktestResult,
     StrategyBacktestRequest,
     ScreenResult,
 )
-from app.services.strategy_service import run_indicator_screen, run_limit_up_buy_point_screen, SCREEN_TEMPLATES, LIMIT_UP_BUY_POINT_TEMPLATES
+from app.services.strategy_service import (
+    run_indicator_screen,
+    run_limit_up_buy_point_screen,
+    run_main_wave_screen,
+    SCREEN_TEMPLATES,
+    LIMIT_UP_BUY_POINT_TEMPLATES,
+)
 from app.services.ai_screen_service import run_ai_screen
 from app.services.ai_analysis_service import analyze_stock
 from app.services.limit_up_service import (
@@ -119,6 +126,18 @@ def run_limit_up_buy_point(body: LimitUpBuyPointRequest):
         body.trade_date_to,
         conditions,
         body.logic,
+    )
+    return {"task_id": task_id}
+
+
+@router.post("/main-wave-screen")
+def run_main_wave_strategy_screen(body: MainWaveScreenRequest):
+    """提交主升浪趋势策略选股任务。"""
+    task_id = submit_task(
+        "main_wave_screen",
+        run_main_wave_screen,
+        body.scope,
+        body.model_dump(),
     )
     return {"task_id": task_id}
 
@@ -321,5 +340,6 @@ def get_screen_result(task_id: str):
         message=status.message,
         ts_codes=result.get("ts_codes", []),
         stock_names=result.get("stock_names", {}),
+        items=result.get("items", []),
         total=result.get("total", 0),
     )

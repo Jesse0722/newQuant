@@ -321,13 +321,27 @@ def _pullback_score(df: pd.DataFrame, ma20: dict[str, Any]) -> tuple[int, list[s
     return min(score, 20), reasons, {"max_drawdown_10d": drawdown}
 
 
-def _sector_resonance_score(db: Session, ts_code: str, df: pd.DataFrame) -> tuple[int, list[str], dict[str, Any]]:
+def _sector_resonance_score(
+    db: Session,
+    ts_code: str,
+    df: pd.DataFrame,
+    preferred_sector_codes: list[str] | None = None,
+) -> tuple[int, list[str], dict[str, Any]]:
     maps_q = (
         db.query(StockSectorMap)
         .filter(StockSectorMap.ts_code == ts_code)
     )
+    preferred_codes = [str(x) for x in (preferred_sector_codes or []) if x]
+    if preferred_codes:
+        maps = (
+            maps_q.filter(StockSectorMap.sector_code.in_(preferred_codes))
+            .order_by(StockSectorMap.sector_name.asc())
+            .all()
+        )
+    else:
+        maps = []
     source_maps = maps_q.filter(StockSectorMap.source == SECTOR_SOURCE).all()
-    maps = source_maps or (
+    maps = maps or source_maps or (
         maps_q.order_by(StockSectorMap.sector_type.asc(), StockSectorMap.sector_name.asc()).limit(12).all()
     )
     candidates = [
@@ -426,7 +440,11 @@ def _status(total_score: int, ma20_state: str) -> str:
     return "invalidated"
 
 
-def analyze_main_wave_stock(db: Session, ts_code: str) -> dict[str, Any]:
+def analyze_main_wave_stock(
+    db: Session,
+    ts_code: str,
+    preferred_sector_codes: list[str] | None = None,
+) -> dict[str, Any]:
     code = ts_code.upper()
     df = _quote_df(db, code)
     basic = db.query(StockBasic).filter(StockBasic.ts_code == code).first()
@@ -451,7 +469,12 @@ def analyze_main_wave_stock(db: Session, ts_code: str) -> dict[str, Any]:
     trend_score, trend_reasons = _trend_score(df)
     structure_score, structure_reasons, structure_metrics = _structure_score(df)
     pullback_score, pullback_reasons, pullback_metrics = _pullback_score(df, ma20)
-    sector_score, sector_reasons, sector_metrics = _sector_resonance_score(db, code, df)
+    sector_score, sector_reasons, sector_metrics = _sector_resonance_score(
+        db,
+        code,
+        df,
+        preferred_sector_codes=preferred_sector_codes,
+    )
     total = trend_score + structure_score + pullback_score + sector_score
 
     latest = df.iloc[-1]
