@@ -21,14 +21,13 @@ const StatCard: React.FC<StatCardProps> = ({
   accentColor = 'var(--accent)',
   delay = 0,
 }) => {
-  const [displayed, setDisplayed] = useState<number | string>(typeof value === 'number' ? 0 : value)
+  const [displayed, setDisplayed] = useState(0)
   const frameRef = useRef<number | null>(null)
   const startRef = useRef<number | null>(null)
   const duration = 800
 
   useEffect(() => {
     if (typeof value !== 'number') {
-      setDisplayed(value)
       return
     }
     const target = value
@@ -51,6 +50,8 @@ const StatCard: React.FC<StatCardProps> = ({
       if (frameRef.current) cancelAnimationFrame(frameRef.current)
     }
   }, [value, delay])
+
+  const displayedValue = typeof value === 'number' ? displayed : value
 
   const trendColor =
     trend === 'up' ? 'var(--color-up)' :
@@ -104,7 +105,7 @@ const StatCard: React.FC<StatCardProps> = ({
         <span className="mono count-anim" style={{
           fontSize: 36, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1,
         }}>
-          {displayed}
+          {displayedValue}
         </span>
         {unit && (
           <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500 }}>

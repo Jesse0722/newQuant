@@ -1,0 +1,10 @@
+ts_code,stock_name,business_node,relation,theme,confidence,evidence_note
+601138.SH,工业富联,AI服务器,maps_to,AI服务器,82,服务器制造与AI服务器链条映射
+300308.SZ,中际旭创,光模块,maps_to,光模块,85,光模块龙头映射
+300502.SZ,新易盛,光模块,maps_to,光模块,82,高速光模块映射
+300476.SZ,胜宏科技,PCB,maps_to,PCB,78,AI服务器PCB映射
+002916.SZ,深南电路,PCB,maps_to,PCB,76,PCB与封装基板映射
+300475.SZ,香农芯创,HBM与存储,maps_to,HBM与存储,72,存储产业链映射
+300442.SZ,润泽科技,液冷,maps_to,液冷,70,数据中心与液冷方向映射
+300274.SZ,阳光电源,AI电力,maps_to,AI电力,70,电源与数据中心电力映射
+002050.SZ,三花智控,机器人,maps_to,机器人,72,机器人零部件映射

@@ -1,0 +1,15 @@
+source,relation,target,theme,confidence,note
+Rubin,uses,NVLink,NVIDIA产业链,80,海外AI服务器平台核心互联线索
+NVLink,increases_demand_for,高速互联,NVIDIA产业链,78,高速互联需求传导
+高速互联,maps_to,铜连接,铜连接,72,AI服务器高速互联映射
+高速互联,maps_to,光模块,光模块,70,数据中心高速互联映射
+AI服务器,maps_to,PCB,PCB,72,AI服务器硬件升级映射
+AI服务器,maps_to,液冷,液冷,68,高功耗服务器散热映射
+AI服务器,maps_to,AI电力,AI电力,68,数据中心功耗上行映射
+HBM,depends_on,先进封装,HBM与存储,75,高带宽存储依赖先进封装
+先进封装,increases_demand_for,ABF载板,半导体,68,先进封装上游材料映射
+ABF载板,maps_to,PCB,PCB,65,载板与高端PCB产业链映射
+AI capex,triggers,AI算力,AI算力,78,海外资本开支线索
+AI算力,increases_demand_for,光模块,光模块,75,算力建设带动高速光模块需求
+AI算力,increases_demand_for,AI服务器,AI服务器,78,算力建设带动服务器需求
+人形机器人,maps_to,机器人,机器人,70,具身智能主题映射

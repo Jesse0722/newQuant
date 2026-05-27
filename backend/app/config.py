@@ -10,7 +10,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 logger = logging.getLogger(__name__)
-DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
+_raw_data_dir = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
+DATA_DIR = _raw_data_dir if _raw_data_dir.is_absolute() else BASE_DIR / _raw_data_dir
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -36,6 +37,9 @@ AUTO_INIT_DB = env_flag("AUTO_INIT_DB", True)
 RUN_STARTUP_MIGRATIONS = env_flag("RUN_STARTUP_MIGRATIONS", True)
 AUTO_START_SCHEDULER = env_flag("AUTO_START_SCHEDULER", False)
 SCHEDULER_ENABLED = env_flag("SCHEDULER_ENABLED", True)
+INDUSTRY_REPORT_LLM_ENABLED = env_flag("INDUSTRY_REPORT_LLM_ENABLED", False)
+INDUSTRY_REPORT_MODEL_PROVIDER = (os.getenv("INDUSTRY_REPORT_MODEL_PROVIDER") or "deepseek").strip().lower()
+INDUSTRY_REPORT_MODEL = (os.getenv("INDUSTRY_REPORT_MODEL") or os.getenv("DEEPSEEK_FAST_MODEL") or "deepseek-v4-flash").strip()
 CORS_ORIGINS = [
     origin.strip()
     for origin in (os.getenv("CORS_ORIGINS") or "http://localhost:5173,http://127.0.0.1:5173").split(",")

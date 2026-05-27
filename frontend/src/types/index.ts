@@ -628,6 +628,61 @@ export interface MessageDaily {
   opportunities: MessageOpportunity[]
 }
 
+export type IndustryCandidateGrade = 'strong' | 'medium' | 'weak' | 'risk_watch' | string
+
+export interface IndustryPathStep {
+  source: string
+  relation: string
+  target: string
+  confidence: number
+  strength: number
+}
+
+export interface IndustryReportCandidate {
+  id: string
+  report_id: string
+  trade_date: string
+  ts_code: string
+  stock_name?: string | null
+  theme: string
+  path_json: IndustryPathStep[]
+  evidence_json: Array<Record<string, unknown>>
+  path_score: number
+  evidence_score: number
+  heat_score: number
+  crowding_score: number
+  risk_score: number
+  final_score: number
+  grade: IndustryCandidateGrade
+  reason?: string | null
+  risks: string[]
+  created_at: string
+}
+
+export interface IndustryDailyReport {
+  id: string
+  trade_date: string
+  title: string
+  headline?: string | null
+  summary?: string | null
+  report_json: {
+    core_catalysts?: string[]
+    candidate_count?: number
+    grade_counts?: Record<string, number>
+    risk_flags?: string[]
+    next_actions?: string[]
+    [key: string]: unknown
+  }
+  model_provider?: string | null
+  model_name?: string | null
+  prompt_version: string
+  status: string
+  error_message?: string | null
+  created_at: string
+  updated_at: string
+  candidates: IndustryReportCandidate[]
+}
+
 // ---------- 买点雷达 ----------
 
 export type BuySignalStatus =

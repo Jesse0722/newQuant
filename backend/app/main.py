@@ -25,7 +25,22 @@ app.add_middleware(
 
 app.add_exception_handler(AppError, app_error_handler)
 
-from app.routers import pools, sync, monitor, alerts, plans, dashboard, stocks, ocr, strategy, data, market, messages
+from app.routers import (
+    alerts,
+    dashboard,
+    data,
+    industry_reports,
+    market,
+    message_graph,
+    messages,
+    monitor,
+    ocr,
+    plans,
+    pools,
+    stocks,
+    strategy,
+    sync,
+)
 
 app.include_router(pools.router)
 app.include_router(sync.router)
@@ -39,6 +54,8 @@ app.include_router(strategy.router)
 app.include_router(data.router)
 app.include_router(market.router)
 app.include_router(messages.router)
+app.include_router(message_graph.router)
+app.include_router(industry_reports.router)
 
 @app.get("/api/health")
 def health_check():

@@ -33,6 +33,11 @@ import {
   WarningOutlined,
 } from '@ant-design/icons'
 import {
+  addIndustryCandidateToPool,
+  generateIndustryReport,
+  getIndustryDailyReport,
+} from '../../api/industryReports'
+import {
   collectMessageXPosts,
   getDailyMessages,
   importDefaultMessageKeywords,
@@ -43,6 +48,8 @@ import {
 import { toggleCoreWatch } from '../../api/pools'
 import type {
   MessageDaily,
+  IndustryDailyReport,
+  IndustryReportCandidate,
   MessageLifecycleStage,
   MessageOpportunity,
   MessageSeedKeyword,
@@ -66,6 +73,13 @@ const sentimentMap: Record<string, { label: string; color: string }> = {
 const actionMap: Record<string, { label: string; color: string }> = {
   watch: { label: '关注', color: 'blue' },
   add_to_pool: { label: '加入观察', color: 'green' },
+  risk_watch: { label: '风险观察', color: 'orange' },
+}
+
+const candidateGradeMap: Record<string, { label: string; color: string }> = {
+  strong: { label: '强证据', color: 'green' },
+  medium: { label: '中证据', color: 'blue' },
+  weak: { label: '弱证据', color: 'default' },
   risk_watch: { label: '风险观察', color: 'orange' },
 }
 
@@ -157,7 +171,22 @@ const MessageCenterPage: React.FC = () => {
   const [keywordLoading, setKeywordLoading] = useState(false)
   const [keywordSaving, setKeywordSaving] = useState(false)
   const [keywordPage, setKeywordPage] = useState(1)
+  const [industryReport, setIndustryReport] = useState<IndustryDailyReport | null>(null)
+  const [industryLoading, setIndustryLoading] = useState(false)
+  const [industryGenerating, setIndustryGenerating] = useState(false)
   const [keywordForm] = Form.useForm<MessageSeedKeywordInput>()
+
+  const fetchIndustryReport = useCallback(async () => {
+    setIndustryLoading(true)
+    try {
+      const res = await getIndustryDailyReport()
+      setIndustryReport(res.data)
+    } catch (error) {
+      message.error(errorText(error, '加载产业链日报失败'))
+    } finally {
+      setIndustryLoading(false)
+    }
+  }, [])
 
   const fetchDaily = useCallback(async () => {
     setLoading(true)
@@ -177,7 +206,8 @@ const MessageCenterPage: React.FC = () => {
 
   useEffect(() => {
     fetchDaily()
-  }, [fetchDaily])
+    fetchIndustryReport()
+  }, [fetchDaily, fetchIndustryReport])
 
   const themeOptions = useMemo(() => [
     { value: 'all', label: '全部题材' },
@@ -208,6 +238,31 @@ const MessageCenterPage: React.FC = () => {
       message.error('加入核心关注失败')
     } finally {
       setCoreWatchBusy(null)
+    }
+  }
+
+  const handleCandidateCoreWatch = async (row: IndustryReportCandidate) => {
+    setCoreWatchBusy(row.ts_code)
+    try {
+      await addIndustryCandidateToPool(row.id)
+      message.success(`${row.stock_name || row.ts_code} 已加入核心关注`)
+    } catch (error) {
+      message.error(errorText(error, '加入核心关注失败'))
+    } finally {
+      setCoreWatchBusy(null)
+    }
+  }
+
+  const handleGenerateIndustryReport = async () => {
+    setIndustryGenerating(true)
+    try {
+      const res = await generateIndustryReport({ refresh_seeds: true })
+      setIndustryReport(res.data)
+      message.success(`产业链日报已生成：${res.data.candidates.length} 个候选`)
+    } catch (error) {
+      message.error(errorText(error, '生成产业链日报失败'))
+    } finally {
+      setIndustryGenerating(false)
     }
   }
 
@@ -461,6 +516,97 @@ const MessageCenterPage: React.FC = () => {
     },
   ]
 
+  const candidateColumns = [
+    {
+      title: '标的',
+      key: 'stock',
+      width: 150,
+      render: (_: unknown, row: IndustryReportCandidate) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Link onClick={() => navigate(`/stocks/${row.ts_code}`)}>
+            {row.stock_name || row.ts_code}
+          </Typography.Link>
+          <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.ts_code}</span>
+        </Space>
+      ),
+    },
+    {
+      title: '主题',
+      dataIndex: 'theme',
+      key: 'theme',
+      width: 110,
+      render: (theme: string) => <Tag color="cyan">{theme}</Tag>,
+    },
+    {
+      title: '等级',
+      dataIndex: 'grade',
+      key: 'grade',
+      width: 100,
+      render: (grade: string) => {
+        const item = candidateGradeMap[grade] || { label: grade, color: 'default' }
+        return <Tag color={item.color}>{item.label}</Tag>
+      },
+    },
+    {
+      title: '综合分',
+      dataIndex: 'final_score',
+      key: 'final_score',
+      width: 120,
+      sorter: (a: IndustryReportCandidate, b: IndustryReportCandidate) => a.final_score - b.final_score,
+      render: (score: number) => <Progress percent={Math.round(score)} size="small" status={scoreStatus(score)} />,
+    },
+    {
+      title: '路径 / 证据',
+      key: 'path',
+      render: (_: unknown, row: IndustryReportCandidate) => {
+        const path = row.path_json.map((step) => `${step.source}→${step.target}`).join(' / ')
+        return (
+          <Tooltip title={path}>
+            <Space size={8} wrap>
+              <Tag>路径 {row.path_score}</Tag>
+              <Tag>证据 {row.evidence_score}</Tag>
+              <span style={{ color: 'var(--text-secondary)' }}>{row.reason}</span>
+            </Space>
+          </Tooltip>
+        )
+      },
+    },
+    {
+      title: '风险',
+      key: 'risk',
+      width: 150,
+      render: (_: unknown, row: IndustryReportCandidate) => (
+        <Tooltip title={row.risks.join('；')}>
+          <Space>
+            <WarningOutlined style={{ color: row.risk_score >= 65 ? 'var(--color-warn)' : 'var(--text-muted)' }} />
+            <span>{row.risk_score}</span>
+          </Space>
+        </Tooltip>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 130,
+      fixed: 'right' as const,
+      render: (_: unknown, row: IndustryReportCandidate) => (
+        <Space>
+          <Tooltip title="查看股票详情">
+            <Button size="small" icon={<EyeOutlined />} onClick={() => navigate(`/stocks/${row.ts_code}`)} />
+          </Tooltip>
+          <Tooltip title="加入核心关注">
+            <Button
+              size="small"
+              icon={coreWatchBusy === row.ts_code ? <StarFilled /> : <StarOutlined />}
+              loading={coreWatchBusy === row.ts_code}
+              onClick={() => handleCandidateCoreWatch(row)}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ]
+
   if (loading && !daily) {
     return (
       <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -516,6 +662,75 @@ const MessageCenterPage: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      <Card
+        title={
+          <Space>
+            <ThunderboltOutlined />
+            <span>产业链日报</span>
+            {industryReport?.status && <Tag color="blue">{industryReport.status}</Tag>}
+          </Space>
+        }
+        extra={
+          <Space>
+            <Button size="small" icon={<ReloadOutlined />} onClick={fetchIndustryReport} loading={industryLoading}>
+              读取
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              onClick={handleGenerateIndustryReport}
+              loading={industryGenerating}
+            >
+              生成
+            </Button>
+          </Space>
+        }
+      >
+        <Spin spinning={industryLoading && !industryReport}>
+          {industryReport ? (
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <div>
+                <Typography.Title level={5} style={{ margin: 0 }}>
+                  {industryReport.headline || industryReport.title}
+                </Typography.Title>
+                <Typography.Paragraph style={{ margin: '6px 0 0', color: 'var(--text-secondary)' }}>
+                  {industryReport.summary}
+                </Typography.Paragraph>
+              </div>
+              <Space size={[6, 6]} wrap>
+                {(industryReport.report_json.core_catalysts || []).map((item) => (
+                  <Tag key={item} color="cyan">{item}</Tag>
+                ))}
+                {(industryReport.report_json.risk_flags || []).slice(0, 3).map((item) => (
+                  <Tag key={item} color="orange">{item}</Tag>
+                ))}
+              </Space>
+              {industryReport.candidates.length ? (
+                <Table
+                  rowKey="id"
+                  size="small"
+                  columns={candidateColumns}
+                  dataSource={industryReport.candidates}
+                  pagination={{ pageSize: 5, size: 'small' }}
+                  scroll={{ x: 1050 }}
+                />
+              ) : (
+                <Empty description="本次日报暂无候选标的" />
+              )}
+            </Space>
+          ) : (
+            <Empty
+              description="暂无产业链日报"
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            >
+              <Button type="primary" onClick={handleGenerateIndustryReport} loading={industryGenerating}>
+                生成产业链日报
+              </Button>
+            </Empty>
+          )}
+        </Spin>
+      </Card>
 
       <section>
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>

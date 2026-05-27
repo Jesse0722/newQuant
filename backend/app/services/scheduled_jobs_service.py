@@ -14,6 +14,7 @@ from app.services.trade_date_resolver import resolve_dashboard_trade_date
 from app.services.trading_session import is_a_share_trading_session
 from app.services.buy_signal_service import scan_pool_buy_signals
 from app.services.sync_service import _sync_stock_basic_full, sync_stock_info, sync_daily
+from app.services.industry_report_service import generate_industry_report
 
 
 def run_4pm_collect_limit_up_job() -> dict:
@@ -191,6 +192,72 @@ def run_5pm_sync_latest_kline_job() -> dict:
         db.close()
 
 
+def run_industry_report_job(session: str = "scheduled") -> dict:
+    """
+    产业链日报任务：
+    - 盘前生成当日观察主线
+    - 盘后刷新当日候选与风险
+    """
+    db = SessionLocal()
+    log_id = str(uuid.uuid4())
+    try:
+        db.add(
+            SyncLog(
+                id=log_id,
+                task_type=f"industry_report_{session}",
+                target=None,
+                status="running",
+            )
+        )
+        db.commit()
+        report = generate_industry_report(db, refresh_seeds=True)
+        candidate_count = int((report.report_json or {}).get("candidate_count") or 0) if isinstance(report.report_json, dict) else 0
+        resp = {
+            "job": "industry_report",
+            "session": session,
+            "trade_date": report.trade_date,
+            "report_id": report.id,
+            "candidate_count": candidate_count,
+            "headline": report.headline,
+        }
+        log = db.query(SyncLog).filter(SyncLog.id == log_id).first()
+        if log:
+            log.status = "completed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(
+                {
+                    "success_count": candidate_count,
+                    "failed_count": 0,
+                    "skipped_count": 0,
+                    "days_synced": 0,
+                    "message": f"产业链日报生成完成：{candidate_count} 个候选",
+                    **resp,
+                },
+                ensure_ascii=False,
+            )
+            db.commit()
+        return resp
+    except Exception as e:
+        log = db.query(SyncLog).filter(SyncLog.id == log_id).first()
+        if log:
+            log.status = "failed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(
+                {
+                    "success_count": 0,
+                    "failed_count": 1,
+                    "skipped_count": 0,
+                    "days_synced": 0,
+                    "message": str(e),
+                },
+                ensure_ascii=False,
+            )
+            db.commit()
+        raise
+    finally:
+        db.close()
+
+
 def run_intraday_scan_job() -> dict:
     """
     盘中轮询扫描任务：
@@ -283,4 +350,3 @@ def run_intraday_scan_job() -> dict:
         raise
     finally:
         db.close()
-

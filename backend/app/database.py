@@ -4,10 +4,11 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import DATABASE_URL
 
-connect_args = {"check_same_thread": False, "timeout": 30} if "sqlite" in DATABASE_URL else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+connect_args = {"check_same_thread": False, "timeout": 30} if IS_SQLITE else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=not IS_SQLITE)
 
-if "sqlite" in DATABASE_URL:
+if IS_SQLITE:
     @event.listens_for(engine, "connect")
     def _sqlite_wal_and_busy(dbapi_conn, _connection_record):
         """允许读写并发、避免长事务时读连接永久阻塞。"""
@@ -40,6 +41,9 @@ def get_db():
         db.close()
 
 def run_startup_migrations():
+    if not IS_SQLITE:
+        return
+
     from importlib import import_module
 
     for _name, module_name, attr_name in MIGRATION_RUNNERS:
@@ -55,7 +59,7 @@ def create_schema():
 def init_db(run_migrations: bool = True, create_tables: bool = True):
     if run_migrations:
         run_startup_migrations()
-    if create_tables:
+    if create_tables and IS_SQLITE:
         create_schema()
 
 
@@ -63,7 +67,7 @@ def _ensure_alert_buy_radar_columns(engine):
     """启动后校验 alert 表结构；若仍缺列则再执行一次迁移（避免路径不一致导致未迁移）。"""
     from sqlalchemy import inspect
 
-    if "sqlite" not in str(engine.url):
+    if not IS_SQLITE:
         return
     insp = inspect(engine)
     if not insp.has_table("alert"):

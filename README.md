@@ -5,7 +5,7 @@
 ## 项目结构
 
 - `frontend/`: React + TypeScript + Vite + Ant Design
-- `backend/`: FastAPI + SQLAlchemy + SQLite
+- `backend/`: FastAPI + SQLAlchemy + SQLite/PostgreSQL
 - `docs/`: 产品、技术和实施文档
 
 ## 环境要求
@@ -35,6 +35,34 @@ npm run dev
 ```
 
 前端默认访问 `http://localhost:5173`，后端默认访问 `http://localhost:8000`。
+
+### PostgreSQL 本地开发
+
+项目仍兼容 SQLite，但长期主库方向是 PostgreSQL。可以先启动本地 PostgreSQL：
+
+```bash
+cd /Users/lijiajun/ai-coding/newQuant
+docker compose -f docker-compose.dev.yml up -d postgres
+```
+
+然后在 `backend/.env` 中配置：
+
+```env
+DATABASE_URL=postgresql+psycopg://newquant:newquant@localhost:5432/newquant
+```
+
+如需把旧 SQLite 数据迁移到 PostgreSQL，先备份 `backend/data/quant.db`，再执行：
+
+```bash
+cd /Users/lijiajun/ai-coding/newQuant/backend
+source venv/bin/activate
+python scripts/migrate_sqlite_to_postgres.py \
+  --sqlite-url sqlite:////Users/lijiajun/ai-coding/newQuant/backend/data/quant.db \
+  --target-url postgresql+psycopg://newquant:newquant@localhost:5432/newquant \
+  --truncate
+```
+
+脚本会按表输出 source/copy/target 计数，用于迁移校验。
 
 ## 常用命令
 

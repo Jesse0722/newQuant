@@ -8,6 +8,7 @@ from datetime import datetime
 from app.services.scheduled_jobs_service import (
     run_4pm_collect_limit_up_job,
     run_5pm_sync_latest_kline_job,
+    run_industry_report_job,
     run_intraday_scan_job,
 )
 
@@ -51,8 +52,10 @@ class DailyJobScheduler:
         try:
             result = fn()
             logger.info("Scheduler job %s done: %s", key, result)
+            return True
         except Exception:
             logger.exception("Scheduler job %s failed", key)
+            return False
 
     def _loop(self):
         while not self._stop_event.is_set():
@@ -62,13 +65,21 @@ class DailyJobScheduler:
             if now.second < 20:
                 self._safe_run("intraday_scan", run_intraday_scan_job)
 
+            if self._should_run("industry_report_preopen_0830", now, 8, 30):
+                if self._safe_run("industry_report_preopen_0830", lambda: run_industry_report_job("preopen")):
+                    self._mark_run("industry_report_preopen_0830", now)
+
+            if self._should_run("industry_report_afterclose_1530", now, 15, 30):
+                if self._safe_run("industry_report_afterclose_1530", lambda: run_industry_report_job("afterclose")):
+                    self._mark_run("industry_report_afterclose_1530", now)
+
             if self._should_run("collect_limit_up_16", now, 16, 0):
-                self._safe_run("collect_limit_up_16", run_4pm_collect_limit_up_job)
-                self._mark_run("collect_limit_up_16", now)
+                if self._safe_run("collect_limit_up_16", run_4pm_collect_limit_up_job):
+                    self._mark_run("collect_limit_up_16", now)
 
             if self._should_run("sync_latest_kline_17", now, 17, 0):
-                self._safe_run("sync_latest_kline_17", run_5pm_sync_latest_kline_job)
-                self._mark_run("sync_latest_kline_17", now)
+                if self._safe_run("sync_latest_kline_17", run_5pm_sync_latest_kline_job):
+                    self._mark_run("sync_latest_kline_17", now)
 
             time.sleep(20)
 

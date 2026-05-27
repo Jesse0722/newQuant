@@ -21,6 +21,7 @@ from app.models.trade import TradeDetail
 from app.services.buy_signal_service import _build_df, _calc_indicators
 from app.services.limit_up_tactics import TACTIC_REGISTRY, common_pre_filter
 from app.services.llm_client import call_llm_model
+from app.services.industry_report_service import get_stock_graph_context
 from app.services.sync_service import sync_daily, sync_stock_info
 from app.services.trading_session import latest_daily_k_trade_date_str
 from app.services.x_message_service import collect_x_stock_analysis_posts
@@ -1940,6 +1941,30 @@ def _compact_news(news: dict) -> dict:
             ("message_count", "theme_count", "avg_heat_score", "avg_credibility_score", "latest_trade_date"),
         ),
         "x_collect_meta": _compact_dict(news.get("x_collect_meta"), ("attempted", "status", "raw_count", "created_count", "skipped_count")),
+        "graph_context": _compact_graph_context(news.get("graph_context") or {}),
+    }
+
+
+def _compact_graph_context(graph_context: dict) -> dict:
+    items = []
+    for item in graph_context.get("items") or []:
+        items.append(
+            {
+                "trade_date": item.get("trade_date"),
+                "theme": item.get("theme"),
+                "grade": item.get("grade"),
+                "final_score": item.get("final_score"),
+                "evidence_score": item.get("evidence_score"),
+                "risk_score": item.get("risk_score"),
+                "reason": _compact_text(item.get("reason"), 100),
+                "path": item.get("path")[:4] if isinstance(item.get("path"), list) else [],
+                "risks": _compact_list(item.get("risks"), 3),
+            }
+        )
+    return {
+        "candidate_count": graph_context.get("candidate_count") or 0,
+        "items": items[:3],
+        "source_policy": graph_context.get("source_policy"),
     }
 
 
@@ -2070,6 +2095,7 @@ def _build_snapshot(
     recent_highs = sorted([_round(x) for x in win20["high"].tail(10).nlargest(3).tolist() if _round(x) is not None])
     news = _query_messages(db, ts_code)
     news["x_collect_meta"] = x_collect_meta
+    news["graph_context"] = get_stock_graph_context(db, ts_code)
     fundamental = _build_fundamental_snapshot(
         basic,
         latest,
