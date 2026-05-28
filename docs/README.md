@@ -8,7 +8,7 @@
 
 个人量化交易工作流管理系统。核心流程：**观察池 → 监控提醒 → 交易计划 → 执行记录 → 复盘**。
 
-技术栈：React + TypeScript + Ant Design（前端）、Python + FastAPI + SQLite（后端）、多数据源（AkShare / BaoStock / Tencent / Tushare，可切换）。
+技术栈：React + TypeScript + Ant Design（前端）、Python + FastAPI + SQLAlchemy（后端）、SQLite/PostgreSQL（数据库）、多数据源（AkShare / BaoStock / Tencent / Tushare，可切换）。长期主库方向是 PostgreSQL。
 
 ---
 
@@ -23,6 +23,9 @@
 | -- | `plans/2026-03-02-v1-implementation-plan.md` | V1 详细实施计划：5 个 Phase、28 个任务，含文件路径、代码片段、验证步骤 | 已定稿 |
 | -- | `plans/舆情分析模块需求.md` | 消息中心 PRD：每日题材、个股机会、平台角色、验收标准 | MVP 已实现 |
 | -- | `plans/2026-05-14-message-opportunity-technical-design.md` | 消息中心与 X 舆情采集技术方案：原始消息层、X recent search、种子池、A 股映射、API、验证步骤 | MVP 已实现 |
+| -- | `plans/2026-05-28-industry-graphrag-report-technical-design.md` | 产业链 GraphRAG 舆情日报技术方案：PostgreSQL、图谱模型、DeepSeek 抽取、候选评分、调度与前端展示 | MVP 已实现 |
+| -- | `plans/2026-05-28-industry-graphrag-report-tasks.md` | 产业链 GraphRAG 舆情日报任务拆解：多 agent 分工、验收标准、测试清单 | MVP 已实现 |
+| -- | `development-postgresql.md` | PostgreSQL 本地开发运行手册：Docker/Colima、Homebrew fallback、迁移、验证、回滚 | 当前推荐 |
 | -- | `plans/2026-05-22-task-notification-center-design.md` | 顶部任务消息中心设计：异步任务完成通知、任务收件箱、分期范围；策略回溯/回测放第二期 | 进行中 |
 | -- | `plans/2026-03-01-涨停回调买入策略.md` | 涨停回调买入策略实施方案（已实施） | 已归档 |
 | -- | `plans/2026-04-14-五日均线不破策略.md` | 五日均线不破（`ma5_hold_pullback`）量化口径与回测说明 | 已归档 |
@@ -41,6 +44,12 @@
 
 1. `plans/舆情分析模块需求.md`
 2. `plans/2026-05-14-message-opportunity-technical-design.md`
+3. `plans/2026-05-28-industry-graphrag-report-technical-design.md`
+4. `plans/2026-05-28-industry-graphrag-report-tasks.md`
+
+数据库迁移、PostgreSQL 开发和回滚请额外阅读：
+
+1. `development-postgresql.md`
 
 ---
 

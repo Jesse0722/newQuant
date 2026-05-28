@@ -159,6 +159,7 @@ Start with:
 
 - `README.md`
 - `docs/README.md` if the task touches product direction or architecture.
+- `docs/development-postgresql.md` if the task touches database configuration, migrations, Docker, or local environment setup.
 
 Then read task-specific documents.
 
@@ -190,6 +191,7 @@ For the current industry GraphRAG report initiative:
 
 - `docs/plans/2026-05-28-industry-graphrag-report-technical-design.md`
 - `docs/plans/2026-05-28-industry-graphrag-report-tasks.md`
+- `docs/development-postgresql.md`
 
 ## 6. Technical Baseline
 
@@ -475,4 +477,3 @@ Ask the user or supervisor when:
 - There are conflicting requirements.
 
 Do not ask for confirmation for routine local implementation details that are already covered by project patterns.
-

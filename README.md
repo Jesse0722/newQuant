@@ -13,6 +13,7 @@
 - Node.js 20+
 - npm 10+
 - Python 3.11+
+- PostgreSQL 16（推荐长期开发/生产主库）
 
 后端测试和类型标注已经按 Python 3.11 口径整理；如果继续使用 3.9，本地可能会遇到语法或依赖兼容问题。
 
@@ -42,7 +43,7 @@ npm run dev
 
 ```bash
 cd /Users/lijiajun/ai-coding/newQuant
-docker compose -f docker-compose.dev.yml up -d postgres
+docker-compose -f docker-compose.dev.yml up -d postgres
 ```
 
 然后在 `backend/.env` 中配置：
@@ -63,6 +64,8 @@ python scripts/migrate_sqlite_to_postgres.py \
 ```
 
 脚本会按表输出 source/copy/target 计数，用于迁移校验。
+
+完整 PostgreSQL 启动、迁移、验证和回滚流程见 [PostgreSQL Development Runbook](/Users/lijiajun/ai-coding/newQuant/docs/development-postgresql.md)。
 
 ## 常用命令
 
