@@ -495,22 +495,30 @@ def upsert_stock_sector_map(db: Session, rows: list[dict[str, Any]]) -> int:
     changed = 0
     now = datetime.utcnow()
     for item in rows:
+        mapped = {
+            "ts_code": item["ts_code"],
+            "sector_code": item["sector_code"],
+            "sector_name": item["sector_name"],
+            "sector_type": item.get("sector_type", "concept"),
+            "source": item.get("source", SOURCE),
+            "weight": item.get("weight"),
+        }
         row = (
             db.query(StockSectorMap)
             .filter(
-                StockSectorMap.ts_code == item["ts_code"],
-                StockSectorMap.sector_code == item["sector_code"],
-                StockSectorMap.source == item["source"],
+                StockSectorMap.ts_code == mapped["ts_code"],
+                StockSectorMap.sector_code == mapped["sector_code"],
+                StockSectorMap.source == mapped["source"],
             )
             .first()
         )
         if row:
-            row.sector_name = item["sector_name"]
-            row.sector_type = item["sector_type"]
-            row.weight = item.get("weight", row.weight)
+            row.sector_name = mapped["sector_name"]
+            row.sector_type = mapped["sector_type"]
+            row.weight = mapped.get("weight", row.weight)
             row.updated_at = now
         else:
-            db.add(StockSectorMap(**item))
+            db.add(StockSectorMap(**mapped))
         changed += 1
     db.commit()
     return changed

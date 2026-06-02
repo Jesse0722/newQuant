@@ -108,6 +108,31 @@ def test_upsert_sector_daily_quotes_updates_existing_row():
     assert saved.pct_chg == 5.0
 
 
+def test_upsert_stock_sector_map_ignores_extra_source_fields():
+    db = _session()
+
+    svc.upsert_stock_sector_map(
+        db,
+        [
+            {
+                "ts_code": "000001.SZ",
+                "sector_code": "BK1024",
+                "sector_name": "绿色电力",
+                "sector_type": "concept",
+                "source": svc.SOURCE,
+                "raw_code": "BK1024",
+                "rank": 3,
+                "weight": 1.0,
+            }
+        ],
+    )
+
+    saved = db.query(StockSectorMap).one()
+    assert saved.ts_code == "000001.SZ"
+    assert saved.sector_code == "BK1024"
+    assert saved.sector_name == "绿色电力"
+
+
 def test_refresh_quote_sync_state_tracks_coverage():
     db = _session()
     sector = SectorBasic(

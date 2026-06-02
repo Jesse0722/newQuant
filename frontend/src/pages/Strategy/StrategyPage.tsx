@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Space, Checkbox, message, Progress, DatePicker, Tag, Switch,
 } from 'antd'
-import { FilterOutlined, RobotOutlined, PlusOutlined, ThunderboltOutlined, ExperimentOutlined } from '@ant-design/icons'
+import { FilterOutlined, RobotOutlined, PlusOutlined, ThunderboltOutlined, ExperimentOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -16,6 +16,7 @@ import { upsertNotification } from '../../services/notificationCenter'
 
 const MAX_CONDITIONS = 10
 const AI_DESC_MAX = 200
+const MAIN_WAVE_PARAMS_STORAGE_KEY = 'newQuant.strategy.mainWaveParams.v1'
 type StrategyTabKey = 'indicator' | 'main_wave' | 'ai' | 'limit_up' | 'backtest'
 type ConditionField = 'template_id' | 'params'
 
@@ -67,6 +68,16 @@ const DEFAULT_MAIN_WAVE_PARAMS: MainWaveScreenParams = {
   min_relative_strength_20d: 0,
 }
 
+const RELAXED_MAIN_WAVE_PARAMS: Partial<MainWaveScreenParams> = {
+  min_score: 60,
+  require_sector_resonance: false,
+  min_price: null,
+  max_price: null,
+  min_float_market_cap_yi: null,
+  min_sector_return_20d: null,
+  min_relative_strength_20d: null,
+}
+
 interface ApiErrorLike {
   response?: {
     data?: {
@@ -103,6 +114,40 @@ const updateConditionList = (
   })
 }
 
+const loadStoredMainWaveParams = (): MainWaveScreenParams => {
+  try {
+    const raw = window.localStorage.getItem(MAIN_WAVE_PARAMS_STORAGE_KEY)
+    if (!raw) return DEFAULT_MAIN_WAVE_PARAMS
+    const parsed = JSON.parse(raw) as Partial<MainWaveScreenParams>
+    return {
+      ...DEFAULT_MAIN_WAVE_PARAMS,
+      ...parsed,
+      sector_codes: Array.isArray(parsed.sector_codes) ? parsed.sector_codes : [],
+      statuses: Array.isArray(parsed.statuses) && parsed.statuses.length > 0
+        ? parsed.statuses
+        : DEFAULT_MAIN_WAVE_PARAMS.statuses,
+    }
+  } catch {
+    return DEFAULT_MAIN_WAVE_PARAMS
+  }
+}
+
+const saveStoredMainWaveParams = (params: MainWaveScreenParams) => {
+  try {
+    window.localStorage.setItem(MAIN_WAVE_PARAMS_STORAGE_KEY, JSON.stringify(params))
+  } catch {
+    // 忽略本地存储不可用的情况，不影响选股。
+  }
+}
+
+const clearStoredMainWaveParams = () => {
+  try {
+    window.localStorage.removeItem(MAIN_WAVE_PARAMS_STORAGE_KEY)
+  } catch {
+    // 忽略本地存储不可用的情况。
+  }
+}
+
 const StrategyPage: React.FC = () => {
   const [templates, setTemplates] = useState<ScreenTemplate[]>([])
   const [limitUpTemplates, setLimitUpTemplates] = useState<ScreenTemplate[]>([])
@@ -113,7 +158,8 @@ const StrategyPage: React.FC = () => {
     return isStrategyTabKey(tab) ? tab : 'indicator'
   })
   const [scope, setScope] = useState<string>('full')
-  const [mainWaveParams, setMainWaveParams] = useState<MainWaveScreenParams>(DEFAULT_MAIN_WAVE_PARAMS)
+  const [mainWaveParams, setMainWaveParams] = useState<MainWaveScreenParams>(() => loadStoredMainWaveParams())
+  const [mainWaveAdvancedOpen, setMainWaveAdvancedOpen] = useState(false)
   const [conditions, setConditions] = useState<ScreenCondition[]>([])
   const [logic, setLogic] = useState<string>('and')
   const [limitUpConditions, setLimitUpConditions] = useState<ScreenCondition[]>([])
@@ -142,8 +188,23 @@ const StrategyPage: React.FC = () => {
     listSectors({ sector_type: 'concept', limit: 500 }).then((r) => setSectors(r.data))
   }, [])
 
+  useEffect(() => {
+    saveStoredMainWaveParams(mainWaveParams)
+  }, [mainWaveParams])
+
   const updateMainWaveParams = (patch: Partial<MainWaveScreenParams>) => {
     setMainWaveParams((prev) => ({ ...prev, ...patch }))
+  }
+
+  const applyRelaxedMainWaveParams = () => {
+    setMainWaveParams((prev) => ({ ...prev, ...RELAXED_MAIN_WAVE_PARAMS }))
+    message.success('已切换为宽松主升浪条件')
+  }
+
+  const resetMainWaveParams = () => {
+    clearStoredMainWaveParams()
+    setMainWaveParams(DEFAULT_MAIN_WAVE_PARAMS)
+    message.success('已恢复默认条件')
   }
 
   const switchStrategyTab = (key: StrategyTabKey) => {
@@ -374,6 +435,8 @@ const StrategyPage: React.FC = () => {
       message.success(`已添加 ${res.data.added} 只，跳过 ${res.data.skipped} 只`)
       setAddModalOpen(false)
       setSelectedRows([])
+      setSelectedPoolId('')
+      listPools().then((r) => setPools(r.data))
     } catch (error: unknown) {
       const apiError = error as ApiErrorLike
       message.error(apiError.response?.data?.message || '添加失败')
@@ -392,6 +455,7 @@ const StrategyPage: React.FC = () => {
       message.success(`已创建观察池「${res.data.name}」并添加 ${codes.length} 只股票`)
       setQuickCreateOpen(false)
       setSelectedRows([])
+      quickForm.resetFields()
       listPools().then((r) => setPools(r.data))
     } catch (error: unknown) {
       const apiError = error as ApiErrorLike
@@ -403,6 +467,11 @@ const StrategyPage: React.FC = () => {
     () => resultItems.length,
     [resultItems.length]
   )
+
+  const openAddSingleStock = (tsCode: string) => {
+    setSelectedRows([tsCode])
+    setAddModalOpen(true)
+  }
 
   const resultColumns = [
     {
@@ -460,6 +529,15 @@ const StrategyPage: React.FC = () => {
         render: (v: number | null) => v == null ? '-' : `${v}%`,
       },
     ] : []),
+    {
+      title: '操作',
+      width: 110,
+      render: (_: unknown, r: { ts_code: string }) => (
+        <Button size="small" type="link" onClick={() => openAddSingleStock(r.ts_code)}>
+          加入股票池
+        </Button>
+      ),
+    },
   ]
 
   return (
@@ -548,6 +626,13 @@ const StrategyPage: React.FC = () => {
 
         {activeTab === 'main_wave' && (
           <>
+            <div style={{ marginBottom: 12 }}>
+              <Space wrap>
+                <Tag color="blue">条件会自动保存</Tag>
+                <Button size="small" onClick={applyRelaxedMainWaveParams}>宽松筛选</Button>
+                <Button size="small" onClick={resetMainWaveParams}>恢复默认</Button>
+              </Space>
+            </div>
             <div style={{ marginBottom: 16 }}>
               <Space wrap>
                 <span>扫描范围：</span>
@@ -603,31 +688,6 @@ const StrategyPage: React.FC = () => {
                 />
                 <span>最低数据日</span>
                 <InputNumber value={mainWaveParams.min_data_days} min={60} max={500} onChange={(v) => updateMainWaveParams({ min_data_days: Number(v ?? 120) })} style={{ width: 90 }} />
-              </Space>
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <Space wrap>
-                <span>价格</span>
-                <InputNumber value={mainWaveParams.min_price ?? undefined} min={0} step={0.5} placeholder="最低" onChange={(v) => updateMainWaveParams({ min_price: v == null ? null : Number(v) })} style={{ width: 90 }} />
-                <InputNumber value={mainWaveParams.max_price ?? undefined} min={0} step={0.5} placeholder="最高" onChange={(v) => updateMainWaveParams({ max_price: v == null ? null : Number(v) })} style={{ width: 90 }} />
-                <span>流通市值(亿)</span>
-                <InputNumber value={mainWaveParams.min_float_market_cap_yi ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ min_float_market_cap_yi: v == null ? null : Number(v) })} style={{ width: 90 }} />
-                <span>20日成交额(亿)</span>
-                <InputNumber value={mainWaveParams.min_avg_amount_20d_yi ?? undefined} min={0} step={0.5} onChange={(v) => updateMainWaveParams({ min_avg_amount_20d_yi: v == null ? null : Number(v) })} style={{ width: 90 }} />
-                <span>60日涨幅上限</span>
-                <InputNumber value={mainWaveParams.max_return_60d ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ max_return_60d: v == null ? null : Number(v) })} style={{ width: 90 }} />
-                <span>MA20乖离上限</span>
-                <InputNumber value={mainWaveParams.max_ma20_distance_pct ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ max_ma20_distance_pct: v == null ? null : Number(v) })} style={{ width: 90 }} />
-              </Space>
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <Space wrap>
-                <span>板块20日涨幅</span>
-                <InputNumber value={mainWaveParams.min_sector_return_20d ?? undefined} onChange={(v) => updateMainWaveParams({ min_sector_return_20d: v == null ? null : Number(v) })} style={{ width: 90 }} />
-                <span>相对板块强弱</span>
-                <InputNumber value={mainWaveParams.min_relative_strength_20d ?? undefined} onChange={(v) => updateMainWaveParams({ min_relative_strength_20d: v == null ? null : Number(v) })} style={{ width: 90 }} />
                 <span>必须板块共振</span>
                 <Switch checked={mainWaveParams.require_sector_resonance} onChange={(v) => updateMainWaveParams({ require_sector_resonance: v })} />
                 <span>排除有效跌破MA20</span>
@@ -637,9 +697,57 @@ const StrategyPage: React.FC = () => {
               </Space>
             </div>
 
-            <Button type="primary" loading={loading} onClick={runMainWave}>
-              执行主升浪选股
-            </Button>
+            <div style={{ marginBottom: 16 }}>
+              <Button
+                size="small"
+                type="link"
+                icon={mainWaveAdvancedOpen ? <UpOutlined /> : <DownOutlined />}
+                onClick={() => setMainWaveAdvancedOpen((v) => !v)}
+                style={{ paddingLeft: 0 }}
+              >
+                高级过滤
+              </Button>
+            </div>
+
+            {mainWaveAdvancedOpen && (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <Space wrap>
+                    <span>价格</span>
+                    <InputNumber value={mainWaveParams.min_price ?? undefined} min={0} step={0.5} placeholder="最低" onChange={(v) => updateMainWaveParams({ min_price: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                    <InputNumber value={mainWaveParams.max_price ?? undefined} min={0} step={0.5} placeholder="最高" onChange={(v) => updateMainWaveParams({ max_price: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                    <span>流通市值(亿)</span>
+                    <InputNumber value={mainWaveParams.min_float_market_cap_yi ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ min_float_market_cap_yi: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                    <span>20日成交额(亿)</span>
+                    <InputNumber value={mainWaveParams.min_avg_amount_20d_yi ?? undefined} min={0} step={0.5} onChange={(v) => updateMainWaveParams({ min_avg_amount_20d_yi: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                    <span>60日涨幅上限</span>
+                    <InputNumber value={mainWaveParams.max_return_60d ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ max_return_60d: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                    <span>MA20乖离上限</span>
+                    <InputNumber value={mainWaveParams.max_ma20_distance_pct ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ max_ma20_distance_pct: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                  </Space>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <Space wrap>
+                    <span>板块20日涨幅</span>
+                    <InputNumber value={mainWaveParams.min_sector_return_20d ?? undefined} onChange={(v) => updateMainWaveParams({ min_sector_return_20d: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                    <span>相对板块强弱</span>
+                    <InputNumber value={mainWaveParams.min_relative_strength_20d ?? undefined} onChange={(v) => updateMainWaveParams({ min_relative_strength_20d: v == null ? null : Number(v) })} style={{ width: 90 }} />
+                  </Space>
+                </div>
+              </>
+            )}
+
+            <Space wrap>
+              <Button type="primary" loading={loading} onClick={runMainWave}>
+                执行主升浪选股
+              </Button>
+              {resultItems.length > 0 && (
+                <Button onClick={() => setAddModalOpen(true)}>
+                  添加结果到股票池
+                </Button>
+              )}
+            </Space>
           </>
         )}
 
@@ -857,10 +965,10 @@ const StrategyPage: React.FC = () => {
           <div style={{ marginTop: 24 }}>
             <h4>选股结果（共 {filteredResultCount} 只）</h4>
             <div style={{ marginBottom: 8 }}>
-              <Button type="primary" size="small" onClick={() => setAddModalOpen(true)}>
-                添加到观察池
+              <Button type="primary" size="small" disabled={resultItems.length === 0} onClick={() => setAddModalOpen(true)}>
+                添加到股票池
               </Button>
-              <Button size="small" style={{ marginLeft: 8 }} onClick={() => setQuickCreateOpen(true)}>
+              <Button size="small" style={{ marginLeft: 8 }} disabled={resultItems.length === 0} onClick={() => setQuickCreateOpen(true)}>
                 快捷创建新池
               </Button>
             </div>
@@ -876,13 +984,14 @@ const StrategyPage: React.FC = () => {
       </Card>
 
       <Modal
-        title="添加到观察池"
+        title="添加到股票池"
         open={addModalOpen}
         onCancel={() => { setAddModalOpen(false); setSelectedPoolId('') }}
         onOk={() => selectedPoolId && handleBatchAdd(selectedPoolId)}
+        okButtonProps={{ disabled: !selectedPoolId || resultItems.length === 0 }}
         okText="确认添加"
       >
-        <p>选择已有观察池，将选中的 {selectedRows.length > 0 ? selectedRows.length : resultItems.length} 只股票添加进去</p>
+        <p>选择已有股票池，将选中的 {selectedRows.length > 0 ? selectedRows.length : resultItems.length} 只股票添加进去</p>
         <Select
           style={{ width: '100%' }}
           placeholder="选择观察池"
@@ -907,7 +1016,7 @@ const StrategyPage: React.FC = () => {
           </Form.Item>
         </Form>
         <p style={{ color: '#999', fontSize: 12 }}>
-          将选中的 {selectedRows.length > 0 ? selectedRows.length : resultItems.length} 只股票添加到新池
+          将选中的 {selectedRows.length > 0 ? selectedRows.length : resultItems.length} 只股票添加到新股票池
         </p>
       </Modal>
     </div>

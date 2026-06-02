@@ -5,7 +5,10 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models.sector import SectorDailyQuote, StockSectorMap
+from app.models.pool import WatchPool, WatchStock
+from app.models.sector import SectorBasic
 from app.models.stock import DailyQuote, StockBasic
+from app.services import strategy_service
 from app.services.main_wave_service import analyze_main_wave_stock
 
 
@@ -73,3 +76,103 @@ def test_analyze_main_wave_stock_scores_uptrend_with_sector_resonance():
     assert result["total_score"] >= 60
     assert result["ma20_state"]["state"] == "above"
     assert result["scores"]["sector_resonance"] > 0
+
+
+def test_main_wave_scope_fetches_missing_sector_constituents_and_intersects_pool(monkeypatch):
+    db = _session()
+    pool = WatchPool(id="pool-1", name="涨停股票观察池")
+    db.add(pool)
+    db.add_all(
+        [
+            WatchStock(pool_id="pool-1", ts_code="000001.SZ"),
+            WatchStock(pool_id="pool-1", ts_code="000002.SZ"),
+            StockBasic(ts_code="000001.SZ", symbol="000001", name="池内绿色电力"),
+            StockBasic(ts_code="000002.SZ", symbol="000002", name="池内非绿色"),
+            StockBasic(ts_code="000003.SZ", symbol="000003", name="池外绿色电力"),
+            SectorBasic(
+                sector_code="BK1024",
+                sector_name="绿色电力",
+                sector_type="concept",
+                source="eastmoney_direct",
+                raw_code="BK1024",
+            ),
+        ]
+    )
+    db.commit()
+
+    def fake_fetch_sector_constituents(sector):
+        assert sector.sector_code == "BK1024"
+        return [
+            {
+                "ts_code": "000001.SZ",
+                "sector_code": "BK1024",
+                "sector_name": "绿色电力",
+                "sector_type": "concept",
+                "source": "eastmoney_direct",
+            },
+            {
+                "ts_code": "000003.SZ",
+                "sector_code": "BK1024",
+                "sector_name": "绿色电力",
+                "sector_type": "concept",
+                "source": "eastmoney_direct",
+            },
+        ]
+
+    monkeypatch.setattr(strategy_service, "fetch_sector_constituents", fake_fetch_sector_constituents)
+
+    codes = strategy_service._main_wave_scope_codes(db, "pool-1", ["BK1024"], "any")
+
+    assert codes == ["000001.SZ"]
+    assert db.query(StockSectorMap).filter(StockSectorMap.sector_code == "BK1024").count() == 2
+
+
+def test_main_wave_scope_falls_back_to_pool_stock_f10_when_sector_constituents_fail(monkeypatch):
+    db = _session()
+    db.add(WatchPool(id="pool-1", name="涨停股票观察池"))
+    db.add_all(
+        [
+            WatchStock(pool_id="pool-1", ts_code="000001.SZ"),
+            WatchStock(pool_id="pool-1", ts_code="000002.SZ"),
+            SectorBasic(
+                sector_code="BK1024",
+                sector_name="绿色电力",
+                sector_type="concept",
+                source="eastmoney_direct",
+                raw_code="BK1024",
+            ),
+        ]
+    )
+    db.commit()
+
+    def fail_fetch_sector_constituents(_sector):
+        raise RuntimeError("eastmoney blocked")
+
+    def fake_fetch_stock_concept_sectors(ts_code):
+        if ts_code == "000001.SZ":
+            return [
+                {
+                    "sector_code": "BK1024",
+                    "sector_name": "绿色电力",
+                    "sector_type": "concept",
+                    "source": "eastmoney_direct",
+                    "raw_code": "BK1024",
+                }
+            ]
+        return [
+            {
+                "sector_code": "BK9999",
+                "sector_name": "其他概念",
+                "sector_type": "concept",
+                "source": "eastmoney_direct",
+            }
+        ]
+
+    monkeypatch.setattr(strategy_service, "fetch_sector_constituents", fail_fetch_sector_constituents)
+    monkeypatch.setattr(strategy_service, "fetch_stock_concept_sectors", fake_fetch_stock_concept_sectors)
+
+    codes = strategy_service._main_wave_scope_codes(db, "pool-1", ["BK1024"], "any")
+
+    assert codes == ["000001.SZ"]
+    saved = db.query(StockSectorMap).filter(StockSectorMap.sector_code == "BK1024").one()
+    assert saved.ts_code == "000001.SZ"

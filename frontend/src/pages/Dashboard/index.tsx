@@ -165,8 +165,8 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ message: string; hint?: string } | null>(null)
 
-  const requestDashboard = useCallback(() => {
-    getDashboard()
+  const requestDashboard = useCallback((forceRefresh = false) => {
+    getDashboard(undefined, { forceRefresh })
       .then((res) => { setData(res.data); setError(null) })
       .catch((e) => { setData(null); setError(parseDashboardError(e)) })
       .finally(() => setLoading(false))
@@ -325,7 +325,7 @@ const Dashboard: React.FC = () => {
       <div className="glow-card" style={{ maxWidth: 560, margin: '60px auto', padding: 28, textAlign: 'center' }}>
         <div style={{ fontSize: 18, color: 'var(--color-down)', fontWeight: 700 }}>{error.message}</div>
         {error.hint && <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>{error.hint}</div>}
-        <Button style={{ marginTop: 16 }} type="primary" onClick={() => { setLoading(true); requestDashboard() }} icon={<ReloadOutlined />}>重试</Button>
+        <Button style={{ marginTop: 16 }} type="primary" onClick={() => { setLoading(true); requestDashboard(true) }} icon={<ReloadOutlined />}>重试</Button>
       </div>
     )
   }
@@ -347,7 +347,7 @@ const Dashboard: React.FC = () => {
         </div>
         <Button
           icon={<ReloadOutlined />}
-          onClick={() => { setLoading(true); requestDashboard() }}
+          onClick={() => { setLoading(true); requestDashboard(true) }}
           loading={loading}
           style={{ background: 'var(--accent-dim)', borderColor: 'var(--accent-border)', color: 'var(--accent)' }}
         >

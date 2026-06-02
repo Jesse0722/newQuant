@@ -9,11 +9,12 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models.sector import StockSectorMap
+from app.models.sector import SectorBasic, StockSectorMap
 from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchPool, WatchStock
 from app.services.indicator import calc_ma, calc_macd, calc_rsi, calc_vol_ma, calc_n_day_high
 from app.services.main_wave_service import analyze_main_wave_stock
+from app.services.sector_data_service import fetch_sector_constituents, fetch_stock_concept_sectors, upsert_stock_sector_map
 from app.services.tushare_adapter import tushare_adapter
 from app.services.limit_up_service import fetch_limit_up_stocks_in_range
 from app.services.monitor_engine import _get_df, evaluate_template, TEMPLATE_INFO
@@ -220,21 +221,139 @@ def _float_market_cap_yi(basic: StockBasic | None, latest: DailyQuote | None) ->
     return round(float(latest.close) * float(float_share) / 10000.0, 2)
 
 
-def _main_wave_scope_codes(db: Session, scope: str, sector_codes: list[str], sector_logic: str) -> list[str]:
-    if sector_codes:
-        rows = (
-            db.query(StockSectorMap.ts_code, func.count(func.distinct(StockSectorMap.sector_code)).label("hit_count"))
+def _watch_pool_codes(db: Session, scope: str) -> list[str]:
+    pool = db.query(WatchPool).filter(WatchPool.id == scope).first()
+    if not pool:
+        raise ValueError("观察池不存在")
+    rows = db.query(WatchStock.ts_code).filter(WatchStock.pool_id == scope).all()
+    return [r[0] for r in rows]
+
+
+def _ensure_sector_constituents(db: Session, sector_codes: list[str]) -> None:
+    """指定概念选股时，若本地成分为空，按现有板块服务补一次成分映射。"""
+    for code in sector_codes:
+        has_rows = (
+            db.query(StockSectorMap.id)
             .filter(
                 StockSectorMap.sector_type == "concept",
-                StockSectorMap.sector_code.in_(sector_codes),
+                StockSectorMap.sector_code == code,
             )
-            .group_by(StockSectorMap.ts_code)
-            .all()
+            .first()
         )
-        required = len(set(sector_codes))
-        if sector_logic == "all":
-            return [r.ts_code for r in rows if int(r.hit_count or 0) >= required]
-        return [r.ts_code for r in rows]
+        if has_rows:
+            continue
+        sector = db.query(SectorBasic).filter(SectorBasic.sector_code == code).first()
+        if not sector:
+            continue
+        try:
+            rows = fetch_sector_constituents(sector)
+            if rows:
+                upsert_stock_sector_map(db, rows)
+        except Exception:
+            continue
+
+
+def _sector_scope_codes(db: Session, sector_codes: list[str], sector_logic: str) -> list[str]:
+    rows = (
+        db.query(StockSectorMap.ts_code, func.count(func.distinct(StockSectorMap.sector_code)).label("hit_count"))
+        .filter(
+            StockSectorMap.sector_type == "concept",
+            StockSectorMap.sector_code.in_(sector_codes),
+        )
+        .group_by(StockSectorMap.ts_code)
+        .all()
+    )
+    required = len(set(sector_codes))
+    if sector_logic == "all":
+        return [r.ts_code for r in rows if int(r.hit_count or 0) >= required]
+    return [r.ts_code for r in rows]
+
+
+def _sector_search_terms(db: Session, sector_codes: list[str]) -> list[str]:
+    generic = {"概念", "板块", "指数", "主题", "产业", "绿色", "相关", "精选"}
+    terms: list[str] = []
+    sectors = db.query(SectorBasic).filter(SectorBasic.sector_code.in_(sector_codes)).all()
+    for sector in sectors:
+        name = str(sector.sector_name or "")
+        cleaned = name
+        for word in generic:
+            cleaned = cleaned.replace(word, "")
+        candidates = {cleaned.strip()}
+        if "电力" in cleaned:
+            candidates.update({"电力", "能源", "发电", "风电", "水电", "光伏", "太阳能", "新能源"})
+        if len(cleaned) >= 2:
+            candidates.add(cleaned[-2:])
+        if len(cleaned) >= 3:
+            candidates.add(cleaned[-3:])
+        for candidate in candidates:
+            if len(candidate) >= 2 and candidate not in generic:
+                terms.append(candidate)
+    return list(dict.fromkeys(terms))
+
+
+def _pool_codes_for_sector_f10_fallback(db: Session, sector_codes: list[str], pool_codes: list[str]) -> list[str]:
+    if len(pool_codes) <= 300:
+        return pool_codes
+    terms = _sector_search_terms(db, sector_codes)
+    if not terms:
+        return []
+    rows = db.query(StockBasic).filter(StockBasic.ts_code.in_(pool_codes)).all()
+    matched: list[str] = []
+    for stock in rows:
+        text = f"{stock.name or ''} {stock.industry or ''}"
+        if any(term in text for term in terms):
+            matched.append(stock.ts_code)
+    return matched
+
+
+def _ensure_pool_stock_sector_memberships(db: Session, sector_codes: list[str], pool_codes: list[str]) -> None:
+    """板块全量成分不可用时，用池内股票 F10 概念反查补齐局部映射。"""
+    wanted = set(sector_codes)
+    rows: list[dict] = []
+    candidates = _pool_codes_for_sector_f10_fallback(db, sector_codes, pool_codes)
+    for ts_code in candidates:
+        existing_codes = {
+            r[0]
+            for r in db.query(StockSectorMap.sector_code)
+            .filter(
+                StockSectorMap.ts_code == ts_code,
+                StockSectorMap.sector_type == "concept",
+                StockSectorMap.sector_code.in_(wanted),
+            )
+            .all()
+        }
+        if existing_codes >= wanted:
+            continue
+        try:
+            sectors = fetch_stock_concept_sectors(ts_code)
+        except Exception:
+            continue
+        for sector in sectors:
+            if sector.get("sector_code") in wanted:
+                rows.append({**sector, "ts_code": ts_code, "weight": 1.0})
+    if rows:
+        upsert_stock_sector_map(db, rows)
+
+
+def _main_wave_scope_codes(db: Session, scope: str, sector_codes: list[str], sector_logic: str) -> list[str]:
+    if sector_codes:
+        pool_codes: list[str] | None = None
+        if scope and scope != "full":
+            pool_codes = _watch_pool_codes(db, scope)
+        codes = _sector_scope_codes(db, sector_codes, sector_logic)
+        if pool_codes is not None:
+            pool_code_set = set(pool_codes)
+            codes = [code for code in codes if code in pool_code_set]
+            if not codes:
+                _ensure_pool_stock_sector_memberships(db, sector_codes, pool_codes)
+                codes = [code for code in _sector_scope_codes(db, sector_codes, sector_logic) if code in pool_code_set]
+            if not codes:
+                _ensure_sector_constituents(db, sector_codes)
+                codes = [code for code in _sector_scope_codes(db, sector_codes, sector_logic) if code in pool_code_set]
+        else:
+            _ensure_sector_constituents(db, sector_codes)
+            codes = _sector_scope_codes(db, sector_codes, sector_logic)
+        return codes
 
     if scope == "full":
         rows = (
@@ -244,11 +363,7 @@ def _main_wave_scope_codes(db: Session, scope: str, sector_codes: list[str], sec
         )
         return [r[0] for r in rows]
 
-    pool = db.query(WatchPool).filter(WatchPool.id == scope).first()
-    if not pool:
-        raise ValueError("观察池不存在")
-    rows = db.query(WatchStock.ts_code).filter(WatchStock.pool_id == scope).all()
-    return [r[0] for r in rows]
+    return _watch_pool_codes(db, scope)
 
 
 def _passes_main_wave_hard_filters(
