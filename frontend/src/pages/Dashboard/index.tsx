@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Spin, Table, Tag, Tooltip, Progress } from 'antd'
-import { useNavigate } from 'react-router-dom'
+import { Button, Spin, Table, Tag, Tooltip, Progress, Popover, Empty } from 'antd'
 import {
   ReloadOutlined,
   ThunderboltOutlined,
@@ -20,6 +19,7 @@ import type {
   DashboardThsHotStock,
 } from '../../types'
 import StatCard from '../../components/StatCard'
+import { openStockDetail } from '../../utils/openStockDetail'
 
 function parseDashboardError(err: unknown): { message: string; hint?: string } {
   if (axios.isAxiosError(err)) {
@@ -159,8 +159,19 @@ const PctValue: React.FC<{ value?: number | null }> = ({ value }) => {
   return <span className={value >= 0 ? 'up mono' : 'down mono'}>{value >= 0 ? '+' : ''}{value.toFixed(2)}%</span>
 }
 
+type HotSectorLinkedStock = DashboardSectorStock & {
+  source: 'limit' | 'hot'
+  pct_chg?: number | null
+  tag?: string | null
+}
+
+const normalizeSectorName = (value?: string | null) =>
+  String(value || '')
+    .replace(/\s+/g, '')
+    .replace(/[（）]/g, (m) => (m === '（' ? '(' : ')'))
+    .toLowerCase()
+
 const Dashboard: React.FC = () => {
-  const navigate = useNavigate()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ message: string; hint?: string } | null>(null)
@@ -222,6 +233,101 @@ const Dashboard: React.FC = () => {
         ? '日线推断'
         : '未知'
 
+  const getHotSectorLinkedStocks = useCallback((row: DashboardThsHotSector): HotSectorLinkedStock[] => {
+    const targetName = normalizeSectorName(row.name)
+    const linked = new Map<string, HotSectorLinkedStock>()
+    const addStock = (stock: HotSectorLinkedStock) => {
+      const key = stock.ts_code || stock.name
+      if (!key || linked.has(key)) return
+      linked.set(key, stock)
+    }
+
+    inflowSectors
+      .filter((sector) => normalizeSectorName(sector.name) === targetName)
+      .flatMap((sector) => sector.stocks || [])
+      .forEach((stock) => addStock({ ...stock, source: 'limit' }))
+
+    thsHotStocks
+      .filter((stock) => {
+        const tags = stock.concept_tags || []
+        return tags.some((tag) => {
+          const normalizedTag = normalizeSectorName(tag)
+          return normalizedTag === targetName || normalizedTag.includes(targetName) || targetName.includes(normalizedTag)
+        })
+      })
+      .forEach((stock) => addStock({
+        ts_code: stock.ts_code,
+        name: stock.name || stock.ts_code || stock.code,
+        source: 'hot',
+        pct_chg: stock.pct_chg,
+        tag: stock.popularity_tag,
+      }))
+
+    return Array.from(linked.values())
+  }, [inflowSectors, thsHotStocks])
+
+  const renderHotSectorStatusTag = useCallback((row: DashboardThsHotSector) => {
+    if (!row.tag) return null
+    const linkedStocks = getHotSectorLinkedStocks(row)
+    const limitStocks = linkedStocks.filter((stock) => stock.source === 'limit')
+    const hotStocks = linkedStocks.filter((stock) => stock.source === 'hot')
+    const content = (
+      <div style={{ width: 320, maxWidth: '70vw' }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>{row.name} · {row.tag}</div>
+        {limitStocks.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>涨停明细</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {limitStocks.map((stock) => (
+                <Tag
+                  key={`limit-${stock.ts_code || stock.name}`}
+                  color="red"
+                  style={{ cursor: stock.ts_code ? 'pointer' : 'default', marginInlineEnd: 0 }}
+                  onClick={() => stock.ts_code && openStockDetail(stock.ts_code)}
+                >
+                  {stock.name || stock.ts_code}
+                </Tag>
+              ))}
+            </div>
+          </div>
+        )}
+        {hotStocks.length > 0 && (
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+              同花顺热股关联
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {hotStocks.map((stock) => (
+                <Tooltip
+                  key={`hot-${stock.ts_code || stock.name}`}
+                  title={[stock.ts_code, stock.tag, stock.pct_chg != null ? `${stock.pct_chg.toFixed(2)}%` : null].filter(Boolean).join(' · ')}
+                >
+                  <Tag
+                    style={{ cursor: stock.ts_code ? 'pointer' : 'default', marginInlineEnd: 0 }}
+                    onClick={() => stock.ts_code && openStockDetail(stock.ts_code)}
+                  >
+                    {stock.name || stock.ts_code}
+                  </Tag>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
+        )}
+        {linkedStocks.length === 0 && (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无股票明细" />
+        )}
+        <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 10 }}>
+          热榜接口不提供完整涨停成分；这里展示当前可关联到的股票。
+        </div>
+      </div>
+    )
+    return (
+      <Popover content={content} trigger="click" placement="leftTop">
+        <Tag color="red" style={{ marginInlineEnd: 0, cursor: 'pointer' }}>{row.tag}</Tag>
+      </Popover>
+    )
+  }, [getHotSectorLinkedStocks])
+
   const inflowColumns = [
     { title: '排名', dataIndex: 'rank', key: 'rank', width: 58 },
     { title: '流入板块', dataIndex: 'name', key: 'name', width: 140 },
@@ -231,7 +337,7 @@ const Dashboard: React.FC = () => {
       dataIndex: 'stocks',
       key: 'stocks',
       render: (stocks?: DashboardSectorStock[]) => (
-        <SectorStockTags stocks={stocks} tone="up" onGoStock={(tsCode) => navigate(`/stocks/${tsCode}`)} />
+        <SectorStockTags stocks={stocks} tone="up" onGoStock={openStockDetail} />
       ),
     },
   ]
@@ -245,7 +351,7 @@ const Dashboard: React.FC = () => {
       dataIndex: 'stocks',
       key: 'stocks',
       render: (stocks?: DashboardSectorStock[]) => (
-        <SectorStockTags stocks={stocks} tone="down" onGoStock={(tsCode) => navigate(`/stocks/${tsCode}`)} />
+        <SectorStockTags stocks={stocks} tone="down" onGoStock={openStockDetail} />
       ),
     },
   ]
@@ -261,7 +367,7 @@ const Dashboard: React.FC = () => {
         <Tooltip title={row.ts_code || row.code || undefined}>
           <span
             style={{ cursor: row.ts_code ? 'pointer' : 'default', fontWeight: 600 }}
-            onClick={() => row.ts_code && navigate(`/stocks/${row.ts_code}`)}
+            onClick={() => row.ts_code && openStockDetail(row.ts_code)}
           >
             {row.name}
           </span>
@@ -304,7 +410,7 @@ const Dashboard: React.FC = () => {
       key: 'tags',
       render: (_: unknown, row: DashboardThsHotSector) => (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {row.tag && <Tag color="red" style={{ marginInlineEnd: 0 }}>{row.tag}</Tag>}
+          {renderHotSectorStatusTag(row)}
           {row.hot_tag && <Tag style={{ marginInlineEnd: 0 }}>{row.hot_tag}</Tag>}
         </div>
       ),
@@ -464,14 +570,14 @@ const Dashboard: React.FC = () => {
           icon={<FireOutlined />}
           data={inflowLadder}
           tone="up"
-          onGoStock={(tsCode) => navigate(`/stocks/${tsCode}`)}
+          onGoStock={openStockDetail}
         />
         <LadderTags
           title="连跌梯队（资金撤退）"
           icon={<FallOutlined />}
           data={outflowLadder}
           tone="down"
-          onGoStock={(tsCode) => navigate(`/stocks/${tsCode}`)}
+          onGoStock={openStockDetail}
         />
       </div>
     </div>

@@ -5,11 +5,11 @@ import {
 } from 'antd'
 import dayjs from 'dayjs'
 import { PlusOutlined, EditOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
 import { getPlan, updatePlan, submitReview, updateDetail, deleteDetail, type PlanStockInput, type DetailUpdateInput } from '../../api/plans'
 import { createStockDetail } from '../../api/stocks'
 import { getAllStocks } from '../../api/pools'
 import type { TradePlan, TradeDetail, TradePlanStock } from '../../types'
+import { openStockDetail } from '../../utils/openStockDetail'
 
 const TRIGGER_OPTIONS = ['短线', '龙头战法', 'MACD金叉', '突破', '回调', '趋势跟踪', '事件驱动', '均线支撑', '量价配合']
 
@@ -47,7 +47,6 @@ interface ApiErrorLike {
 }
 
 const PlanDetailRow: React.FC<PlanDetailRowProps> = ({ planId, onRefresh }) => {
-  const navigate = useNavigate()
   const [plan, setPlan] = useState<TradePlan | null>(null)
   const [loading, setLoading] = useState(true)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
@@ -272,7 +271,7 @@ const PlanDetailRow: React.FC<PlanDetailRowProps> = ({ planId, onRefresh }) => {
             rowExpandable: () => true,
           }}
           columns={[
-            { title: '股票', key: 'stock', render: (_: unknown, ps: TradePlanStock) => <a onClick={() => navigate(`/stocks/${ps.ts_code}`)}>{ps.stock_name || ps.ts_code} ({ps.ts_code})</a> },
+            { title: '股票', key: 'stock', render: (_: unknown, ps: TradePlanStock) => <a onClick={() => openStockDetail(ps.ts_code)}>{ps.stock_name || ps.ts_code} ({ps.ts_code})</a> },
             { title: '风险', dataIndex: 'risk_level', key: 'risk_level', width: 90, render: (v: number) => { const m = riskMap[v ?? 2] || riskMap[2]; return <Tag color={m.color}>{m.label}</Tag> } },
             { title: '触发策略', dataIndex: 'trigger_strategy', key: 'trigger_strategy', ellipsis: true, render: (v: string) => v || '-' },
             { title: '计划买入价', dataIndex: 'planned_buy_price', key: 'planned_buy_price', width: 100, render: (v: number) => v != null ? v.toFixed(2) : '-' },

@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   Button,
   Card,
@@ -56,6 +55,7 @@ import type {
   MessageSeedKeywordInput,
   MessageSentiment,
 } from '../../types'
+import { openStockDetail } from '../../utils/openStockDetail'
 
 const stageMap: Record<string, { label: string; color: string }> = {
   early: { label: '早期', color: 'cyan' },
@@ -158,7 +158,6 @@ const sentimentTag = (sentiment: MessageSentiment) => {
 }
 
 const MessageCenterPage: React.FC = () => {
-  const navigate = useNavigate()
   const [daily, setDaily] = useState<MessageDaily | null>(null)
   const [loading, setLoading] = useState(true)
   const [themeFilter, setThemeFilter] = useState<string>('all')
@@ -392,7 +391,7 @@ const MessageCenterPage: React.FC = () => {
       render: (_: unknown, row: MessageOpportunity) => (
         <Space direction="vertical" size={0}>
           {row.ts_code ? (
-            <Typography.Link onClick={() => navigate(`/stocks/${row.ts_code}`)}>
+            <Typography.Link onClick={() => row.ts_code && openStockDetail(row.ts_code)}>
               {row.stock_name || row.ts_code}
             </Typography.Link>
           ) : (
@@ -497,7 +496,7 @@ const MessageCenterPage: React.FC = () => {
               <Button
                 size="small"
                 icon={<EyeOutlined />}
-                onClick={() => navigate(`/stocks/${row.ts_code}`)}
+                onClick={() => row.ts_code && openStockDetail(row.ts_code)}
               />
             </Tooltip>
           )}
@@ -523,7 +522,7 @@ const MessageCenterPage: React.FC = () => {
       width: 150,
       render: (_: unknown, row: IndustryReportCandidate) => (
         <Space direction="vertical" size={0}>
-          <Typography.Link onClick={() => navigate(`/stocks/${row.ts_code}`)}>
+          <Typography.Link onClick={() => openStockDetail(row.ts_code)}>
             {row.stock_name || row.ts_code}
           </Typography.Link>
           <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.ts_code}</span>
@@ -592,7 +591,7 @@ const MessageCenterPage: React.FC = () => {
       render: (_: unknown, row: IndustryReportCandidate) => (
         <Space>
           <Tooltip title="查看股票详情">
-            <Button size="small" icon={<EyeOutlined />} onClick={() => navigate(`/stocks/${row.ts_code}`)} />
+            <Button size="small" icon={<EyeOutlined />} onClick={() => openStockDetail(row.ts_code)} />
           </Tooltip>
           <Tooltip title="加入核心关注">
             <Button

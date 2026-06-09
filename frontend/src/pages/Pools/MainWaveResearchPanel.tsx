@@ -215,8 +215,14 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
   const selectedAnalysis = selectedStock ? analysisMap[selectedStock.ts_code] : null
 
   useEffect(() => {
-    if (!chartRef.current || !chartData?.quotes?.length) return
-    if (!chartInstance.current) chartInstance.current = echarts.init(chartRef.current)
+    if (!chartRef.current || !chartData?.quotes?.length) {
+      chartInstance.current?.clear()
+      return
+    }
+    const chartEl = chartRef.current
+    if (!chartInstance.current || chartInstance.current.isDisposed()) {
+      chartInstance.current = echarts.getInstanceByDom(chartEl) || echarts.init(chartEl)
+    }
     const chart = chartInstance.current
     const { quotes, indicators } = chartData
     const dates = quotes.map(q => q.date)
@@ -311,9 +317,15 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
         { name: '成交量', type: 'bar', data: volumes, xAxisIndex: 1, yAxisIndex: 1 },
       ],
     }, true)
+    window.requestAnimationFrame(() => chart.resize())
     const onResize = () => chart.resize()
+    const observer = new ResizeObserver(onResize)
+    observer.observe(chartEl)
     window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', onResize)
+    }
   }, [chartData, selectedAnalysis])
 
   useEffect(() => {
@@ -422,7 +434,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
   }
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, overflowY: 'auto', paddingRight: 4 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -444,72 +456,84 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
         </Space>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(96px, 1fr))', gap: 8 }}>
-        {[
-          ['样本', summary.total],
-          ['主升确认', summary.confirmed],
-          ['突破跟踪', summary.tracking],
-          ['风险预警', summary.warning],
-          ['MA20修复', summary.repaired],
-        ].map(([label, value]) => (
-          <div key={label} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '8px 10px', background: 'rgba(255,255,255,0.03)' }}>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{value}</div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(560px, 100%), 1fr))',
+          gap: 14,
+          flex: 1,
+          minHeight: 0,
+          overflow: 'auto',
+          alignItems: 'stretch',
+        }}
+      >
+        <div style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(86px, 1fr))', gap: 8 }}>
+            {[
+              ['样本', summary.total],
+              ['主升确认', summary.confirmed],
+              ['突破跟踪', summary.tracking],
+              ['风险预警', summary.warning],
+              ['MA20修复', summary.repaired],
+            ].map(([label, value]) => (
+              <div key={label} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '8px 10px', background: 'rgba(255,255,255,0.03)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{label}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{value}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      <SectorBackfillStatusPanel status={sectorStatus} task={sectorTask} onRefresh={loadSectorStatus} />
+          <SectorBackfillStatusPanel status={sectorStatus} task={sectorTask} onRefresh={loadSectorStatus} />
 
-      <Space size={8} wrap>
-        <Select
-          mode="multiple"
-          allowClear
-          placeholder="阶段"
-          style={{ minWidth: 180 }}
-          value={statusFilter}
-          onChange={setStatusFilter}
-          options={Object.entries(STATUS_META).map(([value, meta]) => ({ value, label: meta.label }))}
-          maxTagCount="responsive"
-        />
-        <Select
-          mode="multiple"
-          allowClear
-          placeholder="MA20状态"
-          style={{ minWidth: 160 }}
-          value={ma20Filter}
-          onChange={setMa20Filter}
-          options={Object.entries(MA20_META).map(([value, meta]) => ({ value, label: meta.label }))}
-          maxTagCount="responsive"
-        />
-        <InputNumber min={0} max={100} placeholder="最低分" value={minScore} onChange={setMinScore} style={{ width: 96 }} />
-        <Checkbox checked={resonanceOnly} onChange={(event) => setResonanceOnly(event.target.checked)}>仅看板块共振</Checkbox>
-      </Space>
+          <Space size={8} wrap>
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="阶段"
+              style={{ minWidth: 180 }}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={Object.entries(STATUS_META).map(([value, meta]) => ({ value, label: meta.label }))}
+              maxTagCount="responsive"
+            />
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="MA20状态"
+              style={{ minWidth: 160 }}
+              value={ma20Filter}
+              onChange={setMa20Filter}
+              options={Object.entries(MA20_META).map(([value, meta]) => ({ value, label: meta.label }))}
+              maxTagCount="responsive"
+            />
+            <InputNumber min={0} max={100} placeholder="最低分" value={minScore} onChange={setMinScore} style={{ width: 96 }} />
+            <Checkbox checked={resonanceOnly} onChange={(event) => setResonanceOnly(event.target.checked)}>仅看板块共振</Checkbox>
+          </Space>
 
-      <div style={{ flex: '0 0 auto', minHeight: 0, overflow: 'hidden', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
-        <Table
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          pagination={false}
-          rowKey="key"
-          size="small"
-          scroll={{ x: 900, y: 220 }}
-          rowClassName={(record) => record.stock.ts_code === selectedStock?.ts_code ? 'ant-table-row-selected' : ''}
-          onRow={(record) => ({
-            onClick: () => onSelectStock(record.stock.ts_code),
-            style: { cursor: 'pointer' },
-          })}
-        />
-      </div>
+          <div style={{ flex: 1, minHeight: 360, overflow: 'hidden', border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
+            <Table
+              columns={columns}
+              dataSource={rows}
+              loading={loading}
+              pagination={false}
+              rowKey="key"
+              size="small"
+              scroll={{ x: 980, y: 420 }}
+              rowClassName={(record) => record.stock.ts_code === selectedStock?.ts_code ? 'ant-table-row-selected' : ''}
+              onRow={(record) => ({
+                onClick: () => onSelectStock(record.stock.ts_code),
+                style: { cursor: 'pointer' },
+              })}
+            />
+          </div>
+        </div>
 
-      <div style={{ flex: '0 0 auto', borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
-        {selectedStock && selectedAnalysis ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ minWidth: 0, minHeight: 0, overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 12, background: 'rgba(255,255,255,0.02)' }}>
+          {selectedStock ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                 <div>
-                  <Text strong>{selectedStock.stock_name || selectedStock.ts_code}</Text>
+                  <Text strong style={{ fontSize: 16 }}>{selectedStock.stock_name || selectedStock.ts_code}</Text>
                   <Text type="secondary" style={{ marginLeft: 8 }}>{selectedStock.ts_code}</Text>
                 </div>
                 <Space size={4}>
@@ -524,58 +548,65 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
                   </Tooltip>
                 </Space>
               </div>
-              <Space size={6} wrap style={{ marginBottom: 10 }}>
-                {statusTag(selectedAnalysis.status)}
-                {ma20Tag(selectedAnalysis.ma20_state?.state)}
-                <Tag color="blue">总分 {selectedAnalysis.total_score}</Tag>
+
+              <Space size={6} wrap>
+                {selectedAnalysis ? statusTag(selectedAnalysis.status) : <Tag>评分中</Tag>}
+                {ma20Tag(selectedAnalysis?.ma20_state?.state)}
+                <Tag color="blue">总分 {selectedAnalysis?.total_score ?? '-'}</Tag>
               </Space>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(110px, 1fr))', gap: 8 }}>
-                <Metric label="20日涨幅" value={formatPct(selectedAnalysis.metrics?.return_20d)} />
-                <Metric label="60日涨幅" value={formatPct(selectedAnalysis.metrics?.return_60d)} />
-                <Metric label="10日回撤" value={formatPct(selectedAnalysis.metrics?.max_drawdown_10d, false)} />
-                <Metric label="突破日" value={selectedAnalysis.metrics?.breakout_date || '-'} />
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8 }}>
+                <Metric label="20日涨幅" value={formatPct(selectedAnalysis?.metrics?.return_20d)} />
+                <Metric label="60日涨幅" value={formatPct(selectedAnalysis?.metrics?.return_60d)} />
+                <Metric label="10日回撤" value={formatPct(selectedAnalysis?.metrics?.max_drawdown_10d, false)} />
+                <Metric label="突破日" value={selectedAnalysis?.metrics?.breakout_date || '-'} />
               </div>
-              <div style={{ marginTop: 10, border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+
+              <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                   <Text strong>结构K线</Text>
                   {chartLoading && <Text type="secondary">加载中...</Text>}
                 </div>
                 {chartData?.quotes?.length ? (
-                  <div ref={chartRef} style={{ width: '100%', height: 260 }} />
+                  <div ref={chartRef} style={{ width: '100%', height: 420, minHeight: 360 }} />
                 ) : (
                   <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无K线数据" />
                 )}
               </div>
-            </div>
 
-            <div style={{ minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <BranchesOutlined style={{ color: 'var(--accent)' }} />
-                <Text strong>板块共振与评分原因</Text>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(72px, 1fr))', gap: 8, marginBottom: 10 }}>
-                <Metric label="趋势" value={formatScore(selectedAnalysis.scores?.trend)} />
-                <Metric label="结构" value={formatScore(selectedAnalysis.scores?.structure)} />
-                <Metric label="修复" value={formatScore(selectedAnalysis.scores?.pullback_repair)} />
-                <Metric label="共振" value={formatScore(selectedAnalysis.scores?.sector_resonance)} />
-              </div>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>
-                最佳板块：{selectedAnalysis.metrics?.best_sector?.sector_name || '暂无板块日线数据'}
-                {selectedAnalysis.metrics?.best_sector?.relative_strength_20d != null
-                  ? `，相对强度 ${formatPct(selectedAnalysis.metrics.best_sector.relative_strength_20d)}`
-                  : ''}
-              </Text>
-              {selectedAnalysis.metrics?.best_sector && selectedAnalysis.metrics.best_sector.relative_strength_20d == null && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <BranchesOutlined style={{ color: 'var(--accent)' }} />
+                  <Text strong>板块共振与评分原因</Text>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(72px, 1fr))', gap: 8, marginBottom: 10 }}>
+                  <Metric label="趋势" value={formatScore(selectedAnalysis?.scores?.trend)} />
+                  <Metric label="结构" value={formatScore(selectedAnalysis?.scores?.structure)} />
+                  <Metric label="修复" value={formatScore(selectedAnalysis?.scores?.pullback_repair)} />
+                  <Metric label="共振" value={formatScore(selectedAnalysis?.scores?.sector_resonance)} />
+                </div>
                 <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>
-                  板块K线缺失，暂无法计算共振强度
+                  最佳板块：{selectedAnalysis?.metrics?.best_sector?.sector_name || '暂无板块日线数据'}
+                  {selectedAnalysis?.metrics?.best_sector?.relative_strength_20d != null
+                    ? `，相对强度 ${formatPct(selectedAnalysis.metrics.best_sector.relative_strength_20d)}`
+                    : ''}
                 </Text>
-              )}
-              <ReasonList analysis={selectedAnalysis} />
+                {selectedAnalysis?.metrics?.best_sector && selectedAnalysis.metrics.best_sector.relative_strength_20d == null && (
+                  <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>
+                    板块K线缺失，暂无法计算共振强度
+                  </Text>
+                )}
+                {selectedAnalysis ? (
+                  <ReasonList analysis={selectedAnalysis} />
+                ) : (
+                  <Text type="secondary">评分加载中，K线可先查看。</Text>
+                )}
+              </div>
             </div>
-          </div>
-        ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择一只样本查看主升浪拆解" />
-        )}
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择一只样本查看主升浪拆解" />
+          )}
+        </div>
       </div>
     </div>
   )

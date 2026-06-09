@@ -23,6 +23,7 @@ import {
 } from '../../api/alerts'
 import { getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
 import type { Alert } from '../../types'
+import { openStockDetail } from '../../utils/openStockDetail'
 
 const LS_TIP = 'buyAlert:iaTipDismissed'
 const ALERTS_CHANGED_EVENT = 'buy-alerts:changed'
@@ -165,7 +166,7 @@ const Alerts: React.FC = () => {
       key: 'ts_code',
       width: 110,
       render: (v: string) => (
-        <Typography.Link onClick={() => navigate(`/stocks/${v}`)}>{v}</Typography.Link>
+        <Typography.Link onClick={() => openStockDetail(v)}>{v}</Typography.Link>
       ),
     },
     {
@@ -174,7 +175,7 @@ const Alerts: React.FC = () => {
       key: 'stock_name',
       width: 100,
       render: (v: string, r: Alert) => (
-        <Typography.Link onClick={() => navigate(`/stocks/${r.ts_code}`)}>{v || '-'}</Typography.Link>
+        <Typography.Link onClick={() => openStockDetail(r.ts_code)}>{v || '-'}</Typography.Link>
       ),
     },
     {

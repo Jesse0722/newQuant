@@ -25,15 +25,66 @@ import type {
 type FilterStatus = 'all' | BuySignalStatus
 
 const ALL_STRATEGY_ID = 'all'
+const BUY_RADAR_RESULT_STORAGE_KEY = 'newQuant.buyRadar.lastScanResult.v1'
+
+type StoredBuyRadarResult = {
+  savedAt: string
+  activePoolId: string
+  activeStrategyId: string
+  limitUpRange: [string, string] | null
+  scanResultsByStrategy: Record<string, BuySignalScanResult>
+  selectedTsCode?: string | null
+}
+
+const loadStoredBuyRadarResult = (): StoredBuyRadarResult | null => {
+  try {
+    const raw = window.localStorage.getItem(BUY_RADAR_RESULT_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<StoredBuyRadarResult>
+    if (!parsed.activePoolId || !parsed.activeStrategyId || !parsed.scanResultsByStrategy) return null
+    return {
+      savedAt: parsed.savedAt || new Date().toISOString(),
+      activePoolId: parsed.activePoolId,
+      activeStrategyId: parsed.activeStrategyId,
+      limitUpRange: Array.isArray(parsed.limitUpRange) && parsed.limitUpRange.length === 2
+        ? parsed.limitUpRange
+        : null,
+      scanResultsByStrategy: parsed.scanResultsByStrategy,
+      selectedTsCode: parsed.selectedTsCode || null,
+    }
+  } catch {
+    return null
+  }
+}
+
+const hasCachedBuyRadarSignals = (cached: StoredBuyRadarResult | null) =>
+  Object.values(cached?.scanResultsByStrategy || {}).some((result) => result?.signals?.length)
+
+const saveStoredBuyRadarResult = (payload: Omit<StoredBuyRadarResult, 'savedAt'>) => {
+  try {
+    window.localStorage.setItem(BUY_RADAR_RESULT_STORAGE_KEY, JSON.stringify({
+      ...payload,
+      savedAt: new Date().toISOString(),
+    }))
+  } catch {
+    // 本地缓存不可用时不影响扫描结果展示。
+  }
+}
 
 const BuyRadarPage: React.FC = () => {
+  const cachedScanRef = useRef<StoredBuyRadarResult | null>(loadStoredBuyRadarResult())
+  const restoredCacheRef = useRef(false)
+  const cachedScan = cachedScanRef.current
+  const [cachedSelectedTsCode, setCachedSelectedTsCode] = useState<string | null>(() => cachedScan?.selectedTsCode || null)
   const [pendingAlertCount, setPendingAlertCount] = useState(0)
   const [alertsOpen, setAlertsOpen] = useState(false)
   const [pools, setPools] = useState<Pool[]>([])
-  const [activePoolId, setActivePoolId] = useState('')
+  const [activePoolId, setActivePoolId] = useState(() => cachedScan?.activePoolId || '')
   const [strategies, setStrategies] = useState<BuyStrategy[]>([])
-  const [activeStrategyId, setActiveStrategyId] = useState(ALL_STRATEGY_ID)
-  const [scanResultsByStrategy, setScanResultsByStrategy] = useState<Record<string, BuySignalScanResult>>({})
+  const [activeStrategyId, setActiveStrategyId] = useState(() => cachedScan?.activeStrategyId || ALL_STRATEGY_ID)
+  const [scanResultsByStrategy, setScanResultsByStrategy] = useState<Record<string, BuySignalScanResult>>(
+    () => cachedScan?.scanResultsByStrategy || {}
+  )
   const [manualMinConfirmHits] = useState<number>(2)
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<FilterStatus>('all')
@@ -50,7 +101,11 @@ const BuyRadarPage: React.FC = () => {
     dayjs().subtract(90, 'day'),
     dayjs().subtract(1, 'day'),
   ])
-  const [limitUpRange, setLimitUpRange] = useState<[Dayjs, Dayjs] | null>(null)
+  const [limitUpRange, setLimitUpRange] = useState<[Dayjs, Dayjs] | null>(() => (
+    cachedScan?.limitUpRange
+      ? [dayjs(cachedScan.limitUpRange[0], 'YYYYMMDD'), dayjs(cachedScan.limitUpRange[1], 'YYYYMMDD')]
+      : null
+  ))
   const containerRef = useRef<HTMLDivElement>(null)
   const backtestPollingRef = useRef<number | null>(null)
 
@@ -184,11 +239,42 @@ const BuyRadarPage: React.FC = () => {
     }
   }, [])
 
+  const scanResultsList = useMemo(
+    () => Object.entries(scanResultsByStrategy)
+      .filter(([strategyId, result]) => strategyId !== ALL_STRATEGY_ID && !!result)
+      .map(([strategyId, result]) => ({
+        ...result,
+        strategy_id: result.strategy_id || strategyId,
+      })),
+    [scanResultsByStrategy],
+  )
+
   const activeScanResult = activeStrategyId === ALL_STRATEGY_ID
     ? mergeAllStrategyResults(
-        Object.values(scanResultsByStrategy).filter((r) => !!r?.strategy_id && r.strategy_id !== ALL_STRATEGY_ID)
+        scanResultsList
       )
     : (scanResultsByStrategy[activeStrategyId] ?? null)
+
+  useEffect(() => {
+    const cached = cachedScanRef.current
+    if (restoredCacheRef.current || !cached || !hasCachedBuyRadarSignals(cached)) return
+    if (pools.length === 0 || strategies.length === 0) return
+    const poolExists = pools.some((pool) => pool.id === cached.activePoolId)
+    const strategyExists = cached.activeStrategyId === ALL_STRATEGY_ID
+      || strategies.some((strategy) => strategy.id === cached.activeStrategyId)
+    if (!poolExists || !strategyExists) return
+    restoredCacheRef.current = true
+    setActivePoolId(cached.activePoolId)
+    setActiveStrategyId(cached.activeStrategyId)
+    setScanResultsByStrategy(cached.scanResultsByStrategy)
+    setCachedSelectedTsCode(cached.selectedTsCode || null)
+    setFilter('all')
+    if (cached.limitUpRange) {
+      setLimitUpRange([dayjs(cached.limitUpRange[0], 'YYYYMMDD'), dayjs(cached.limitUpRange[1], 'YYYYMMDD')])
+    } else {
+      setLimitUpRange(null)
+    }
+  }, [pools, strategies])
 
   const handleToggleCoreWatch = async (sig: BuySignal, starred: boolean) => {
     setCoreWatchBusyTsCode(sig.ts_code)
@@ -228,17 +314,32 @@ const BuyRadarPage: React.FC = () => {
     return activeScanResult.signals.filter((s) => s.signal_status === filter)
   }, [activeScanResult, filter])
 
+  useEffect(() => {
+    if (loading) return
+    if (filteredSignals.length === 0) {
+      if (selectedSignal) setSelectedSignal(null)
+      return
+    }
+    if (selectedSignal && filteredSignals.some((s) => s.ts_code === selectedSignal.ts_code)) return
+    const cachedSelected = cachedSelectedTsCode
+      ? filteredSignals.find((s) => s.ts_code === cachedSelectedTsCode)
+      : null
+    setSelectedSignal(cachedSelected || filteredSignals[0])
+  }, [cachedSelectedTsCode, filteredSignals, loading, selectedSignal])
+
   const handlePoolChange = (poolId: string) => {
     setActivePoolId(poolId)
     setScanResultsByStrategy({})
     setFilter('all')
     setSelectedSignal(null)
+    setCachedSelectedTsCode(null)
   }
 
   const handleStrategyChange = (strategyId: string) => {
     setActiveStrategyId(strategyId)
     setFilter('all')
     setSelectedSignal(null)
+    setCachedSelectedTsCode(null)
   }
 
   const handleScan = async () => {
@@ -248,6 +349,16 @@ const BuyRadarPage: React.FC = () => {
     }
     const limitUpDateFrom = limitUpRange?.[0]?.format('YYYYMMDD')
     const limitUpDateTo = limitUpRange?.[1]?.format('YYYYMMDD')
+    const persistScan = (nextResults: Record<string, BuySignalScanResult>, selectedTsCode?: string | null) => {
+      setCachedSelectedTsCode(selectedTsCode || null)
+      saveStoredBuyRadarResult({
+        activePoolId,
+        activeStrategyId,
+        limitUpRange: limitUpDateFrom && limitUpDateTo ? [limitUpDateFrom, limitUpDateTo] : null,
+        scanResultsByStrategy: nextResults,
+        selectedTsCode: selectedTsCode || null,
+      })
+    }
     setLoading(true)
     try {
       if (activeStrategyId === ALL_STRATEGY_ID) {
@@ -273,16 +384,20 @@ const BuyRadarPage: React.FC = () => {
             await new Promise((r) => setTimeout(r, 150))
           }
         }
-        setScanResultsByStrategy((prev) => ({ ...prev, ...patch }))
+        const nextResults = { ...scanResultsByStrategy, ...patch }
+        setScanResultsByStrategy(nextResults)
         const merged = mergeAllStrategyResults(collected)
         message.success(
           `全部策略扫描完成: ${merged.triggered_count} 只触发, 共 ${merged.total} 只。`
         )
         refreshPendingAlerts()
+        let selectedTsCode: string | null = null
         if (merged.signals.length > 0) {
           const first = merged.signals.find((s) => s.signal_status !== 'invalidated') || merged.signals[0]
+          selectedTsCode = first.ts_code
           setSelectedSignal(first)
         }
+        persistScan(nextResults, selectedTsCode)
       } else {
         const res = await scanBuySignals(
           activePoolId,
@@ -291,15 +406,19 @@ const BuyRadarPage: React.FC = () => {
           limitUpDateFrom,
           limitUpDateTo
         )
-        setScanResultsByStrategy((prev) => ({ ...prev, [activeStrategyId]: res.data }))
+        const nextResults = { ...scanResultsByStrategy, [activeStrategyId]: res.data }
+        setScanResultsByStrategy(nextResults)
         message.success(
           `扫描完成: ${res.data.triggered_count} 只触发, 共 ${res.data.total} 只。待处理提醒已更新，可到买点提醒查看。`
         )
         refreshPendingAlerts()
+        let selectedTsCode: string | null = null
         if (res.data.signals.length > 0) {
           const first = res.data.signals.find((s) => s.signal_status !== 'invalidated') || res.data.signals[0]
+          selectedTsCode = first.ts_code
           setSelectedSignal(first)
         }
+        persistScan(nextResults, selectedTsCode)
       }
     } catch {
       message.error('扫描失败，请确保已同步K线')

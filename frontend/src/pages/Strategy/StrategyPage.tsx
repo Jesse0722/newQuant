@@ -1,24 +1,31 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Space, Checkbox, message, Progress, DatePicker, Tag, Switch,
+  Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Space, Checkbox, message, Progress, DatePicker, Tag, Switch, Popover, Spin, Empty,
 } from 'antd'
 import { FilterOutlined, RobotOutlined, PlusOutlined, ThunderboltOutlined, ExperimentOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
+import * as echarts from 'echarts'
 import dayjs from 'dayjs'
-import { useNavigate } from 'react-router-dom'
 import {
-  getScreenTemplates, getLimitUpTemplates, runIndicatorScreen, runAiScreen, runLimitUpBuyPointScreen, runBacktest, getScreenResult, runMainWaveScreen,
+  getScreenTemplates, getLimitUpTemplates, runIndicatorScreen, runAiScreen, runLimitUpBuyPointScreen, runBacktest, getScreenResult, runMainWaveScreen, getStockChartWithMarks,
   type ScreenTemplate, type ScreenCondition, type ScreenResult, type BacktestResult, type MainWaveScreenParams, type MainWaveScreenResultItem,
 } from '../../api/strategy'
 import { listSectors, type SectorBasicItem } from '../../api/market'
 import { listPools, batchAddStocks, quickCreatePool } from '../../api/pools'
-import type { JsonObject, JsonValue, Pool } from '../../types'
+import type { JsonObject, JsonValue, Pool, StockChartDataWithMarks } from '../../types'
 import { upsertNotification } from '../../services/notificationCenter'
+import { openStockDetail } from '../../utils/openStockDetail'
+import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const MAX_CONDITIONS = 10
 const AI_DESC_MAX = 200
 const MAIN_WAVE_PARAMS_STORAGE_KEY = 'newQuant.strategy.mainWaveParams.v1'
+const MAIN_WAVE_RESULT_STORAGE_KEY = 'newQuant.strategy.mainWaveLastResult.v1'
+const MAIN_WAVE_RESULT_CACHE_TTL_MS = 60 * 60 * 1000
+const MAIN_WAVE_PREVIEW_PERIOD = 120
 type StrategyTabKey = 'indicator' | 'main_wave' | 'ai' | 'limit_up' | 'backtest'
 type ConditionField = 'template_id' | 'params'
+
+const mainWaveChartPreviewCache = new Map<string, StockChartDataWithMarks>()
 
 const MAIN_WAVE_STATUS_OPTIONS = [
   { value: 'main_wave_confirmed', label: '主升确认' },
@@ -86,6 +93,11 @@ interface ApiErrorLike {
   }
 }
 
+type StoredMainWaveResult = {
+  savedAt: string
+  result: ScreenResult
+}
+
 const toConditionParams = (
   params: JsonObject | undefined,
   patch: Record<string, JsonValue>
@@ -148,15 +160,184 @@ const clearStoredMainWaveParams = () => {
   }
 }
 
+const loadStoredMainWaveResult = (): ScreenResult | null => {
+  try {
+    const raw = window.localStorage.getItem(MAIN_WAVE_RESULT_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<StoredMainWaveResult>
+    if (!parsed.savedAt || Date.now() - new Date(parsed.savedAt).getTime() > MAIN_WAVE_RESULT_CACHE_TTL_MS) {
+      window.localStorage.removeItem(MAIN_WAVE_RESULT_STORAGE_KEY)
+      return null
+    }
+    if (parsed.result?.status !== 'completed') return null
+    if (!Array.isArray(parsed.result.ts_codes)) return null
+    return parsed.result
+  } catch {
+    return null
+  }
+}
+
+const saveStoredMainWaveResult = (result: ScreenResult) => {
+  try {
+    const payload: StoredMainWaveResult = {
+      savedAt: new Date().toISOString(),
+      result,
+    }
+    window.localStorage.setItem(MAIN_WAVE_RESULT_STORAGE_KEY, JSON.stringify(payload))
+  } catch {
+    // 忽略本地存储不可用的情况，不影响任务结果展示。
+  }
+}
+
+const getInitialStrategyTab = (): StrategyTabKey => {
+  const tab = new URLSearchParams(window.location.search).get('tab')
+  return isStrategyTabKey(tab) ? tab : 'indicator'
+}
+
+const MainWaveStockPreview: React.FC<{
+  enabled: boolean
+  label: React.ReactNode
+  tsCode: string
+}> = ({ enabled, label, tsCode }) => {
+  const chartRef = useRef<HTMLDivElement>(null)
+  const chartInstance = useRef<echarts.ECharts | null>(null)
+  const requestSeqRef = useRef(0)
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [loadedTsCode, setLoadedTsCode] = useState<string | null>(null)
+  const [loadedChartData, setLoadedChartData] = useState<StockChartDataWithMarks | null>(null)
+  const [errorTsCode, setErrorTsCode] = useState<string | null>(null)
+  const chartData = loadedTsCode === tsCode
+    ? loadedChartData
+    : (mainWaveChartPreviewCache.get(tsCode) || null)
+  const error = errorTsCode === tsCode
+
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen)
+    if (!enabled || !nextOpen || chartData || loading) return
+    const requestSeq = ++requestSeqRef.current
+    setLoading(true)
+    setErrorTsCode(null)
+    getStockChartWithMarks(tsCode, MAIN_WAVE_PREVIEW_PERIOD)
+      .then((res) => {
+        if (requestSeq !== requestSeqRef.current) return
+        mainWaveChartPreviewCache.set(tsCode, res.data)
+        setLoadedTsCode(tsCode)
+        setLoadedChartData(res.data)
+      })
+      .catch(() => {
+        if (requestSeq === requestSeqRef.current) setErrorTsCode(tsCode)
+      })
+      .finally(() => {
+        if (requestSeq === requestSeqRef.current) setLoading(false)
+      })
+  }, [chartData, enabled, loading, tsCode])
+
+  const renderChart = useCallback(() => {
+    if (!open || !chartRef.current || !chartData?.quotes?.length) return
+    const chartEl = chartRef.current
+    if (!chartInstance.current || chartInstance.current.isDisposed()) {
+      chartInstance.current = echarts.getInstanceByDom(chartEl) || echarts.init(chartEl)
+    }
+    const chart = chartInstance.current
+    const { quotes, indicators } = chartData
+    const dates = quotes.map((q) => q.date)
+    const ohlc = quotes.map((q) => [q.open, q.close, q.low, q.high])
+    const volumes = quotes.map((q) => ({
+      value: q.vol,
+      itemStyle: { color: q.close >= q.open ? '#ec0000' : '#00da3c' },
+    }))
+    chart.setOption({
+      animation: false,
+      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, formatter: makeKlineAxisTooltipFormatter(quotes) },
+      legend: { data: ['MA5', 'MA10', 'MA20'], top: 0, left: 'center', textStyle: { fontSize: 10 } },
+      grid: [
+        { left: 44, right: 12, top: 28, height: '58%' },
+        { left: 44, right: 12, top: '76%', height: '14%' },
+      ],
+      xAxis: [
+        { type: 'category', data: dates, gridIndex: 0, axisLabel: { show: false }, boundaryGap: true },
+        { type: 'category', data: dates, gridIndex: 1, axisLabel: { fontSize: 10 }, boundaryGap: true },
+      ],
+      yAxis: [
+        { scale: true, gridIndex: 0, splitNumber: 3, axisLabel: { fontSize: 10 } },
+        { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { show: false } },
+      ],
+      dataZoom: [{ type: 'inside', xAxisIndex: [0, 1], start: 45, end: 100 }],
+      series: [
+        {
+          name: 'K线',
+          type: 'candlestick',
+          data: ohlc,
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          itemStyle: { color: '#ec0000', color0: '#00da3c', borderColor: '#ec0000', borderColor0: '#00da3c' },
+        },
+        { name: 'MA5', type: 'line', data: indicators.ma5, xAxisIndex: 0, yAxisIndex: 0, smooth: true, symbol: 'none', lineStyle: { width: 1 } },
+        { name: 'MA10', type: 'line', data: indicators.ma10, xAxisIndex: 0, yAxisIndex: 0, smooth: true, symbol: 'none', lineStyle: { width: 1 } },
+        { name: 'MA20', type: 'line', data: indicators.ma20, xAxisIndex: 0, yAxisIndex: 0, smooth: true, symbol: 'none', lineStyle: { width: 1.4 } },
+        { name: '成交量', type: 'bar', data: volumes, xAxisIndex: 1, yAxisIndex: 1 },
+      ],
+    }, true)
+    window.requestAnimationFrame(() => chart.resize())
+  }, [chartData, open])
+
+  useEffect(() => {
+    renderChart()
+  }, [renderChart])
+
+  useEffect(() => {
+    const onResize = () => chartInstance.current?.resize()
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      chartInstance.current?.dispose()
+      chartInstance.current = null
+    }
+  }, [])
+
+  const link = <a onClick={() => openStockDetail(tsCode)}>{label}</a>
+  if (!enabled) return link
+
+  const content = (
+    <div style={{ width: 380, height: 260 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12 }}>
+        <span style={{ fontWeight: 700 }}>{label}</span>
+        <span className="mono" style={{ color: 'var(--text-muted)' }}>{tsCode}</span>
+      </div>
+      {loading ? (
+        <div style={{ height: 224, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Spin size="small" />
+        </div>
+      ) : error || !chartData?.quotes?.length ? (
+        <div style={{ height: 224, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无K线数据" />
+        </div>
+      ) : (
+        <div ref={chartRef} style={{ width: '100%', height: 224 }} />
+      )}
+    </div>
+  )
+
+  return (
+    <Popover
+      content={content}
+      trigger="hover"
+      placement="right"
+      mouseEnterDelay={0.25}
+      onOpenChange={handleOpenChange}
+    >
+      {link}
+    </Popover>
+  )
+}
+
 const StrategyPage: React.FC = () => {
   const [templates, setTemplates] = useState<ScreenTemplate[]>([])
   const [limitUpTemplates, setLimitUpTemplates] = useState<ScreenTemplate[]>([])
   const [pools, setPools] = useState<Pool[]>([])
   const [sectors, setSectors] = useState<SectorBasicItem[]>([])
-  const [activeTab, setActiveTab] = useState<StrategyTabKey>(() => {
-    const tab = new URLSearchParams(window.location.search).get('tab')
-    return isStrategyTabKey(tab) ? tab : 'indicator'
-  })
+  const [activeTab, setActiveTab] = useState<StrategyTabKey>(() => getInitialStrategyTab())
   const [scope, setScope] = useState<string>('full')
   const [mainWaveParams, setMainWaveParams] = useState<MainWaveScreenParams>(() => loadStoredMainWaveParams())
   const [mainWaveAdvancedOpen, setMainWaveAdvancedOpen] = useState(false)
@@ -172,14 +353,16 @@ const StrategyPage: React.FC = () => {
   const [backtestLoading, setBacktestLoading] = useState(false)
   const [aiDesc, setAiDesc] = useState('')
   const [taskId, setTaskId] = useState<string | null>(null)
-  const [result, setResult] = useState<ScreenResult | null>(null)
+  const [taskKind, setTaskKind] = useState<StrategyTabKey | null>(null)
+  const [result, setResult] = useState<ScreenResult | null>(() => (
+    getInitialStrategyTab() === 'main_wave' ? loadStoredMainWaveResult() : null
+  ))
   const [loading, setLoading] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [quickCreateOpen, setQuickCreateOpen] = useState(false)
   const [selectedPoolId, setSelectedPoolId] = useState<string>('')
   const [selectedRows, setSelectedRows] = useState<string[]>([])
   const [quickForm] = Form.useForm()
-  const navigate = useNavigate()
 
   useEffect(() => {
     getScreenTemplates().then((r) => setTemplates(r.data))
@@ -209,6 +392,12 @@ const StrategyPage: React.FC = () => {
 
   const switchStrategyTab = (key: StrategyTabKey) => {
     setActiveTab(key)
+    setSelectedRows([])
+    if (key === 'main_wave' && !taskId && !loading) {
+      setResult(loadStoredMainWaveResult())
+    } else if (key !== activeTab && !taskId && !loading) {
+      setResult(null)
+    }
     const url = new URL(window.location.href)
     url.searchParams.set('tab', key)
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
@@ -251,6 +440,7 @@ const StrategyPage: React.FC = () => {
     setResult(null)
     try {
       const res = await runIndicatorScreen({ scope, conditions, logic })
+      setTaskKind('indicator')
       setTaskId(res.data.task_id)
     } catch {
       setLoading(false)
@@ -292,6 +482,7 @@ const StrategyPage: React.FC = () => {
         conditions: limitUpConditions,
         logic: limitUpLogic,
       })
+      setTaskKind('limit_up')
       setTaskId(res.data.task_id)
     } catch {
       setLoading(false)
@@ -309,6 +500,7 @@ const StrategyPage: React.FC = () => {
         sector_codes: mainWaveParams.sector_codes || [],
       }
       const res = await runMainWaveScreen(payload)
+      setTaskKind('main_wave')
       setTaskId(res.data.task_id)
     } catch (error: unknown) {
       const apiError = error as ApiErrorLike
@@ -375,6 +567,7 @@ const StrategyPage: React.FC = () => {
     setResult(null)
     try {
       const res = await runAiScreen({ description: desc, scope: scope || 'full' })
+      setTaskKind('ai')
       setTaskId(res.data.task_id)
       const now = new Date().toISOString()
       upsertNotification({
@@ -407,15 +600,20 @@ const StrategyPage: React.FC = () => {
           clearInterval(poll)
           setLoading(false)
           setTaskId(null)
+          setTaskKind(null)
+          if (taskKind === 'main_wave' && r.data.status === 'completed') {
+            saveStoredMainWaveResult(r.data)
+          }
           if (r.data.status === 'failed') message.error(r.data.message)
         }
       } catch {
         clearInterval(poll)
         setLoading(false)
+        setTaskKind(null)
       }
     }, 1500)
     return () => clearInterval(poll)
-  }, [taskId])
+  }, [taskId, taskKind])
 
   const resultItems = result?.items?.length
     ? result.items
@@ -496,9 +694,17 @@ const StrategyPage: React.FC = () => {
     {
       title: '股票代码',
       dataIndex: 'ts_code',
-      render: (v: string) => <a onClick={() => navigate(`/stocks/${v}`)}>{v}</a>,
+      render: (v: string) => (
+        <MainWaveStockPreview enabled={activeTab === 'main_wave'} tsCode={v} label={v} />
+      ),
     },
-    { title: '股票名称', dataIndex: 'stock_name', render: (v: string, r: { ts_code: string }) => <a onClick={() => navigate(`/stocks/${r.ts_code}`)}>{v || '-'}</a> },
+    {
+      title: '股票名称',
+      dataIndex: 'stock_name',
+      render: (v: string, r: { ts_code: string }) => (
+        <MainWaveStockPreview enabled={activeTab === 'main_wave'} tsCode={r.ts_code} label={v || '-'} />
+      ),
+    },
     ...(activeTab === 'main_wave' ? [
       {
         title: '状态',
@@ -910,7 +1116,7 @@ const StrategyPage: React.FC = () => {
                     dataSource={backtestResult.signals}
                     columns={[
                       { title: '触发日期', dataIndex: 'trigger_date', width: 110 },
-                      { title: '股票代码', dataIndex: 'ts_code', render: (v: string) => <a onClick={() => navigate(`/stocks/${v}`)}>{v}</a> },
+                      { title: '股票代码', dataIndex: 'ts_code', render: (v: string) => <a onClick={() => openStockDetail(v)}>{v}</a> },
                       { title: '次日涨跌幅(%)', dataIndex: 'next_day_pct', render: (v: number) => <span style={{ color: v >= 0 ? '#52c41a' : '#ff4d4f' }}>{v}%</span> },
                     ]}
                     rowKey={(r) => `${r.trigger_date}-${r.ts_code}`}

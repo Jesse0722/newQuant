@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react'
 import { Card, Tag, Descriptions, Segmented, Space, Row, Col, Statistic, Empty, Button, Tooltip } from 'antd'
 import { CheckCircleFilled, CloseCircleFilled, ArrowRightOutlined, StarFilled, StarOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
 import * as echarts from 'echarts'
 import { getStockChartWithMarks } from '../../api/strategy'
 import type { BuySignal, StockChartDataWithMarks } from '../../types'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
+import { openStockDetail } from '../../utils/openStockDetail'
 
 const STATUS_LABELS: Record<string, { text: string; color: string }> = {
   triggered: { text: '已触发买点', color: '#f5222d' },
@@ -32,7 +32,6 @@ const SignalDetail: React.FC<Props> = ({
   onToggleCoreWatch,
   coreWatchBusyTsCode,
 }) => {
-  const navigate = useNavigate()
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
   const [chartData, setChartData] = useState<StockChartDataWithMarks | null>(null)
@@ -232,7 +231,7 @@ const SignalDetail: React.FC<Props> = ({
           {signal.strategy_name && <Tag color="blue">{signal.strategy_name}</Tag>}
           <Tag color={statusCfg.color}>{statusCfg.text}</Tag>
         </div>
-        <Button size="small" onClick={() => navigate(`/stocks/${signal.ts_code}`)}>
+        <Button size="small" onClick={() => openStockDetail(signal.ts_code)}>
           完整详情 <ArrowRightOutlined />
         </Button>
       </div>

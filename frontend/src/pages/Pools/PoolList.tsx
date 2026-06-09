@@ -933,7 +933,12 @@ const PoolList: React.FC = () => {
         )}
 
         {/* Right panel: detail */}
-        <div style={{ flex: 1, minWidth: 0, padding: '12px 16px', overflowY: 'auto' }}>
+        <div style={{
+          flex: 1,
+          minWidth: 0,
+          padding: isMainWavePool ? 10 : '12px 16px',
+          overflowY: isMainWavePool ? 'hidden' : 'auto',
+        }}>
           {isMainWavePool ? (
             <MainWaveResearchPanel
               chartData={chartData}
