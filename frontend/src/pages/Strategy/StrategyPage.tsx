@@ -6,7 +6,7 @@ import { FilterOutlined, RobotOutlined, PlusOutlined, ThunderboltOutlined, Exper
 import * as echarts from 'echarts'
 import dayjs from 'dayjs'
 import {
-  getScreenTemplates, getLimitUpTemplates, runIndicatorScreen, runAiScreen, runLimitUpBuyPointScreen, runBacktest, getScreenResult, runMainWaveScreen, getStockChartWithMarks,
+  getScreenTemplates, getLimitUpTemplates, runIndicatorScreen, runAiScreen, runLimitUpBuyPointScreen, runBacktest, getScreenResult, runMainWaveScreen, getStockChartPreview,
   type ScreenTemplate, type ScreenCondition, type ScreenResult, type BacktestResult, type MainWaveScreenParams, type MainWaveScreenResultItem,
 } from '../../api/strategy'
 import { listSectors, type SectorBasicItem } from '../../api/market'
@@ -189,6 +189,17 @@ const saveStoredMainWaveResult = (result: ScreenResult) => {
   }
 }
 
+const createRunningResult = (taskId: string, messageText: string): ScreenResult => ({
+  task_id: taskId,
+  status: 'running',
+  progress: 0,
+  message: messageText,
+  ts_codes: [],
+  stock_names: {},
+  items: [],
+  total: 0,
+})
+
 const getInitialStrategyTab = (): StrategyTabKey => {
   const tab = new URLSearchParams(window.location.search).get('tab')
   return isStrategyTabKey(tab) ? tab : 'indicator'
@@ -218,7 +229,7 @@ const MainWaveStockPreview: React.FC<{
     const requestSeq = ++requestSeqRef.current
     setLoading(true)
     setErrorTsCode(null)
-    getStockChartWithMarks(tsCode, MAIN_WAVE_PREVIEW_PERIOD)
+    getStockChartPreview(tsCode, MAIN_WAVE_PREVIEW_PERIOD)
       .then((res) => {
         if (requestSeq !== requestSeqRef.current) return
         mainWaveChartPreviewCache.set(tsCode, res.data)
@@ -236,7 +247,12 @@ const MainWaveStockPreview: React.FC<{
   const renderChart = useCallback(() => {
     if (!open || !chartRef.current || !chartData?.quotes?.length) return
     const chartEl = chartRef.current
-    if (!chartInstance.current || chartInstance.current.isDisposed()) {
+    if (
+      !chartInstance.current ||
+      chartInstance.current.isDisposed() ||
+      chartInstance.current.getDom() !== chartEl
+    ) {
+      chartInstance.current?.dispose()
       chartInstance.current = echarts.getInstanceByDom(chartEl) || echarts.init(chartEl)
     }
     const chart = chartInstance.current
@@ -283,8 +299,41 @@ const MainWaveStockPreview: React.FC<{
   }, [chartData, open])
 
   useEffect(() => {
-    renderChart()
-  }, [renderChart])
+    if (!open || loading) return
+    let retryTimer: number | undefined
+    const frame = window.requestAnimationFrame(() => {
+      renderChart()
+      retryTimer = window.setTimeout(() => {
+        renderChart()
+        chartInstance.current?.resize()
+      }, 0)
+    })
+    return () => {
+      window.cancelAnimationFrame(frame)
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
+  }, [loading, open, renderChart])
+
+  useEffect(() => {
+    if (!open || loading || !chartRef.current) return
+    const chartEl = chartRef.current
+    const observer = new ResizeObserver(() => {
+      if (chartInstance.current) {
+        chartInstance.current.resize()
+      } else {
+        renderChart()
+      }
+    })
+    observer.observe(chartEl)
+    return () => observer.disconnect()
+  }, [loading, open, renderChart])
+
+  useEffect(() => {
+    if (!open) {
+      chartInstance.current?.dispose()
+      chartInstance.current = null
+    }
+  }, [open])
 
   useEffect(() => {
     const onResize = () => chartInstance.current?.resize()
@@ -362,6 +411,8 @@ const StrategyPage: React.FC = () => {
   const [quickCreateOpen, setQuickCreateOpen] = useState(false)
   const [selectedPoolId, setSelectedPoolId] = useState<string>('')
   const [selectedRows, setSelectedRows] = useState<string[]>([])
+  const [resultPage, setResultPage] = useState(1)
+  const [resultPageSize, setResultPageSize] = useState(20)
   const [quickForm] = Form.useForm()
 
   useEffect(() => {
@@ -442,6 +493,7 @@ const StrategyPage: React.FC = () => {
       const res = await runIndicatorScreen({ scope, conditions, logic })
       setTaskKind('indicator')
       setTaskId(res.data.task_id)
+      setResult(createRunningResult(res.data.task_id, '指标组合选股任务已提交，等待后台执行'))
     } catch {
       setLoading(false)
     }
@@ -484,6 +536,7 @@ const StrategyPage: React.FC = () => {
       })
       setTaskKind('limit_up')
       setTaskId(res.data.task_id)
+      setResult(createRunningResult(res.data.task_id, '涨停回调买点选股任务已提交，等待后台执行'))
     } catch {
       setLoading(false)
     }
@@ -502,6 +555,7 @@ const StrategyPage: React.FC = () => {
       const res = await runMainWaveScreen(payload)
       setTaskKind('main_wave')
       setTaskId(res.data.task_id)
+      setResult(createRunningResult(res.data.task_id, '主升浪选股任务已提交，等待后台执行'))
     } catch (error: unknown) {
       const apiError = error as ApiErrorLike
       message.error(apiError.response?.data?.message || '主升浪选股提交失败')
@@ -569,6 +623,7 @@ const StrategyPage: React.FC = () => {
       const res = await runAiScreen({ description: desc, scope: scope || 'full' })
       setTaskKind('ai')
       setTaskId(res.data.task_id)
+      setResult(createRunningResult(res.data.task_id, 'AI 智能选股任务已提交，等待后台执行'))
       const now = new Date().toISOString()
       upsertNotification({
         id: `ai-screen:${res.data.task_id}`,
@@ -592,12 +647,15 @@ const StrategyPage: React.FC = () => {
 
   useEffect(() => {
     if (!taskId) return
-    const poll = setInterval(async () => {
+    let stopped = false
+    let poll: ReturnType<typeof setInterval> | null = null
+    const fetchStatus = async () => {
       try {
         const r = await getScreenResult(taskId)
+        if (stopped) return
         setResult(r.data)
         if (r.data.status === 'completed' || r.data.status === 'failed') {
-          clearInterval(poll)
+          if (poll) clearInterval(poll)
           setLoading(false)
           setTaskId(null)
           setTaskKind(null)
@@ -607,12 +665,18 @@ const StrategyPage: React.FC = () => {
           if (r.data.status === 'failed') message.error(r.data.message)
         }
       } catch {
-        clearInterval(poll)
+        if (stopped) return
+        if (poll) clearInterval(poll)
         setLoading(false)
         setTaskKind(null)
       }
-    }, 1500)
-    return () => clearInterval(poll)
+    }
+    fetchStatus()
+    poll = setInterval(fetchStatus, 1500)
+    return () => {
+      stopped = true
+      if (poll) clearInterval(poll)
+    }
   }, [taskId, taskKind])
 
   const resultItems = result?.items?.length
@@ -665,6 +729,10 @@ const StrategyPage: React.FC = () => {
     () => resultItems.length,
     [resultItems.length]
   )
+
+  useEffect(() => {
+    setResultPage(1)
+  }, [result?.task_id, resultItems.length])
 
   const openAddSingleStock = (tsCode: string) => {
     setSelectedRows([tsCode])
@@ -1161,9 +1229,25 @@ const StrategyPage: React.FC = () => {
         )}
 
         {loading && result && (
-          <div style={{ marginTop: 24 }}>
+          <div
+            style={{
+              marginTop: 24,
+              padding: 14,
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 8,
+              background: 'rgba(0, 212, 255, 0.04)',
+            }}
+          >
+            <Space style={{ marginBottom: 8 }} wrap>
+              <Tag color="processing">运行中</Tag>
+              <span style={{ color: 'var(--text-primary)' }}>
+                {result.message || '任务已提交，等待后台执行'}
+              </span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                任务ID：{result.task_id.slice(0, 8)}
+              </span>
+            </Space>
             <Progress percent={Math.round(result.progress * 100)} status="active" />
-            <p style={{ color: '#666' }}>{result.message}</p>
           </div>
         )}
 
@@ -1183,7 +1267,21 @@ const StrategyPage: React.FC = () => {
               columns={resultColumns}
               rowKey="ts_code"
               size="small"
-              pagination={{ pageSize: 20 }}
+              pagination={{
+                current: resultPage,
+                pageSize: resultPageSize,
+                pageSizeOptions: ['10', '20', '50', '100'],
+                showSizeChanger: true,
+                showTotal: (total, range) => `${range[0]}-${range[1]} / ${total}`,
+                onChange: (page, pageSize) => {
+                  setResultPage(page)
+                  setResultPageSize(pageSize)
+                },
+                onShowSizeChange: (_current, size) => {
+                  setResultPage(1)
+                  setResultPageSize(size)
+                },
+              }}
             />
           </div>
         )}

@@ -38,6 +38,13 @@ export interface MainWaveAnalysis {
       stock_drawdown_20d?: number | null
       sector_drawdown_20d?: number | null
     } | null
+    sectors?: Array<{
+      sector_code?: string | null
+      sector_name: string
+      sector_type?: string | null
+      latest_hot?: number | null
+      latest_pct_chg?: number | null
+    }>
     sector_count?: number
   }
   reasons?: {
@@ -50,6 +57,11 @@ export interface MainWaveAnalysis {
 
 export const analyzeMainWaveStock = (tsCode: string) =>
   client.get<MainWaveAnalysis>(`/market/stocks/${tsCode}/main-wave`)
+
+export const analyzeMainWaveBatch = (tsCodes: string[]) =>
+  client.post<{ total: number; items: MainWaveAnalysis[] }>('/market/main-wave/analyze-batch', {
+    ts_codes: tsCodes,
+  })
 
 export const scanMainWave = (params?: {
   pool_id?: string

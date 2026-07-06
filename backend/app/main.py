@@ -31,6 +31,7 @@ from app.routers import (
     data,
     industry_reports,
     market,
+    message_agents,
     message_graph,
     messages,
     monitor,
@@ -54,6 +55,7 @@ app.include_router(strategy.router)
 app.include_router(data.router)
 app.include_router(market.router)
 app.include_router(messages.router)
+app.include_router(message_agents.router)
 app.include_router(message_graph.router)
 app.include_router(industry_reports.router)
 

@@ -1,19 +1,28 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from sqlalchemy import func
 from app.database import SessionLocal
 from app.models.pool import WatchStock
 from app.models.stock import DailyQuote
 from app.models.sync_log import SyncLog
 from app.models.intraday_scan import IntradayScanConfig
+from app.config import (
+    IDLE_KLINE_BACKFILL_BATCH_SIZE,
+    IDLE_KLINE_BACKFILL_DAYS,
+    IDLE_KLINE_BACKFILL_MAX_SECONDS,
+    IDLE_KLINE_BACKFILL_RETRY_COOLDOWN_HOURS,
+    IDLE_KLINE_BACKFILL_TARGET_ROWS,
+)
 from app.services.limit_up_service import get_or_create_limit_up_pool, collect_limit_up_stocks
 from app.services.trade_date_resolver import resolve_dashboard_trade_date
 from app.services.trading_session import is_a_share_trading_session
 from app.services.buy_signal_service import scan_pool_buy_signals
-from app.services.sync_service import _sync_stock_basic_full, sync_stock_info, sync_daily
+from app.services.sync_service import _sync_stock_basic_full, sync_stock_info, sync_daily, sync_daily_backward
 from app.services.industry_report_service import generate_industry_report
 
 
@@ -183,6 +192,292 @@ def run_5pm_sync_latest_kline_job() -> dict:
                     "skipped_count": 0,
                     "days_synced": 1,
                     "message": str(e),
+                },
+                ensure_ascii=False,
+            )
+            db.commit()
+        raise
+    finally:
+        db.close()
+
+
+def _has_kline_sync_running() -> bool:
+    from app.tasks.background import task_registry
+
+    kline_task_types = (
+        "sync",
+        "sync_full_market",
+        "idle_pool_kline_backfill",
+        "main_wave_sector_backfill",
+    )
+    return any(
+        task.status == "running" and task.type in kline_task_types
+        for task in task_registry.values()
+    )
+
+
+def _recent_idle_backfill_attempts(db) -> set[str]:
+    threshold = datetime.utcnow() - timedelta(hours=max(1, int(IDLE_KLINE_BACKFILL_RETRY_COOLDOWN_HOURS)))
+    logs = (
+        db.query(SyncLog.result)
+        .filter(
+            SyncLog.task_type == "idle_pool_kline_backfill",
+            SyncLog.started_at >= threshold,
+            SyncLog.result.isnot(None),
+        )
+        .order_by(SyncLog.started_at.desc())
+        .limit(50)
+        .all()
+    )
+    attempted: set[str] = set()
+    for (raw,) in logs:
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            continue
+        for item in payload.get("items") or []:
+            ts_code = item.get("ts_code") if isinstance(item, dict) else None
+            if ts_code:
+                attempted.add(str(ts_code))
+    return attempted
+
+
+def run_idle_pool_kline_backfill_job() -> dict:
+    """
+    空闲时小批量补齐观察池股票 K 线。
+
+    目标是把用户可能点开的池内股票提前补到可画图的深度，避免详情页或列表预览
+    临时触发同步。任务只在非交易时段由 scheduler 调用，并且每次只处理少量股票。
+    """
+    result = {
+        "job": "idle_pool_kline_backfill",
+        "ran": False,
+        "reason": "",
+        "total_candidates": 0,
+        "stale_candidates": 0,
+        "shallow_candidates": 0,
+        "selected_limit": 0,
+        "processed": 0,
+        "updated": 0,
+        "skipped": 0,
+        "failed": 0,
+        "items": [],
+    }
+    if is_a_share_trading_session():
+        return {**result, "reason": "trading_session"}
+
+    db = SessionLocal()
+    log_id = str(uuid.uuid4())
+    try:
+        if _has_kline_sync_running():
+            return {**result, "reason": "recent_kline_sync_running"}
+
+        latest_trade_date = resolve_dashboard_trade_date()
+        target_rows = max(60, int(IDLE_KLINE_BACKFILL_TARGET_ROWS))
+        batch_size = max(1, int(IDLE_KLINE_BACKFILL_BATCH_SIZE))
+        days = max(60, int(IDLE_KLINE_BACKFILL_DAYS))
+        max_seconds = max(15, int(IDLE_KLINE_BACKFILL_MAX_SECONDS))
+        started = time.monotonic()
+        recent_attempts = _recent_idle_backfill_attempts(db)
+        abandoned_before = datetime.utcnow() - timedelta(seconds=max_seconds * 3)
+        abandoned_logs = (
+            db.query(SyncLog)
+            .filter(
+                SyncLog.task_type == "idle_pool_kline_backfill",
+                SyncLog.status == "running",
+                SyncLog.started_at < abandoned_before,
+            )
+            .all()
+        )
+        for log in abandoned_logs:
+            log.status = "failed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(
+                {
+                    "success_count": 0,
+                    "failed_count": 1,
+                    "skipped_count": 0,
+                    "days_synced": days,
+                    "message": "空闲K线补齐任务未正常收尾，已标记为中断",
+                    "job": "idle_pool_kline_backfill",
+                    "ran": False,
+                    "reason": "abandoned",
+                },
+                ensure_ascii=False,
+            )
+        if abandoned_logs:
+            db.commit()
+
+        grouped = (
+            db.query(
+                WatchStock.ts_code,
+                func.count(DailyQuote.trade_date).label("quote_count"),
+                func.max(DailyQuote.trade_date).label("latest_trade_date"),
+            )
+            .outerjoin(DailyQuote, DailyQuote.ts_code == WatchStock.ts_code)
+            .group_by(WatchStock.ts_code)
+            .all()
+        )
+        candidates = []
+        for ts_code, quote_count, latest in grouped:
+            if not ts_code:
+                continue
+            if ts_code in recent_attempts:
+                continue
+            count = int(quote_count or 0)
+            stale = not latest or str(latest) < latest_trade_date
+            shallow = count < target_rows
+            if stale or shallow:
+                candidates.append(
+                    {
+                        "ts_code": ts_code,
+                        "quote_count": count,
+                        "latest_trade_date": latest,
+                        "stale": stale,
+                        "shallow": shallow,
+                    }
+                )
+        def market_priority(ts_code: str) -> int:
+            code = str(ts_code or "").upper()
+            if code.endswith(".SZ") or code.endswith(".SH"):
+                return 0
+            if code.endswith(".BJ"):
+                return 1
+            return 2
+
+        stale_candidates = [item for item in candidates if item["stale"]]
+        shallow_candidates = [item for item in candidates if not item["stale"] and item["shallow"]]
+        stale_candidates.sort(
+            key=lambda item: (
+                market_priority(item["ts_code"]),
+                item["latest_trade_date"] or "",
+                item["quote_count"],
+                item["ts_code"],
+            )
+        )
+        shallow_candidates.sort(
+            key=lambda item: (
+                market_priority(item["ts_code"]),
+                item["quote_count"],
+                item["latest_trade_date"] or "",
+                item["ts_code"],
+            )
+        )
+        selected_limit = min(max(batch_size, batch_size * 5 if stale_candidates else batch_size), 20)
+        selected = (stale_candidates + shallow_candidates)[:selected_limit]
+        result["total_candidates"] = len(candidates)
+        result["stale_candidates"] = len(stale_candidates)
+        result["shallow_candidates"] = len(shallow_candidates)
+        result["selected_limit"] = selected_limit
+
+        if not selected:
+            return {**result, "reason": "no_candidate"}
+
+        db.add(
+            SyncLog(
+                id=log_id,
+                task_type="idle_pool_kline_backfill",
+                target=None,
+                status="running",
+            )
+        )
+        db.commit()
+
+        for item in selected:
+            if time.monotonic() - started >= max_seconds:
+                result["reason"] = "time_budget_exhausted"
+                break
+            ts_code = item["ts_code"]
+            try:
+                sync_stock_info(db, ts_code)
+                added_recent = sync_daily(db, ts_code, days)
+                count_after = (
+                    db.query(func.count(DailyQuote.trade_date))
+                    .filter(DailyQuote.ts_code == ts_code)
+                    .scalar()
+                    or 0
+                )
+                latest_after_row = (
+                    db.query(func.max(DailyQuote.trade_date))
+                    .filter(DailyQuote.ts_code == ts_code)
+                    .first()
+                )
+                latest_after = latest_after_row[0] if latest_after_row else None
+                added_backward = 0
+                if not item["stale"] and int(count_after) < target_rows:
+                    added_backward = sync_daily_backward(db, ts_code, target_rows)
+                    count_after = (
+                        db.query(func.count(DailyQuote.trade_date))
+                        .filter(DailyQuote.ts_code == ts_code)
+                        .scalar()
+                        or 0
+                    )
+                    latest_after_row = (
+                        db.query(func.max(DailyQuote.trade_date))
+                        .filter(DailyQuote.ts_code == ts_code)
+                        .first()
+                    )
+                    latest_after = latest_after_row[0] if latest_after_row else latest_after
+                added_total = int(added_recent or 0) + int(added_backward or 0)
+                latest_improved = str(latest_after or "") > str(item["latest_trade_date"] or "")
+                result["processed"] += 1
+                if added_total > 0 or latest_improved:
+                    result["updated"] += 1
+                else:
+                    result["skipped"] += 1
+                result["items"].append(
+                    {
+                        "ts_code": ts_code,
+                        "before_count": item["quote_count"],
+                        "after_count": int(count_after or 0),
+                        "before_latest_trade_date": item["latest_trade_date"],
+                        "after_latest_trade_date": latest_after,
+                        "stale": item["stale"],
+                        "shallow": item["shallow"],
+                        "added_recent": int(added_recent or 0),
+                        "added_backward": int(added_backward or 0),
+                    }
+                )
+            except Exception as e:
+                result["processed"] += 1
+                result["failed"] += 1
+                result["items"].append({"ts_code": ts_code, "error": str(e)[:120]})
+
+        result["ran"] = True
+        if not result["reason"] or result["reason"] == "":
+            result["reason"] = "processed"
+        log = db.query(SyncLog).filter(SyncLog.id == log_id).first()
+        if log:
+            log.status = "completed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(
+                {
+                    "success_count": result["processed"] - result["failed"],
+                    "failed_count": result["failed"],
+                    "skipped_count": result["skipped"],
+                    "days_synced": days,
+                    "message": f"空闲K线补齐：处理 {result['processed']}，更新 {result['updated']}，失败 {result['failed']}",
+                    **result,
+                },
+                ensure_ascii=False,
+            )
+            db.commit()
+        return result
+    except Exception as e:
+        log = db.query(SyncLog).filter(SyncLog.id == log_id).first()
+        if log:
+            log.status = "failed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(
+                {
+                    "success_count": result["processed"] - result["failed"],
+                    "failed_count": result["failed"] + 1,
+                    "skipped_count": result["skipped"],
+                    "days_synced": IDLE_KLINE_BACKFILL_DAYS,
+                    "message": str(e),
+                    **result,
                 },
                 ensure_ascii=False,
             )

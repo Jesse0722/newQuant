@@ -10,6 +10,7 @@ import app.models  # noqa: F401
 import app.services.x_message_service as x_message_service
 from app.database import Base, get_db
 from app.exceptions import AppError, app_error_handler
+from app.routers.message_agents import router as message_agents_router
 from app.routers.messages import router
 from app.services.x_message_service import build_x_recent_search_query, x_payload_to_source_items
 
@@ -34,6 +35,7 @@ def _client() -> TestClient:
     app.dependency_overrides[get_db] = override_get_db
     app.add_exception_handler(AppError, app_error_handler)
     app.include_router(router)
+    app.include_router(message_agents_router)
     return TestClient(app)
 
 
@@ -78,6 +80,41 @@ def test_daily_messages_hides_legacy_seed_rows_in_real_mode():
     assert body["stats"]["opportunity_count"] == 0
     assert body["topics"] == []
     assert body["opportunities"] == []
+
+
+def test_daily_messages_real_mode_does_not_mutate_active_rows():
+    client = _client()
+    topic = client.post(
+        "/api/messages/topics",
+        json={
+            "trade_date": "20260514",
+            "theme": "AI算力",
+            "summary": "真实导入的历史机会不应被读取接口降级。",
+            "heat_score": 75,
+        },
+    ).json()
+
+    created = client.post(
+        "/api/messages/opportunities",
+        json={
+            "trade_date": "20260514",
+            "topic_id": topic["id"],
+            "theme": "AI算力",
+            "ts_code": "300308.SZ",
+            "stock_name": "中际旭创",
+            "opportunity_score": 81,
+            "reason": "光模块作为 AI 数据中心扩容的高弹性方向，来自真实导入。",
+            "source_platforms": ["X"],
+        },
+    )
+    assert created.status_code == 201
+
+    first = client.get("/api/messages/daily?trade_date=20260514&ensure_seed=false").json()
+    second = client.get("/api/messages/daily?trade_date=20260514&ensure_seed=false").json()
+
+    assert first["stats"]["opportunity_count"] == 1
+    assert second["stats"]["opportunity_count"] == 1
+    assert second["opportunities"][0]["status"] == "active"
 
 
 def test_topic_upsert_is_idempotent():
@@ -195,6 +232,25 @@ def test_import_source_items_aggregates_topic_and_opportunity():
         "雪球": "https://example.test/a",
     }
 
+    evidence = client.get("/api/messages/evidence?trade_date=20260514&ts_code=300502.SZ").json()
+    assert len(evidence) == 2
+    assert {row["source_item"]["url"] for row in evidence} == {
+        "https://example.test/a",
+        "https://example.test/b",
+    }
+    assert all(row["status"] == "active" for row in evidence)
+
+    opportunity_id = daily["opportunities"][0]["id"]
+    linked = client.get(f"/api/messages/opportunities/{opportunity_id}/evidence").json()
+    assert len(linked) == 2
+    assert {row["evidence"]["source_item"]["channel"] for row in linked} == {"雪球", "淘股吧"}
+
+    runs = client.get("/api/message-agents/runs?agent_name=rule_evidence_cleaner&trade_date=20260514").json()
+    assert len(runs) == 1
+    assert runs[0]["status"] == "success"
+    assert runs[0]["output_json"]["source_item_count"] == 2
+    assert runs[0]["output_json"]["evidence_count"] == 2
+
 
 def test_import_source_items_skips_duplicates():
     client = _client()
@@ -220,6 +276,369 @@ def test_import_source_items_skips_duplicates():
     assert first.json()["created_count"] == 1
     assert second.json()["created_count"] == 0
     assert second.json()["skipped_count"] == 1
+
+
+def test_source_item_reaggregation_does_not_duplicate_evidence_or_links():
+    client = _client()
+    payload = {
+        "aggregate": True,
+        "items": [
+            {
+                "trade_date": "20260514",
+                "channel": "雪球",
+                "title": "CPO 光模块热度提升",
+                "content": "CPO 光模块方向被反复提及，新易盛关注度提升。",
+                "url": "https://example.test/evidence-once",
+                "theme": "CPO",
+                "ts_code": "300502.SZ",
+                "stock_name": "新易盛",
+                "tags": ["光模块", "CPO"],
+                "heat_score": 78,
+                "credibility_score": 70,
+            }
+        ],
+    }
+
+    first = client.post("/api/messages/source-items/import", json=payload)
+    second = client.post("/api/messages/source-items/import", json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    evidence = client.get("/api/messages/evidence?trade_date=20260514&ts_code=300502.SZ").json()
+    assert len(evidence) == 1
+
+    daily = client.get("/api/messages/daily?trade_date=20260514&ensure_seed=false").json()
+    opportunity_id = daily["opportunities"][0]["id"]
+    linked = client.get(f"/api/messages/opportunities/{opportunity_id}/evidence").json()
+    assert len(linked) == 1
+
+
+def test_rule_evidence_cleaner_manual_run_supports_dry_run_and_persist():
+    client = _client()
+    imported = client.post(
+        "/api/messages/source-items/import",
+        json={
+            "aggregate": False,
+            "items": [
+                {
+                    "trade_date": "20260514",
+                    "channel": "RSS",
+                    "title": "HBM 产业链消息",
+                    "content": "HBM 供需紧张带动存储芯片产业链关注。",
+                    "url": "https://example.test/hbm",
+                    "theme": "存储芯片",
+                    "ts_code": "300475.SZ",
+                    "stock_name": "香农芯创",
+                    "heat_score": 76,
+                    "credibility_score": 74,
+                }
+            ],
+        },
+    )
+    assert imported.status_code == 201
+
+    dry = client.post(
+        "/api/message-agents/run",
+        json={
+            "agent_name": "rule_evidence_cleaner",
+            "trade_date": "20260514",
+            "dry_run": True,
+        },
+    )
+    assert dry.status_code == 201
+    assert dry.json()["created_count"] == 1
+    assert dry.json()["run"] is None
+    assert client.get("/api/messages/evidence?trade_date=20260514").json() == []
+
+    persisted = client.post(
+        "/api/message-agents/run",
+        json={
+            "agent_name": "rule_evidence_cleaner",
+            "trade_date": "20260514",
+        },
+    )
+    assert persisted.status_code == 201
+    body = persisted.json()
+    assert body["created_count"] == 1
+    assert body["run"]["status"] == "success"
+
+    evidence = client.get("/api/messages/evidence?trade_date=20260514&ts_code=300475.SZ").json()
+    assert len(evidence) == 1
+    assert evidence[0]["evidence_text"] == "HBM 产业链消息"
+
+
+def test_opportunity_review_and_dismiss_prevents_reactivation():
+    client = _client()
+    payload = {
+        "aggregate": True,
+        "items": [
+            {
+                "trade_date": "20260514",
+                "channel": "雪球",
+                "title": "CPO 光模块热度提升",
+                "content": "CPO 光模块方向被反复提及，新易盛关注度提升。",
+                "url": "https://example.test/review",
+                "theme": "CPO",
+                "ts_code": "300502.SZ",
+                "stock_name": "新易盛",
+                "tags": ["光模块", "CPO"],
+                "heat_score": 78,
+                "credibility_score": 70,
+            }
+        ],
+    }
+    imported = client.post("/api/messages/source-items/import", json=payload)
+    assert imported.status_code == 201
+    daily = client.get("/api/messages/daily?trade_date=20260514&ensure_seed=false").json()
+    opportunity = daily["opportunities"][0]
+    assert opportunity["review_status"] == "reviewed"
+    assert opportunity["generated_by"] == "rule"
+    assert opportunity["evidence_score"] > 0
+    assert opportunity["mapping_confidence"] > 0
+
+    reviewed = client.post(
+        f"/api/messages/opportunities/{opportunity['id']}/review",
+        json={"review_status": "needs_review", "review_reason": "单一来源，等待验证"},
+    )
+    assert reviewed.status_code == 200
+    assert reviewed.json()["review_status"] == "needs_review"
+    assert reviewed.json()["review_reason"] == "单一来源，等待验证"
+
+    dismissed = client.post(
+        f"/api/messages/opportunities/{opportunity['id']}/dismiss",
+        json={"review_reason": "映射过弱"},
+    )
+    assert dismissed.status_code == 200
+    assert dismissed.json()["review_status"] == "dismissed"
+    assert dismissed.json()["status"] == "dismissed"
+
+    reimported = client.post("/api/messages/source-items/import", json=payload)
+    assert reimported.status_code == 201
+    daily_after = client.get("/api/messages/daily?trade_date=20260514&ensure_seed=false").json()
+    assert daily_after["stats"]["opportunity_count"] == 0
+    assert daily_after["opportunities"] == []
+
+
+def test_message_agent_run_rejects_unknown_agent():
+    client = _client()
+
+    resp = client.post(
+        "/api/message-agents/run",
+        json={
+            "agent_name": "unknown_agent",
+            "trade_date": "20260514",
+        },
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["message"] == "暂不支持的 Agent"
+
+
+def test_llm_evidence_cleaner_uses_deepseek_and_sanitizes(monkeypatch):
+    client = _client()
+
+    imported = client.post(
+        "/api/messages/source-items/import",
+        json={
+            "aggregate": False,
+            "items": [
+                {
+                    "trade_date": "20260514",
+                    "channel": "X",
+                    "source_name": "memory_research",
+                    "content": "HBM supply remains tight as AI accelerator demand expands.",
+                    "url": "https://example.test/llm",
+                    "theme": "存储芯片",
+                    "ts_code": "300475.SZ",
+                    "stock_name": "香农芯创",
+                    "heat_score": 80,
+                    "credibility_score": 72,
+                }
+            ],
+        },
+    )
+    assert imported.status_code == 201
+
+    def fake_llm(prompt: str, provider: str, model: str, temperature: float = 0.1):
+        assert provider == "deepseek"
+        assert model == "deepseek-v4-flash"
+        assert "HBM supply remains tight" in prompt
+        return """
+        {
+          "is_relevant": true,
+          "quality_score": 82,
+          "theme": "存储芯片",
+          "ts_code": "300475.SZ",
+          "entities": [{"type": "product", "name": "HBM", "confidence": 80}],
+          "evidence": [
+            {"text": "HBM supply remains tight，确定买入", "stance": "support", "confidence": 78}
+          ],
+          "risk_flags": ["weak_mapping"]
+        }
+        """
+
+    monkeypatch.setattr("app.services.message_evidence_service.call_llm_model", fake_llm)
+
+    resp = client.post(
+        "/api/message-agents/run",
+        json={
+            "agent_name": "llm_evidence_cleaner",
+            "trade_date": "20260514",
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+        },
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["created_count"] == 1
+    assert body["fallback_count"] == 0
+    assert body["run"]["model_provider"] == "deepseek"
+    assert body["run"]["model_name"] == "deepseek-v4-flash"
+
+    evidence = client.get("/api/messages/evidence?trade_date=20260514&ts_code=300475.SZ").json()
+    assert len(evidence) == 1
+    assert evidence[0]["extractor_name"] == "llm_evidence_cleaner"
+    assert "确定买入" not in evidence[0]["evidence_text"]
+    assert "待验证" in evidence[0]["evidence_text"]
+    assert evidence[0]["raw_json"]["risk_flags"] == ["weak_mapping"]
+
+
+def test_llm_evidence_cleaner_falls_back_to_rules_on_bad_json(monkeypatch):
+    client = _client()
+
+    imported = client.post(
+        "/api/messages/source-items/import",
+        json={
+            "aggregate": False,
+            "items": [
+                {
+                    "trade_date": "20260514",
+                    "channel": "X",
+                    "content": "CPO optical module demand expands with AI capex.",
+                    "theme": "CPO",
+                    "ts_code": "300502.SZ",
+                    "stock_name": "新易盛",
+                    "heat_score": 78,
+                    "credibility_score": 70,
+                }
+            ],
+        },
+    )
+    assert imported.status_code == 201
+
+    def fake_llm(_prompt: str, provider: str, model: str, temperature: float = 0.1):
+        return "not json"
+
+    monkeypatch.setattr("app.services.message_evidence_service.call_llm_model", fake_llm)
+
+    resp = client.post(
+        "/api/message-agents/run",
+        json={
+            "agent_name": "llm_evidence_cleaner",
+            "trade_date": "20260514",
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+        },
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["fallback_count"] == 1
+    assert body["error_count"] == 1
+    assert body["run"]["status"] == "success_with_fallback"
+
+    evidence = client.get("/api/messages/evidence?trade_date=20260514&ts_code=300502.SZ").json()
+    assert len(evidence) == 1
+    assert evidence[0]["extractor_name"] == "rule_evidence_cleaner"
+
+
+def test_agent_daily_report_from_evidence():
+    client = _client()
+    imported = client.post(
+        "/api/messages/source-items/import",
+        json={
+            "aggregate": True,
+            "items": [
+                {
+                    "trade_date": "20260514",
+                    "channel": "雪球",
+                    "title": "CPO 光模块热度提升",
+                    "content": "CPO 光模块方向被反复提及，新易盛关注度提升。",
+                    "url": "https://example.test/report",
+                    "theme": "CPO",
+                    "ts_code": "300502.SZ",
+                    "stock_name": "新易盛",
+                    "heat_score": 78,
+                    "credibility_score": 70,
+                }
+            ],
+        },
+    )
+    assert imported.status_code == 201
+
+    resp = client.get("/api/messages/agent-daily?trade_date=20260514")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["model_provider"] == "rules"
+    assert body["evidence_coverage"]["evidence_count"] == 1
+    assert body["evidence_coverage"]["candidate_count"] == 1
+    assert body["candidates"][0]["ts_code"] == "300502.SZ"
+    assert "待验证" in " ".join(body["risk_flags"])
+
+
+def test_agent_daily_report_can_use_deepseek_and_sanitize(monkeypatch):
+    client = _client()
+    imported = client.post(
+        "/api/messages/source-items/import",
+        json={
+            "aggregate": True,
+            "items": [
+                {
+                    "trade_date": "20260514",
+                    "channel": "X",
+                    "content": "HBM supply remains tight as AI accelerator demand expands.",
+                    "theme": "存储芯片",
+                    "ts_code": "300475.SZ",
+                    "stock_name": "香农芯创",
+                    "heat_score": 80,
+                    "credibility_score": 72,
+                }
+            ],
+        },
+    )
+    assert imported.status_code == 201
+
+    def fake_llm(prompt: str, provider: str, model: str, temperature: float = 0.1):
+        assert provider == "deepseek"
+        assert model == "deepseek-v4-flash"
+        assert "candidate_count" in prompt
+        return """
+        {
+          "headline": "今日主线：存储芯片",
+          "summary": "确定买入，稳赚",
+          "risk_flags": ["无风险"],
+          "next_actions": ["加入观察池等待买点雷达确认"]
+        }
+        """
+
+    monkeypatch.setattr("app.services.message_evidence_service.call_llm_model", fake_llm)
+    resp = client.post(
+        "/api/messages/agent-daily/generate",
+        json={
+            "trade_date": "20260514",
+            "use_llm": True,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    text = str(body)
+    assert body["model_provider"] == "deepseek"
+    assert "确定买入" not in text
+    assert "稳赚" not in text
+    assert "无风险" not in text
 
 
 def test_x_seed_summary_exposes_keyword_and_account_pool():

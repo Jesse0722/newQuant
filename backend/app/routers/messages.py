@@ -5,12 +5,18 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.message import (
+    MessageEvidenceOut,
+    MessageAgentDailyGenerateRequest,
+    MessageAgentDailyOut,
     MessageDailyConclusionOut,
     MessageDailyOut,
     MessageKeywordImportOut,
     MessageKeywordImportRequest,
     MessageOpportunityCreate,
+    MessageOpportunityEvidenceOut,
+    MessageOpportunityDismissRequest,
     MessageOpportunityOut,
+    MessageOpportunityReviewRequest,
     MessageSeedKeywordCreate,
     MessageSeedKeywordOut,
     MessageSourceImportOut,
@@ -20,6 +26,14 @@ from app.schemas.message import (
     MessageXSeedSummaryOut,
     MessageTopicCreate,
     MessageTopicOut,
+)
+from app.services.message_evidence_service import (
+    accept_opportunity,
+    dismiss_opportunity,
+    get_opportunity_evidence,
+    list_evidence,
+    review_opportunity,
+    build_agent_daily_report,
 )
 from app.services.message_service import (
     create_opportunity,
@@ -60,6 +74,27 @@ def get_conclusion(
     return get_daily_conclusion(db, trade_date or today_yyyymmdd(), ensure_seed=ensure_seed, limit=limit)
 
 
+@router.get("/agent-daily", response_model=MessageAgentDailyOut)
+def get_agent_daily(
+    trade_date: str | None = Query(default=None, pattern=r"^\d{8}$"),
+    limit: int = Query(default=5, ge=1, le=10),
+    db: Session = Depends(get_db),
+):
+    return build_agent_daily_report(db, trade_date=trade_date or today_yyyymmdd(), limit=limit)
+
+
+@router.post("/agent-daily/generate", response_model=MessageAgentDailyOut)
+def generate_agent_daily(body: MessageAgentDailyGenerateRequest, db: Session = Depends(get_db)):
+    return build_agent_daily_report(
+        db,
+        trade_date=body.trade_date or today_yyyymmdd(),
+        use_llm=body.use_llm,
+        provider=body.provider,
+        model=body.model,
+        limit=body.limit,
+    )
+
+
 @router.post("/topics", response_model=MessageTopicOut, status_code=201)
 def upsert_topic(body: MessageTopicCreate, db: Session = Depends(get_db)):
     return create_or_update_topic(db, body)
@@ -73,6 +108,57 @@ def add_opportunity(body: MessageOpportunityCreate, db: Session = Depends(get_db
 @router.post("/source-items/import", response_model=MessageSourceImportOut, status_code=201)
 def import_sources(body: MessageSourceImportRequest, db: Session = Depends(get_db)):
     return import_source_items(db, body)
+
+
+@router.get("/evidence", response_model=list[MessageEvidenceOut])
+def get_evidence(
+    trade_date: str | None = Query(default=None, pattern=r"^\d{8}$"),
+    theme: str | None = Query(default=None),
+    ts_code: str | None = Query(default=None),
+    stance: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    source_item_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    return list_evidence(
+        db,
+        trade_date=trade_date,
+        theme=theme,
+        ts_code=ts_code,
+        stance=stance,
+        status=status,
+        source_item_id=source_item_id,
+        limit=limit,
+    )
+
+
+@router.get("/opportunities/{opportunity_id}/evidence", response_model=list[MessageOpportunityEvidenceOut])
+def get_opportunity_evidence_items(opportunity_id: str, db: Session = Depends(get_db)):
+    return get_opportunity_evidence(db, opportunity_id)
+
+
+@router.post("/opportunities/{opportunity_id}/review", response_model=MessageOpportunityOut)
+def review_message_opportunity(
+    opportunity_id: str,
+    body: MessageOpportunityReviewRequest,
+    db: Session = Depends(get_db),
+):
+    return review_opportunity(db, opportunity_id, body.review_status, body.review_reason)
+
+
+@router.post("/opportunities/{opportunity_id}/accept", response_model=MessageOpportunityOut)
+def accept_message_opportunity(opportunity_id: str, db: Session = Depends(get_db)):
+    return accept_opportunity(db, opportunity_id)
+
+
+@router.post("/opportunities/{opportunity_id}/dismiss", response_model=MessageOpportunityOut)
+def dismiss_message_opportunity(
+    opportunity_id: str,
+    body: MessageOpportunityDismissRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    return dismiss_opportunity(db, opportunity_id, body.review_reason if body else None)
 
 
 @router.get("/x/seeds", response_model=MessageXSeedSummaryOut)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime
 from statistics import mean
+from time import perf_counter
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -19,6 +20,11 @@ from app.schemas.message import (
     MessageSourceImportOut,
     MessageSourceItemCreate,
     MessageTopicCreate,
+)
+from app.services.message_evidence_service import (
+    ensure_rule_evidence_for_source_items,
+    link_opportunity_evidence,
+    record_rule_evidence_batch_run,
 )
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
@@ -176,6 +182,8 @@ def _upsert_aggregated_opportunity(
     heat_score = _clamp_score(avg_heat + channel_bonus + item_bonus)
     credibility_score = _clamp_score(avg_credibility + min(12, len(channels) * 4))
     risk_score = _clamp_score(30 + max(0, len(items) - 2) * 8 + max(0, heat_score - 80) * 0.5)
+    evidence_score = credibility_score
+    mapping_confidence = _clamp_score(55 + channel_bonus + min(20, len(items) * 4))
     opportunity_score = _clamp_score(heat_score * 0.55 + credibility_score * 0.35 - risk_score * 0.15 + channel_bonus)
     action_suggestion = "add_to_pool" if opportunity_score >= 80 and risk_score < 70 else "watch"
     if risk_score >= 70:
@@ -193,7 +201,7 @@ def _upsert_aggregated_opportunity(
             MessageOpportunity.trade_date == trade_date,
             MessageOpportunity.theme == theme,
             MessageOpportunity.ts_code == ts_code,
-            MessageOpportunity.status == "active",
+            MessageOpportunity.status != "demo",
         )
         .first()
     )
@@ -207,15 +215,23 @@ def _upsert_aggregated_opportunity(
         "heat_score": heat_score,
         "credibility_score": credibility_score,
         "risk_score": risk_score,
+        "evidence_score": evidence_score,
+        "mapping_confidence": mapping_confidence,
         "action_suggestion": action_suggestion,
         "reason": reason,
         "catalysts": catalysts,
         "risks": ["消息热度变化快，需等待买点雷达确认"],
         "source_platforms": channels,
         "source_links": source_links,
+        "review_status": "reviewed",
+        "generated_by": "rule",
     }
     if existing:
+        if existing.review_status in {"accepted", "dismissed"}:
+            return existing
         for key, value in values.items():
+            if key == "review_status" and existing.review_status:
+                continue
             setattr(existing, key, value)
         return existing
 
@@ -225,6 +241,8 @@ def _upsert_aggregated_opportunity(
 
 
 def aggregate_source_items(db: Session, trade_date: str) -> MessageAggregationResult:
+    started_at = datetime.utcnow()
+    elapsed_start = perf_counter()
     items = (
         db.query(MessageSourceItem)
         .filter(
@@ -238,6 +256,10 @@ def aggregate_source_items(db: Session, trade_date: str) -> MessageAggregationRe
     for item in items:
         if item.theme:
             grouped_by_theme.setdefault(item.theme, []).append(item)
+    evidence_rows = ensure_rule_evidence_for_source_items(db, items)
+    evidence_by_source_id: dict[str, list] = {}
+    for evidence in evidence_rows:
+        evidence_by_source_id.setdefault(evidence.source_item_id, []).append(evidence)
 
     topics: dict[str, MessageTopic] = {}
     for theme, theme_items in grouped_by_theme.items():
@@ -272,20 +294,35 @@ def aggregate_source_items(db: Session, trade_date: str) -> MessageAggregationRe
         topic = topics.get(theme)
         if not topic:
             continue
-        opportunities.append(
-            _upsert_aggregated_opportunity(
-                db,
-                trade_date=trade_date,
-                topic=topic,
-                theme=theme,
-                ts_code=ts_code,
-                stock_name=opp_items[0].stock_name,
-                items=opp_items,
-            )
+        opportunity = _upsert_aggregated_opportunity(
+            db,
+            trade_date=trade_date,
+            topic=topic,
+            theme=theme,
+            ts_code=ts_code,
+            stock_name=opp_items[0].stock_name,
+            items=opp_items,
         )
+        db.flush()
+        opportunity_evidence = [
+            evidence
+            for item in opp_items
+            for evidence in evidence_by_source_id.get(item.id, [])
+        ]
+        link_opportunity_evidence(db, opportunity, opportunity_evidence)
+        opportunities.append(opportunity)
 
     for item in items:
         item.status = "processed"
+    if items:
+        record_rule_evidence_batch_run(
+            db,
+            trade_date=trade_date,
+            source_item_count=len(items),
+            evidence_count=len(evidence_rows),
+            started_at=started_at,
+            elapsed_start=elapsed_start,
+        )
     db.commit()
     return MessageAggregationResult(
         trade_date=trade_date,
@@ -515,8 +552,6 @@ def demote_legacy_seed_daily_messages(db: Session, trade_date: str) -> None:
 def get_daily_messages(db: Session, trade_date: str, ensure_seed: bool = True) -> dict:
     if ensure_seed:
         ensure_seed_daily_messages(db, trade_date)
-    else:
-        demote_legacy_seed_daily_messages(db, trade_date)
 
     topic_rows = (
         db.query(MessageTopic)

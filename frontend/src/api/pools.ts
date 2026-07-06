@@ -66,6 +66,45 @@ export const updateStock = (poolId: string, stockId: string, data: { note?: stri
   client.put<WatchStock>(`/pools/${poolId}/stocks/${stockId}`, data)
 export const deleteStock = (poolId: string, stockId: string) =>
   client.delete(`/pools/${poolId}/stocks/${stockId}`)
+
+export interface LimitUpPoolCleanupPreviewItem {
+  stock_id: string
+  ts_code: string
+  stock_name: string
+  industry?: string | null
+  limit_up_date?: string | null
+  limit_up_date_display?: string | null
+  reasons: Array<'no_recent_limit_up'>
+  pinned: boolean
+}
+
+export interface LimitUpPoolCleanupResult {
+  pool_id: string
+  pool_name: string
+  is_limit_up_pool: boolean
+  dry_run: boolean
+  days: number
+  cutoff_trade_date: string
+  cutoff_trade_date_display?: string | null
+  total: number
+  candidate_count: number
+  deleted_count: number
+  protected_pinned_count: number
+  reason_counts: {
+    no_recent_limit_up: number
+  }
+  preview: LimitUpPoolCleanupPreviewItem[]
+}
+
+export const cleanupLimitUpPool = (
+  poolId: string,
+  data: {
+    days?: number
+    dry_run?: boolean
+    include_pinned?: boolean
+  }
+) => client.post<LimitUpPoolCleanupResult>(`/pools/${poolId}/cleanup/limit-up`, data)
+
 export const importCSV = (poolId: string, file: File) => {
   const form = new FormData()
   form.append('file', file)

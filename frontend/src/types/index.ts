@@ -462,12 +462,19 @@ export interface MessageOpportunity {
   heat_score: number
   credibility_score: number
   risk_score: number
+  evidence_score: number
+  mapping_confidence: number
   action_suggestion: MessageActionSuggestion
   reason?: string | null
   catalysts: string[]
   risks: string[]
   source_platforms: string[]
   source_links: string[]
+  review_status: string
+  review_reason?: string | null
+  generated_by: string
+  accepted_at?: string | null
+  dismissed_at?: string | null
   status: string
   created_at: string
 }
@@ -493,6 +500,100 @@ export interface MessageSourceItem {
   dedupe_key: string
   raw_payload?: Record<string, unknown> | null
   status: string
+}
+
+export interface MessageEvidence {
+  id: string
+  source_item_id: string
+  trade_date: string
+  channel: string
+  theme?: string | null
+  ts_code?: string | null
+  evidence_text: string
+  stance: 'support' | 'risk' | 'contradiction' | 'neutral' | string
+  quality_score: number
+  credibility_score: number
+  confidence: number
+  extraction_method: string
+  extractor_name: string
+  extractor_version: string
+  raw_json: Record<string, unknown>
+  status: string
+  created_at: string
+  source_item?: MessageSourceItem | null
+}
+
+export interface MessageOpportunityEvidence {
+  id: string
+  opportunity_id: string
+  evidence_id: string
+  role: string
+  weight: number
+  created_at: string
+  evidence?: MessageEvidence | null
+}
+
+export interface MessageAgentRun {
+  id: string
+  agent_name: string
+  agent_version: string
+  trade_date?: string | null
+  input_ref_type?: string | null
+  input_ref_id?: string | null
+  input_digest?: string | null
+  output_json: Record<string, unknown>
+  model_provider: string
+  model_name: string
+  prompt_version?: string | null
+  status: string
+  error_message?: string | null
+  started_at: string
+  finished_at?: string | null
+  duration_ms?: number | null
+}
+
+export interface MessageAgentRunResult {
+  agent_name: string
+  trade_date?: string | null
+  dry_run: boolean
+  source_item_count: number
+  created_count: number
+  updated_count: number
+  skipped_count: number
+  evidence_count: number
+  fallback_count: number
+  error_count: number
+  run?: MessageAgentRun | null
+}
+
+export interface MessageAgentDailyCandidate {
+  theme: string
+  ts_code?: string | null
+  stock_name?: string | null
+  opportunity_score: number
+  evidence_score: number
+  risk_score: number
+  review_status: string
+  evidence_count: number
+  conclusion: string
+}
+
+export interface MessageAgentDaily {
+  trade_date: string
+  generated_at: string
+  model_provider: string
+  model_name: string
+  headline: string
+  summary: string
+  evidence_coverage: {
+    evidence_count?: number
+    candidate_count?: number
+    theme_count?: number
+    [key: string]: unknown
+  }
+  risk_flags: string[]
+  next_actions: string[]
+  candidates: MessageAgentDailyCandidate[]
 }
 
 export interface MessageSourceItemInput {

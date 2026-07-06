@@ -2,6 +2,7 @@ import {
   BranchesOutlined,
   DeleteOutlined,
   EditOutlined,
+  EyeOutlined,
   LineChartOutlined,
   PushpinFilled,
   PushpinOutlined,
@@ -13,6 +14,7 @@ import type { ColumnsType } from 'antd/es/table'
 import * as echarts from 'echarts'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  analyzeMainWaveBatch,
   analyzeMainWaveStock,
   getMainWaveSectorBackfillStatus,
   getMainWaveSectorBackfillTask,
@@ -22,6 +24,7 @@ import {
   type MainWaveSectorBackfillTask,
 } from '../../api/market'
 import type { StockChartDataWithMarks, WatchStock } from '../../types'
+import { openStockDetail } from '../../utils/openStockDetail'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const { Text } = Typography
@@ -34,6 +37,7 @@ interface MainWaveResearchPanelProps {
   onExport: () => void
   onSelectStock: (tsCode: string) => void
   onTogglePin: (stock: WatchStock) => void
+  poolId: string
   selectedStock: WatchStock | null
   stocks: WatchStock[]
   chartData: StockChartDataWithMarks | null
@@ -95,6 +99,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
   onExport,
   onSelectStock,
   onTogglePin,
+  poolId,
   selectedStock,
   stocks,
   chartData,
@@ -119,23 +124,45 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
     }
     setLoading(true)
     try {
-      const pairs = await Promise.all(
-        stocks.map(async (stock) => {
-          try {
-            const res = await analyzeMainWaveStock(stock.ts_code)
-            return [stock.ts_code, res.data] as const
-          } catch {
-            return [stock.ts_code, {
-              ts_code: stock.ts_code,
-              name: stock.stock_name || stock.ts_code,
-              status: 'insufficient_data',
-              total_score: 0,
-              message: '主升浪评分失败',
-            }] as const
-          }
-        })
+      const res = await analyzeMainWaveBatch(stocks.map((stock) => stock.ts_code))
+      const nextMap = Object.fromEntries(
+        (res.data.items || []).map((item) => [item.ts_code, item])
       )
-      setAnalysisMap(Object.fromEntries(pairs))
+      setAnalysisMap((prev) => {
+        const merged = { ...nextMap }
+        for (const [tsCode, existing] of Object.entries(prev)) {
+          const next = merged[tsCode]
+          const existingSectorCount = existing.metrics?.sectors?.length || 0
+          const nextSectorCount = next?.metrics?.sectors?.length || 0
+          if (next && existingSectorCount > nextSectorCount) {
+            merged[tsCode] = {
+              ...next,
+              metrics: {
+                ...next.metrics,
+                best_sector: existing.metrics?.best_sector ?? next.metrics?.best_sector,
+                sectors: existing.metrics?.sectors,
+                sector_count: existing.metrics?.sector_count ?? next.metrics?.sector_count,
+              },
+            }
+          }
+        }
+        return merged
+      })
+    } catch {
+      setAnalysisMap((prev) => {
+        const next = { ...prev }
+        for (const stock of stocks) {
+          if (next[stock.ts_code]) continue
+          next[stock.ts_code] = {
+            ts_code: stock.ts_code,
+            name: stock.stock_name || stock.ts_code,
+            status: 'insufficient_data',
+            total_score: 0,
+            message: '主升浪评分失败',
+          }
+        }
+        return next
+      })
     } finally {
       setLoading(false)
     }
@@ -145,18 +172,32 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
     loadAnalyses()
   }, [loadAnalyses])
 
+  useEffect(() => {
+    if (!selectedStock?.ts_code) return
+    let cancelled = false
+    analyzeMainWaveStock(selectedStock.ts_code)
+      .then((res) => {
+        if (cancelled) return
+        setAnalysisMap((prev) => ({ ...prev, [selectedStock.ts_code]: res.data }))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [selectedStock?.ts_code])
+
   const loadSectorStatus = useCallback(async () => {
     try {
-      const res = await getMainWaveSectorBackfillStatus({ days: 250 })
+      const res = await getMainWaveSectorBackfillStatus({ pool_id: poolId || undefined, days: 250 })
       setSectorStatus(res.data)
     } catch {
       setSectorStatus(null)
     }
-  }, [])
+  }, [poolId])
 
   useEffect(() => {
     loadSectorStatus()
-  }, [loadSectorStatus, stocks.length])
+  }, [loadSectorStatus])
 
   useEffect(() => {
     if (!sectorTask?.task_id || !['running', 'pending'].includes(sectorTask.status)) return
@@ -179,7 +220,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
   const handleBackfillSectors = async (mode: 'backfill' | 'incremental', force = false) => {
     setSyncingSectors(true)
     try {
-      const res = await startMainWaveSectorBackfill({ days: 250, mode, force })
+      const res = await startMainWaveSectorBackfill({ pool_id: poolId || undefined, days: 250, mode, force })
       message.success(mode === 'incremental' ? '已开始同步增量K线' : force ? '已开始重试失败项' : '已开始补齐板块K线')
       const taskRes = await getMainWaveSectorBackfillTask(res.data.task_id)
       setSectorTask(taskRes.data)
@@ -215,12 +256,21 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
   const selectedAnalysis = selectedStock ? analysisMap[selectedStock.ts_code] : null
 
   useEffect(() => {
+    if (chartLoading) {
+      chartInstance.current?.clear()
+      return
+    }
     if (!chartRef.current || !chartData?.quotes?.length) {
       chartInstance.current?.clear()
       return
     }
     const chartEl = chartRef.current
-    if (!chartInstance.current || chartInstance.current.isDisposed()) {
+    if (
+      !chartInstance.current ||
+      chartInstance.current.isDisposed() ||
+      chartInstance.current.getDom() !== chartEl
+    ) {
+      chartInstance.current?.dispose()
       chartInstance.current = echarts.getInstanceByDom(chartEl) || echarts.init(chartEl)
     }
     const chart = chartInstance.current
@@ -326,7 +376,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
       observer.disconnect()
       window.removeEventListener('resize', onResize)
     }
-  }, [chartData, selectedAnalysis])
+  }, [chartData, chartLoading, selectedAnalysis])
 
   useEffect(() => {
     return () => {
@@ -563,15 +613,40 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
               </div>
 
               <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                   <Text strong>结构K线</Text>
-                  {chartLoading && <Text type="secondary">加载中...</Text>}
+                  <Space size={6}>
+                    {chartLoading && <Text type="secondary">加载中...</Text>}
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<EyeOutlined />}
+                      onClick={() => openStockDetail(selectedStock.ts_code)}
+                    >
+                      详情
+                    </Button>
+                  </Space>
                 </div>
-                {chartData?.quotes?.length ? (
-                  <div ref={chartRef} style={{ width: '100%', height: 420, minHeight: 360 }} />
-                ) : (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无K线数据" />
-                )}
+                <div style={{ position: 'relative', height: 420, minHeight: 360 }}>
+                  <div
+                    ref={chartRef}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      visibility: !chartLoading && chartData?.quotes?.length ? 'visible' : 'hidden',
+                    }}
+                  />
+                  {chartLoading && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                      K线加载中...
+                    </div>
+                  )}
+                  {!chartLoading && !chartData?.quotes?.length && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无K线数据" />
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -585,12 +660,27 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
                   <Metric label="修复" value={formatScore(selectedAnalysis?.scores?.pullback_repair)} />
                   <Metric label="共振" value={formatScore(selectedAnalysis?.scores?.sector_resonance)} />
                 </div>
-                <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>
-                  最佳板块：{selectedAnalysis?.metrics?.best_sector?.sector_name || '暂无板块日线数据'}
-                  {selectedAnalysis?.metrics?.best_sector?.relative_strength_20d != null
-                    ? `，相对强度 ${formatPct(selectedAnalysis.metrics.best_sector.relative_strength_20d)}`
-                    : ''}
-                </Text>
+                <div style={{ marginBottom: 8 }}>
+                  <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>
+                    所属板块
+                    {selectedAnalysis?.metrics?.best_sector?.relative_strength_20d != null
+                      ? `：${selectedAnalysis.metrics.best_sector.sector_name} 相对强度 ${formatPct(selectedAnalysis.metrics.best_sector.relative_strength_20d)}`
+                      : selectedAnalysis?.metrics?.sector_count
+                        ? `：共 ${selectedAnalysis.metrics.sector_count} 个候选`
+                        : '：暂无板块映射'}
+                  </Text>
+                  {selectedAnalysis?.metrics?.sectors?.length ? (
+                    <Space size={6} wrap>
+                      {selectedAnalysis.metrics.sectors.map((sector) => (
+                        <Tag key={`${sector.sector_code || ''}-${sector.sector_name}`} color={sector.sector_type === 'concept' ? 'blue' : 'default'}>
+                          {sector.sector_name}
+                        </Tag>
+                      ))}
+                    </Space>
+                  ) : (
+                    <Text type="secondary">尚未获取到该股所属板块，可先补齐板块映射后刷新评分。</Text>
+                  )}
+                </div>
                 {selectedAnalysis?.metrics?.best_sector && selectedAnalysis.metrics.best_sector.relative_strength_20d == null && (
                   <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>
                     板块K线缺失，暂无法计算共振强度

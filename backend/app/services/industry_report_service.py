@@ -12,6 +12,7 @@ from app.models.message import (
     IndustryDailyReport,
     IndustryReportCandidate,
     MessageEntity,
+    MessageEvidence,
     MessageRelation,
     MessageTopic,
 )
@@ -95,6 +96,41 @@ def _stock_business_relations(db: Session) -> list[tuple[MessageEntity, MessageE
     return result
 
 
+def _message_evidence_for_candidate(db: Session, trade_date: str, ts_code: str | None, theme: str) -> list[MessageEvidence]:
+    if not ts_code:
+        return []
+    rows = (
+        db.query(MessageEvidence)
+        .filter(
+            MessageEvidence.trade_date == trade_date,
+            MessageEvidence.status == "active",
+            MessageEvidence.ts_code == ts_code,
+        )
+        .order_by(MessageEvidence.confidence.desc(), MessageEvidence.credibility_score.desc())
+        .limit(5)
+        .all()
+    )
+    exact = [row for row in rows if row.theme == theme]
+    return (exact or rows)[:3]
+
+
+def _message_evidence_json(rows: list[MessageEvidence]) -> list[dict]:
+    return [
+        {
+            "source": row.channel,
+            "relation": "message_evidence",
+            "target": row.ts_code or row.theme,
+            "confidence": row.confidence,
+            "evidence_id": row.id,
+            "source_item_id": row.source_item_id,
+            "theme": row.theme,
+            "evidence_text": row.evidence_text,
+            "stance": row.stance,
+        }
+        for row in rows
+    ]
+
+
 def _build_candidate_rows(db: Session, trade_date: str) -> list[dict]:
     topic_by_theme = _topic_lookup(db, trade_date)
     paths_by_end: dict[str, list] = {}
@@ -117,7 +153,18 @@ def _build_candidate_rows(db: Session, trade_date: str) -> list[dict]:
 
         topic = topic_by_theme.get(theme)
         path_score = _clamp((best_path.score * 0.75) + (stock_relation.confidence * 0.25))
-        evidence_score = _clamp(mean([step.confidence for step in best_path.steps] + [stock_relation.confidence]))
+        message_evidence_rows = _message_evidence_for_candidate(db, trade_date, stock.ts_code, theme)
+        graph_evidence_score = _clamp(mean([step.confidence for step in best_path.steps] + [stock_relation.confidence]))
+        message_evidence_score = (
+            _clamp(mean([row.confidence for row in message_evidence_rows]))
+            if message_evidence_rows
+            else 0
+        )
+        evidence_score = (
+            _clamp(graph_evidence_score * 0.65 + message_evidence_score * 0.35)
+            if message_evidence_rows
+            else graph_evidence_score
+        )
         heat_score = topic.heat_score if topic else _clamp(55 + path_score * 0.25)
         crowding_score = topic.crowding_score if topic else 35
         risk_score = _clamp(30 + max(0, crowding_score - 65) * 0.6 + (10 if evidence_score < 65 else 0))
@@ -159,6 +206,12 @@ def _build_candidate_rows(db: Session, trade_date: str) -> list[dict]:
                 "confidence": stock_relation.confidence,
             }
         )
+        evidence_json.extend(_message_evidence_json(message_evidence_rows))
+        message_evidence_note = (
+            f"，并匹配到 {len(message_evidence_rows)} 条当日舆情证据"
+            if message_evidence_rows
+            else ""
+        )
         candidates.append(
             {
                 "trade_date": trade_date,
@@ -174,7 +227,7 @@ def _build_candidate_rows(db: Session, trade_date: str) -> list[dict]:
                 "risk_score": risk_score,
                 "final_score": final_score,
                 "grade": grade,
-                "reason": f"{stock_basic.name if stock_basic else stock.name} 通过 {business.name} 映射到 {theme}，路径证据分 {evidence_score}。",
+                "reason": f"{stock_basic.name if stock_basic else stock.name} 通过 {business.name} 映射到 {theme}，路径证据分 {evidence_score}{message_evidence_note}。",
                 "risks": _candidate_risks(grade, evidence_score, crowding_score),
             }
         )

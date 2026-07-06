@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.services.backtest_service import run_single_strategy_backtest
 from app.schemas.strategy import (
     IndicatorScreenRequest,
@@ -67,6 +67,43 @@ class IntradayConfigPatch(BaseModel):
     min_confirm_hits: Optional[int] = Field(None, ge=1, le=5)
 
 router = APIRouter(prefix="/api/strategy", tags=["strategy"])
+
+
+def run_buy_signal_scan_task(task_id: str, payload: dict):
+    status = get_task_status(task_id)
+    strategy_id = payload.get("strategy_id") or "two_phase"
+    if status:
+        strategy_name = "全部买点策略" if strategy_id == "all" else strategy_id
+        status.progress = 0.05
+        status.message = f"买点雷达扫描中：{strategy_name}"
+
+    db = SessionLocal()
+    try:
+        def update_progress(progress: float, message: str):
+            current = get_task_status(task_id)
+            if not current:
+                return
+            current.progress = max(current.progress, min(0.99, float(progress)))
+            current.message = message
+
+        result = scan_pool_buy_signals(
+            db,
+            payload.get("pool_id"),
+            strategy_id,
+            min_confirm_hits=payload.get("min_confirm_hits") or 2,
+            limit_up_date_from=payload.get("limit_up_date_from"),
+            limit_up_date_to=payload.get("limit_up_date_to"),
+            progress_callback=update_progress,
+        )
+        if status:
+            status.result = result
+            status.progress = 1.0
+            status.message = (
+                f"扫描完成：触发 {result.get('triggered_count', 0)} 只，"
+                f"共 {result.get('total', 0)} 只"
+            )
+    finally:
+        db.close()
 
 
 @router.get("/templates")
@@ -169,6 +206,30 @@ def scan_buy_signals(body: ScanBuySignalsRequest, db: Session = Depends(get_db))
         limit_up_date_from=body.limit_up_date_from,
         limit_up_date_to=body.limit_up_date_to,
     )
+
+
+@router.post("/scan-buy-signals-task")
+def submit_buy_signal_scan(body: ScanBuySignalsRequest):
+    """提交观察池买点信号扫描任务，适用于大股票池长耗时扫描。"""
+    task_id = submit_task("buy_signal_scan", run_buy_signal_scan_task, body.model_dump())
+    return {"task_id": task_id}
+
+
+@router.get("/scan-buy-signals-task/{task_id}")
+def get_buy_signal_scan_result(task_id: str):
+    """查询买点信号扫描任务状态与结果。"""
+    status = get_task_status(task_id)
+    if not status:
+        raise AppError(code=1004, message="任务不存在", status_code=404)
+    return {
+        "task_id": status.id,
+        "type": status.type,
+        "status": status.status,
+        "progress": status.progress,
+        "message": status.message,
+        "result": status.result,
+        "created_at": status.created_at.isoformat(),
+    }
 
 
 @router.get("/intraday-config")

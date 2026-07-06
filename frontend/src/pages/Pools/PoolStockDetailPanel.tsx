@@ -75,6 +75,7 @@ const PoolStockDetailPanel: React.FC<PoolStockDetailPanelProps> = ({
         </Space>
       </div>
       <StockDetail
+        key={selectedStock.ts_code}
         embedded
         tsCode={selectedStock.ts_code}
         stockNote={selectedStock.note || ''}

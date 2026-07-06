@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import datetime, timedelta
 from urllib.parse import quote
 from typing import Optional
 
 from fastapi import APIRouter, Depends, UploadFile, File, Query, Body
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
@@ -19,13 +21,19 @@ from app.schemas.pool import (
     CoreWatchCodesOut, CoreWatchToggleBody, CoreWatchToggleOut,
 )
 from app.services.core_watch_service import list_core_watch_ts_codes, toggle_core_watch_star
-from app.services.limit_up_service import _get_limit_up_threshold
+from app.services.limit_up_service import LIMIT_UP_POOL_NAME, _get_limit_up_threshold
 from app.exceptions import AppError
 from app.utils import normalize_ts_code
 from app.services.sync_service import sync_single_stock
 from app.tasks.background import submit_task
 
 router = APIRouter(prefix="/api/pools", tags=["pools"])
+
+
+class LimitUpPoolCleanupRequest(BaseModel):
+    days: int = Field(20, ge=1, le=120, description="最近 N 个交易日内没有涨停则清理")
+    dry_run: bool = Field(True, description="仅预览，不实际删除")
+    include_pinned: bool = Field(False, description="是否允许清理置顶股票")
 
 
 def _batch_latest_quotes(db: Session, ts_codes: list[str]) -> dict[str, DailyQuote]:
@@ -144,6 +152,86 @@ def _batch_rising_trend_flags(db: Session, ts_codes: list[str]) -> dict[str, boo
             and ma5 >= ma5_prev
         )
     return flags
+
+
+def _recent_trade_date_cutoff(db: Session, days: int) -> str:
+    rows = (
+        db.query(DailyQuote.trade_date)
+        .filter(DailyQuote.trade_date.isnot(None))
+        .distinct()
+        .order_by(DailyQuote.trade_date.desc())
+        .limit(days)
+        .all()
+    )
+    if rows:
+        return str(rows[-1][0])
+    return (datetime.utcnow() - timedelta(days=max(30, days * 2))).strftime("%Y%m%d")
+
+
+def _format_trade_date(raw: str | None) -> str | None:
+    if not raw or len(raw) != 8:
+        return raw
+    return f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}"
+
+
+def _build_limit_up_cleanup_candidates(
+    db: Session,
+    pool_id: str,
+    body: LimitUpPoolCleanupRequest,
+) -> dict:
+    pool = db.query(WatchPool).filter(WatchPool.id == pool_id).first()
+    if not pool:
+        raise AppError(code=2001, message="观察池不存在", status_code=404)
+
+    stocks = db.query(WatchStock).filter(WatchStock.pool_id == pool_id).all()
+    ts_codes = [s.ts_code for s in stocks]
+    basics = _batch_stock_basics(db, ts_codes)
+    cutoff = _recent_trade_date_cutoff(db, body.days)
+
+    candidates = []
+    protected_pinned = 0
+    reason_counts = {
+        "no_recent_limit_up": 0,
+    }
+    for stock in stocks:
+        reasons = []
+        if not stock.limit_up_date or stock.limit_up_date < cutoff:
+            reasons.append("no_recent_limit_up")
+        if not reasons:
+            continue
+        if stock.pinned and not body.include_pinned:
+            protected_pinned += 1
+            continue
+        for reason in reasons:
+            reason_counts[reason] += 1
+        basic = basics.get(stock.ts_code)
+        candidates.append({
+            "stock_id": stock.id,
+            "ts_code": stock.ts_code,
+            "stock_name": basic.name if basic else stock.ts_code,
+            "industry": basic.industry if basic else None,
+            "limit_up_date": stock.limit_up_date,
+            "limit_up_date_display": _format_trade_date(stock.limit_up_date),
+            "reasons": reasons,
+            "pinned": bool(stock.pinned),
+        })
+
+    return {
+        "pool_id": pool.id,
+        "pool_name": pool.name,
+        "is_limit_up_pool": pool.name == LIMIT_UP_POOL_NAME or "涨停" in (pool.name or ""),
+        "dry_run": body.dry_run,
+        "days": body.days,
+        "cutoff_trade_date": cutoff,
+        "cutoff_trade_date_display": _format_trade_date(cutoff),
+        "total": len(stocks),
+        "candidate_count": len(candidates),
+        "deleted_count": 0,
+        "protected_pinned_count": protected_pinned,
+        "reason_counts": reason_counts,
+        "preview": candidates,
+        "_candidate_ids": [c["stock_id"] for c in candidates],
+    }
 
 
 def _enrich_stock(
@@ -374,6 +462,28 @@ def quick_create_pool(body: QuickCreatePool, db: Session = Depends(get_db)):
     out = PoolOut.model_validate(pool)
     out.stock_count = count
     return out
+
+
+@router.post("/{pool_id}/cleanup/limit-up")
+def cleanup_limit_up_pool(
+    pool_id: str,
+    body: LimitUpPoolCleanupRequest,
+    db: Session = Depends(get_db),
+):
+    """预览或执行涨停股票池清理：最近 N 个交易日无涨停。"""
+    result = _build_limit_up_cleanup_candidates(db, pool_id, body)
+    candidate_ids = result.pop("_candidate_ids", [])
+    if not body.dry_run and candidate_ids:
+        rows = (
+            db.query(WatchStock)
+            .filter(WatchStock.pool_id == pool_id, WatchStock.id.in_(candidate_ids))
+            .all()
+        )
+        for row in rows:
+            db.delete(row)
+        db.commit()
+        result["deleted_count"] = len(rows)
+    return result
 
 
 @router.get("/{pool_id}", response_model=PoolOut)

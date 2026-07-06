@@ -12,6 +12,7 @@ from typing import Any, Literal
 from urllib import parse, request
 
 import pandas as pd
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.sector import SectorBasic, SectorDailyQuote, SectorQuoteSyncState, StockSectorMap
@@ -476,8 +477,8 @@ def fetch_sector_daily_quotes(sector: SectorBasic, start_date: str, end_date: st
 
 def upsert_sector_basic(db: Session, rows: list[dict[str, Any]]) -> int:
     changed = 0
-    now = datetime.utcnow()
     for item in rows:
+        now = datetime.utcnow()
         row = db.query(SectorBasic).filter(SectorBasic.sector_code == item["sector_code"]).first()
         if row:
             for key, value in item.items():
@@ -487,7 +488,18 @@ def upsert_sector_basic(db: Session, rows: list[dict[str, Any]]) -> int:
             row = SectorBasic(**item)
             db.add(row)
         changed += 1
-    db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            row = db.query(SectorBasic).filter(SectorBasic.sector_code == item["sector_code"]).first()
+            if row:
+                for key, value in item.items():
+                    setattr(row, key, value)
+                row.updated_at = datetime.utcnow()
+                db.commit()
+            else:
+                raise
     return changed
 
 
@@ -584,15 +596,41 @@ def get_or_create_quote_sync_state(db: Session, sector: SectorBasic, *, target_d
             updated_at=now,
         )
         db.add(row)
-        db.commit()
-        db.refresh(row)
+        try:
+            db.commit()
+            db.refresh(row)
+        except IntegrityError:
+            db.rollback()
+            row = (
+                db.query(SectorQuoteSyncState)
+                .filter(
+                    SectorQuoteSyncState.sector_code == sector.sector_code,
+                    SectorQuoteSyncState.source == sector.source,
+                )
+                .first()
+            )
+            if row is None:
+                raise
     else:
         row.sector_name = sector.sector_name
         row.sector_type = sector.sector_type
         row.target_days = target_days if target_days is not None else row.target_days
         row.updated_at = now
-        db.commit()
-        db.refresh(row)
+        try:
+            db.commit()
+            db.refresh(row)
+        except IntegrityError:
+            db.rollback()
+            row = (
+                db.query(SectorQuoteSyncState)
+                .filter(
+                    SectorQuoteSyncState.sector_code == sector.sector_code,
+                    SectorQuoteSyncState.source == sector.source,
+                )
+                .first()
+            )
+            if row is None:
+                raise
     return row
 
 

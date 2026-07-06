@@ -23,6 +23,7 @@ import {
 } from 'antd'
 import {
   EyeOutlined,
+  FileSearchOutlined,
   FireOutlined,
   ReloadOutlined,
   StarFilled,
@@ -37,20 +38,32 @@ import {
   getIndustryDailyReport,
 } from '../../api/industryReports'
 import {
+  acceptMessageOpportunity,
   collectMessageXPosts,
+  dismissMessageOpportunity,
+  generateMessageAgentDaily,
   getDailyMessages,
+  getMessageAgentDaily,
+  getMessageOpportunityEvidence,
   importDefaultMessageKeywords,
   importMessageKeywords,
+  listMessageAgentRuns,
   listMessageKeywords,
+  reviewMessageOpportunity,
+  runMessageAgent,
   saveMessageKeyword,
 } from '../../api/messages'
 import { toggleCoreWatch } from '../../api/pools'
 import type {
   MessageDaily,
+  MessageAgentDaily,
+  MessageAgentRun,
+  MessageEvidence,
   IndustryDailyReport,
   IndustryReportCandidate,
   MessageLifecycleStage,
   MessageOpportunity,
+  MessageOpportunityEvidence,
   MessageSeedKeyword,
   MessageSeedKeywordInput,
   MessageSentiment,
@@ -74,6 +87,13 @@ const actionMap: Record<string, { label: string; color: string }> = {
   watch: { label: '关注', color: 'blue' },
   add_to_pool: { label: '加入观察', color: 'green' },
   risk_watch: { label: '风险观察', color: 'orange' },
+}
+
+const stanceMap: Record<string, { label: string; color: string }> = {
+  support: { label: '支持', color: 'green' },
+  risk: { label: '风险', color: 'orange' },
+  contradiction: { label: '反证', color: 'red' },
+  neutral: { label: '中性', color: 'blue' },
 }
 
 const candidateGradeMap: Record<string, { label: string; color: string }> = {
@@ -147,6 +167,12 @@ const sourceLinkForPlatform = (row: MessageOpportunity, index: number) => {
   return row.source_platforms.length === 1 ? row.source_links?.find(Boolean) : undefined
 }
 
+const evidenceUrl = (row: MessageEvidence) => {
+  if (row.source_item?.url) return row.source_item.url
+  const rawUrl = row.raw_json?.url
+  return typeof rawUrl === 'string' ? rawUrl : undefined
+}
+
 const stageTag = (stage: MessageLifecycleStage) => {
   const item = stageMap[stage] || { label: stage, color: 'default' }
   return <Tag color={item.color}>{item.label}</Tag>
@@ -173,6 +199,17 @@ const MessageCenterPage: React.FC = () => {
   const [industryReport, setIndustryReport] = useState<IndustryDailyReport | null>(null)
   const [industryLoading, setIndustryLoading] = useState(false)
   const [industryGenerating, setIndustryGenerating] = useState(false)
+  const [agentRuns, setAgentRuns] = useState<MessageAgentRun[]>([])
+  const [agentDaily, setAgentDaily] = useState<MessageAgentDaily | null>(null)
+  const [agentDailyLoading, setAgentDailyLoading] = useState(false)
+  const [agentDailyGenerating, setAgentDailyGenerating] = useState(false)
+  const [agentRunsLoading, setAgentRunsLoading] = useState(false)
+  const [agentRunning, setAgentRunning] = useState(false)
+  const [evidenceModalOpen, setEvidenceModalOpen] = useState(false)
+  const [evidenceLoading, setEvidenceLoading] = useState(false)
+  const [reviewBusy, setReviewBusy] = useState(false)
+  const [selectedOpportunity, setSelectedOpportunity] = useState<MessageOpportunity | null>(null)
+  const [opportunityEvidence, setOpportunityEvidence] = useState<MessageOpportunityEvidence[]>([])
   const [keywordForm] = Form.useForm<MessageSeedKeywordInput>()
 
   const fetchIndustryReport = useCallback(async () => {
@@ -203,10 +240,77 @@ const MessageCenterPage: React.FC = () => {
     }
   }, [])
 
+  const fetchAgentRuns = useCallback(async () => {
+    setAgentRunsLoading(true)
+    try {
+      const res = await listMessageAgentRuns({ limit: 5 })
+      setAgentRuns(res.data)
+    } catch (error) {
+      message.error(errorText(error, '加载Agent运行记录失败'))
+    } finally {
+      setAgentRunsLoading(false)
+    }
+  }, [])
+
+  const fetchAgentDaily = useCallback(async (tradeDate?: string) => {
+    setAgentDailyLoading(true)
+    try {
+      const res = await getMessageAgentDaily({ trade_date: tradeDate, limit: 5 })
+      setAgentDaily(res.data)
+    } catch (error) {
+      message.error(errorText(error, '加载证据日报失败'))
+    } finally {
+      setAgentDailyLoading(false)
+    }
+  }, [])
+
+  const handleGenerateAgentDaily = async (useLlm = false) => {
+    setAgentDailyGenerating(true)
+    try {
+      const res = await generateMessageAgentDaily({
+        trade_date: daily?.trade_date,
+        use_llm: useLlm,
+        provider: useLlm ? 'deepseek' : undefined,
+        model: useLlm ? 'deepseek-v4-flash' : undefined,
+        limit: 5,
+      })
+      setAgentDaily(res.data)
+      message.success(useLlm ? 'DeepSeek证据日报已生成' : '证据日报已刷新')
+    } catch (error) {
+      message.error(errorText(error, '生成证据日报失败'))
+    } finally {
+      setAgentDailyGenerating(false)
+    }
+  }
+
+  const handleRunDeepSeekCleaner = async () => {
+    setAgentRunning(true)
+    try {
+      const res = await runMessageAgent({
+        agent_name: 'llm_evidence_cleaner',
+        trade_date: daily?.trade_date,
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+        limit: 20,
+      })
+      message.success(
+        `DeepSeek清洗完成：证据${res.data.evidence_count}条，回退${res.data.fallback_count}条`
+      )
+      await fetchAgentRuns()
+      await fetchAgentDaily(daily?.trade_date)
+    } catch (error) {
+      message.error(errorText(error, 'DeepSeek清洗失败'))
+    } finally {
+      setAgentRunning(false)
+    }
+  }
+
   useEffect(() => {
     fetchDaily()
     fetchIndustryReport()
-  }, [fetchDaily, fetchIndustryReport])
+    fetchAgentRuns()
+    fetchAgentDaily()
+  }, [fetchDaily, fetchIndustryReport, fetchAgentRuns, fetchAgentDaily])
 
   const themeOptions = useMemo(() => [
     { value: 'all', label: '全部题材' },
@@ -237,6 +341,87 @@ const MessageCenterPage: React.FC = () => {
       message.error('加入核心关注失败')
     } finally {
       setCoreWatchBusy(null)
+    }
+  }
+
+  const openOpportunityEvidence = async (row: MessageOpportunity) => {
+    setSelectedOpportunity(row)
+    setEvidenceModalOpen(true)
+    setEvidenceLoading(true)
+    try {
+      const res = await getMessageOpportunityEvidence(row.id)
+      setOpportunityEvidence(res.data)
+    } catch (error) {
+      setOpportunityEvidence([])
+      message.error(errorText(error, '加载机会证据失败'))
+    } finally {
+      setEvidenceLoading(false)
+    }
+  }
+
+  const replaceOpportunity = (next: MessageOpportunity | null) => {
+    if (!next) return
+    setSelectedOpportunity(next)
+    setDaily((prev) => {
+      if (!prev) return prev
+      const opportunities = next.status === 'dismissed'
+        ? prev.opportunities.filter((item) => item.id !== next.id)
+        : prev.opportunities.map((item) => item.id === next.id ? next : item)
+      return {
+        ...prev,
+        opportunities,
+        stats: {
+          ...prev.stats,
+          opportunity_count: opportunities.length,
+          top_score: opportunities[0]?.opportunity_score ?? null,
+        },
+      }
+    })
+  }
+
+  const handleReviewOpportunity = async () => {
+    if (!selectedOpportunity) return
+    setReviewBusy(true)
+    try {
+      const res = await reviewMessageOpportunity(selectedOpportunity.id, {
+        review_status: 'reviewed',
+        review_reason: '人工已查看证据',
+      })
+      replaceOpportunity(res.data)
+      message.success('已标记复核')
+    } catch (error) {
+      message.error(errorText(error, '标记复核失败'))
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
+  const handleAcceptOpportunity = async () => {
+    if (!selectedOpportunity) return
+    setReviewBusy(true)
+    try {
+      const res = await acceptMessageOpportunity(selectedOpportunity.id)
+      replaceOpportunity(res.data)
+      message.success(`${res.data.stock_name || res.data.ts_code || '候选'} 已采纳并加入核心关注`)
+    } catch (error) {
+      message.error(errorText(error, '采纳机会失败'))
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
+  const handleDismissOpportunity = async () => {
+    if (!selectedOpportunity) return
+    setReviewBusy(true)
+    try {
+      const res = await dismissMessageOpportunity(selectedOpportunity.id, { review_reason: '人工驳回' })
+      replaceOpportunity(res.data)
+      setEvidenceModalOpen(false)
+      message.success('已驳回候选')
+    } catch (error) {
+      message.error(errorText(error, '驳回机会失败'))
+    } finally {
+      setReviewBusy(false)
     }
   }
 
@@ -431,6 +616,17 @@ const MessageCenterPage: React.FC = () => {
       },
     },
     {
+      title: '复核',
+      dataIndex: 'review_status',
+      key: 'review_status',
+      width: 100,
+      render: (value: string) => (
+        <Tag color={value === 'accepted' ? 'green' : value === 'dismissed' ? 'red' : value === 'needs_review' ? 'orange' : 'blue'}>
+          {value || 'reviewed'}
+        </Tag>
+      ),
+    },
+    {
       title: '机会逻辑',
       dataIndex: 'reason',
       key: 'reason',
@@ -488,12 +684,19 @@ const MessageCenterPage: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 150,
-      fixed: 'right' as const,
-      render: (_: unknown, row: MessageOpportunity) => (
-        <Space>
-          {row.ts_code && (
-            <Tooltip title="查看股票详情">
+        fixed: 'right' as const,
+        render: (_: unknown, row: MessageOpportunity) => (
+          <Space>
+            <Tooltip title="查看证据">
               <Button
+                size="small"
+                icon={<FileSearchOutlined />}
+                onClick={() => openOpportunityEvidence(row)}
+              />
+            </Tooltip>
+            {row.ts_code && (
+              <Tooltip title="查看股票详情">
+                <Button
                 size="small"
                 icon={<EyeOutlined />}
                 onClick={() => row.ts_code && openStockDetail(row.ts_code)}
@@ -663,6 +866,203 @@ const MessageCenterPage: React.FC = () => {
       </Row>
 
       <Card
+        size="small"
+        title="Agent运行记录"
+        extra={
+          <Space>
+            <Button
+              size="small"
+              icon={<ThunderboltOutlined />}
+              onClick={handleRunDeepSeekCleaner}
+              loading={agentRunning}
+            >
+              DeepSeek清洗
+            </Button>
+            <Button size="small" icon={<ReloadOutlined />} onClick={fetchAgentRuns} loading={agentRunsLoading}>
+              刷新
+            </Button>
+          </Space>
+        }
+      >
+        {agentRuns.length ? (
+          <Table
+            rowKey="id"
+            size="small"
+            loading={agentRunsLoading}
+            dataSource={agentRuns}
+            pagination={false}
+            columns={[
+              {
+                title: 'Agent',
+                dataIndex: 'agent_name',
+                width: 200,
+                render: (value: string, row: MessageAgentRun) => (
+                  <Space>
+                    <span className="mono">{value}</span>
+                    <Tag>{row.agent_version}</Tag>
+                  </Space>
+                ),
+              },
+              {
+                title: '状态',
+                dataIndex: 'status',
+                width: 100,
+                render: (status: string) => (
+                  <Tag color={status === 'success' ? 'green' : status === 'failed' ? 'red' : 'default'}>{status}</Tag>
+                ),
+              },
+              {
+                title: '日期',
+                dataIndex: 'trade_date',
+                width: 110,
+                render: (value: string | null) => value ? formatTradeDate(value) : '-',
+              },
+              {
+                title: '输出',
+                key: 'output',
+                render: (_: unknown, row: MessageAgentRun) => (
+                  <Space size={[6, 6]} wrap>
+                    <Tag>消息 {String(row.output_json.source_item_count ?? '-')}</Tag>
+                    <Tag>证据 {String(row.output_json.evidence_count ?? '-')}</Tag>
+                    {row.error_message && <Tag color="red">{row.error_message}</Tag>}
+                  </Space>
+                ),
+              },
+              {
+                title: '耗时',
+                dataIndex: 'duration_ms',
+                width: 90,
+                render: (value: number | null) => value == null ? '-' : `${value}ms`,
+              },
+            ]}
+          />
+        ) : (
+          <Empty description="暂无Agent运行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        )}
+      </Card>
+
+      <Card
+        title={
+          <Space>
+            <FileSearchOutlined />
+            <span>Agent证据日报</span>
+            {agentDaily?.model_provider && <Tag color="blue">{agentDaily.model_provider}</Tag>}
+          </Space>
+        }
+        extra={
+          <Space>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => fetchAgentDaily(daily?.trade_date)}
+              loading={agentDailyLoading}
+            >
+              读取
+            </Button>
+            <Button
+              size="small"
+              onClick={() => handleGenerateAgentDaily(false)}
+              loading={agentDailyGenerating}
+            >
+              规则生成
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              onClick={() => handleGenerateAgentDaily(true)}
+              loading={agentDailyGenerating}
+            >
+              DeepSeek生成
+            </Button>
+          </Space>
+        }
+      >
+        <Spin spinning={agentDailyLoading && !agentDaily}>
+          {agentDaily ? (
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <div>
+                <Typography.Title level={5} style={{ margin: 0 }}>
+                  {agentDaily.headline}
+                </Typography.Title>
+                <Typography.Paragraph style={{ margin: '6px 0 0', color: 'var(--text-secondary)' }}>
+                  {agentDaily.summary}
+                </Typography.Paragraph>
+              </div>
+              <Space size={[6, 6]} wrap>
+                <Tag>证据 {String(agentDaily.evidence_coverage.evidence_count ?? 0)}</Tag>
+                <Tag>候选 {String(agentDaily.evidence_coverage.candidate_count ?? 0)}</Tag>
+                <Tag>题材 {String(agentDaily.evidence_coverage.theme_count ?? 0)}</Tag>
+                {agentDaily.risk_flags.slice(0, 3).map((item) => (
+                  <Tag key={item} color="orange">{item}</Tag>
+                ))}
+              </Space>
+              {agentDaily.next_actions.length ? (
+                <Space size={[6, 6]} wrap>
+                  {agentDaily.next_actions.slice(0, 4).map((item) => (
+                    <Tag key={item} color="green">{item}</Tag>
+                  ))}
+                </Space>
+              ) : null}
+              {agentDaily.candidates.length ? (
+                <Table
+                  rowKey={(row) => `${row.ts_code || row.theme}-${row.theme}`}
+                  size="small"
+                  dataSource={agentDaily.candidates}
+                  pagination={false}
+                  columns={[
+                    {
+                      title: '候选',
+                      key: 'target',
+                      width: 150,
+                      render: (_: unknown, row) => (
+                        <Space direction="vertical" size={0}>
+                          <span>{row.stock_name || row.ts_code || row.theme}</span>
+                          <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                            {row.ts_code || 'THEME'}
+                          </span>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: '题材',
+                      dataIndex: 'theme',
+                      width: 110,
+                      render: (theme: string) => <Tag color="cyan">{theme}</Tag>,
+                    },
+                    {
+                      title: '证据',
+                      key: 'evidence',
+                      width: 140,
+                      render: (_: unknown, row) => (
+                        <Space>
+                          <Tag>条数 {row.evidence_count}</Tag>
+                          <Tag>分 {row.evidence_score}</Tag>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: '结论',
+                      dataIndex: 'conclusion',
+                      ellipsis: true,
+                      render: (value: string) => (
+                        <Tooltip title={value}>
+                          <span>{value}</span>
+                        </Tooltip>
+                      ),
+                    },
+                  ]}
+                />
+              ) : (
+                <Empty description="暂无证据候选" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </Space>
+          ) : (
+            <Empty description="暂无证据日报" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </Spin>
+      </Card>
+
+      <Card
         title={
           <Space>
             <ThunderboltOutlined />
@@ -798,6 +1198,92 @@ const MessageCenterPage: React.FC = () => {
           <Empty description="暂无符合条件的机会" />
         )}
       </Card>
+
+      <Modal
+        title={`${selectedOpportunity?.stock_name || selectedOpportunity?.ts_code || '主题机会'} · 证据`}
+        open={evidenceModalOpen}
+        onCancel={() => setEvidenceModalOpen(false)}
+        footer={
+          <Space>
+            <Button onClick={() => setEvidenceModalOpen(false)}>关闭</Button>
+            <Button onClick={handleDismissOpportunity} loading={reviewBusy} danger>
+              驳回
+            </Button>
+            <Button onClick={handleReviewOpportunity} loading={reviewBusy}>
+              标记复核
+            </Button>
+            <Button type="primary" onClick={handleAcceptOpportunity} loading={reviewBusy}>
+              采纳加入观察
+            </Button>
+          </Space>
+        }
+        width={900}
+      >
+        <Spin spinning={evidenceLoading}>
+          {opportunityEvidence.length ? (
+            <Table
+              rowKey="id"
+              size="small"
+              pagination={false}
+              dataSource={opportunityEvidence}
+              columns={[
+                {
+                  title: '证据片段',
+                  key: 'evidence',
+                  render: (_: unknown, row: MessageOpportunityEvidence) => (
+                    <Space direction="vertical" size={4}>
+                      <Typography.Text>{row.evidence?.evidence_text || '-'}</Typography.Text>
+                      <Space size={[4, 4]} wrap>
+                        {row.evidence?.source_item?.source_name && <Tag>{row.evidence.source_item.source_name}</Tag>}
+                        {row.evidence?.channel && <Tag color="blue">{row.evidence.channel}</Tag>}
+                        {row.evidence?.theme && <Tag color="cyan">{row.evidence.theme}</Tag>}
+                        {row.evidence?.ts_code && <Tag>{row.evidence.ts_code}</Tag>}
+                      </Space>
+                    </Space>
+                  ),
+                },
+                {
+                  title: '立场',
+                  key: 'stance',
+                  width: 90,
+                  render: (_: unknown, row: MessageOpportunityEvidence) => {
+                    const stance = row.evidence?.stance || 'neutral'
+                    const item = stanceMap[stance] || { label: stance, color: 'default' }
+                    return <Tag color={item.color}>{item.label}</Tag>
+                  },
+                },
+                {
+                  title: '分数',
+                  key: 'scores',
+                  width: 180,
+                  render: (_: unknown, row: MessageOpportunityEvidence) => (
+                    <Space direction="vertical" size={2}>
+                      <span>质量 {row.evidence?.quality_score ?? '-'}</span>
+                      <span>可信 {row.evidence?.credibility_score ?? '-'}</span>
+                      <span>置信 {row.evidence?.confidence ?? '-'}</span>
+                    </Space>
+                  ),
+                },
+                {
+                  title: '来源',
+                  key: 'source',
+                  width: 100,
+                  render: (_: unknown, row: MessageOpportunityEvidence) => {
+                    const url = row.evidence ? evidenceUrl(row.evidence) : undefined
+                    return url ? (
+                      <Typography.Link href={url} target="_blank" rel="noreferrer">
+                        原文
+                      </Typography.Link>
+                    ) : '-'
+                  },
+                },
+              ]}
+            />
+          ) : (
+            <Empty description="暂无关联证据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </Spin>
+      </Modal>
 
       <Modal
         title="关键词管理"

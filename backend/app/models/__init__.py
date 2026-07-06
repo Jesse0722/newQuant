@@ -10,9 +10,12 @@ from app.models.intraday_scan import IntradayScanConfig
 from app.models.message import (
     IndustryDailyReport,
     IndustryReportCandidate,
+    MessageAgentRun,
     MessageEntity,
+    MessageEvidence,
     MessageKeywordSeed,
     MessageOpportunity,
+    MessageOpportunityEvidence,
     MessageRelation,
     MessageRelationEvidence,
     MessageSourceItem,
@@ -28,6 +31,7 @@ __all__ = [
     "SyncLog",
     "IntradayScanConfig",
     "MessageTopic", "MessageKeywordSeed", "MessageSourceItem", "MessageOpportunity",
+    "MessageEvidence", "MessageOpportunityEvidence", "MessageAgentRun",
     "MessageEntity", "MessageRelation", "MessageRelationEvidence",
     "IndustryDailyReport", "IndustryReportCandidate",
 ]

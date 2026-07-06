@@ -36,6 +36,10 @@ class MainWaveSectorBackfillRequest(BaseModel):
     force: bool = False
 
 
+class MainWaveBatchRequest(BaseModel):
+    ts_codes: list[str] = Field(default_factory=list, max_length=100)
+
+
 @router.get("/trading-session")
 def get_trading_session():
     """与扫描服务同源的交易时段判定，供前端轻量轮询。"""
@@ -145,6 +149,31 @@ def list_stock_sectors(
 def analyze_stock_main_wave(ts_code: str, db: Session = Depends(get_db)):
     """单只股票主升浪趋势评分：个股趋势 + MA20 修复状态 + 板块共振。"""
     return analyze_main_wave_stock(db, ts_code)
+
+
+@router.post("/main-wave/analyze-batch")
+def analyze_main_wave_batch(body: MainWaveBatchRequest, db: Session = Depends(get_db)):
+    """按前端当前列表批量评分，避免大池子打开时触发全池扫描。"""
+    items = []
+    seen: set[str] = set()
+    for raw_code in body.ts_codes:
+        ts_code = str(raw_code or "").strip().upper()
+        if not ts_code or ts_code in seen:
+            continue
+        seen.add(ts_code)
+        try:
+            items.append(analyze_main_wave_stock(db, ts_code, allow_external_sector_fetch=False))
+        except Exception:
+            items.append(
+                {
+                    "ts_code": ts_code,
+                    "name": ts_code,
+                    "status": "insufficient_data",
+                    "total_score": 0,
+                    "message": "主升浪评分失败",
+                }
+            )
+    return {"total": len(items), "items": items}
 
 
 @router.get("/main-wave/scan")

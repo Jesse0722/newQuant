@@ -92,17 +92,99 @@ class MessageOpportunity(Base):
     heat_score = Column(Integer, nullable=False, default=50)
     credibility_score = Column(Integer, nullable=False, default=50)
     risk_score = Column(Integer, nullable=False, default=40)
+    evidence_score = Column(Integer, nullable=False, default=0)
+    mapping_confidence = Column(Integer, nullable=False, default=0)
     action_suggestion = Column(String(16), nullable=False, default="watch")
     reason = Column(Text, nullable=True)
     catalysts = Column(JSON, nullable=True)
     risks = Column(JSON, nullable=True)
     source_platforms = Column(JSON, nullable=True)
     source_links = Column(JSON, nullable=True)
+    review_status = Column(String(16), nullable=False, default="reviewed", index=True)
+    review_reason = Column(Text, nullable=True)
+    generated_by = Column(String(16), nullable=False, default="manual")
+    accepted_at = Column(DateTime, nullable=True)
+    dismissed_at = Column(DateTime, nullable=True)
     status = Column(String(16), nullable=False, default="active")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
         Index("ix_message_opportunity_date_score", "trade_date", "opportunity_score"),
+    )
+
+
+class MessageEvidence(Base):
+    __tablename__ = "message_evidence"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    source_item_id = Column(String(36), ForeignKey("message_source_item.id"), nullable=False, index=True)
+    trade_date = Column(String(8), nullable=False, index=True)
+    channel = Column(String(32), nullable=False, index=True)
+    theme = Column(String(64), nullable=True, index=True)
+    ts_code = Column(String(16), nullable=True, index=True)
+    evidence_text = Column(Text, nullable=False)
+    stance = Column(String(16), nullable=False, default="neutral", index=True)
+    quality_score = Column(Integer, nullable=False, default=60)
+    credibility_score = Column(Integer, nullable=False, default=50)
+    confidence = Column(Integer, nullable=False, default=60)
+    extraction_method = Column(String(16), nullable=False, default="rule")
+    extractor_name = Column(String(64), nullable=False, default="rule_evidence_cleaner")
+    extractor_version = Column(String(16), nullable=False, default="1.0")
+    raw_json = Column(JSON, nullable=True)
+    status = Column(String(16), nullable=False, default="active", index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source_item_id",
+            "extractor_name",
+            "extractor_version",
+            "stance",
+            name="uq_message_evidence_source_extractor_stance",
+        ),
+        Index("ix_message_evidence_date_theme", "trade_date", "theme"),
+        Index("ix_message_evidence_date_stock", "trade_date", "ts_code"),
+    )
+
+
+class MessageOpportunityEvidence(Base):
+    __tablename__ = "message_opportunity_evidence"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    opportunity_id = Column(String(36), ForeignKey("message_opportunity.id"), nullable=False, index=True)
+    evidence_id = Column(String(36), ForeignKey("message_evidence.id"), nullable=False, index=True)
+    role = Column(String(16), nullable=False, default="support")
+    weight = Column(Integer, nullable=False, default=50)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("opportunity_id", "evidence_id", "role", name="uq_message_opportunity_evidence_role"),
+        Index("ix_message_opportunity_evidence_opp_role", "opportunity_id", "role"),
+    )
+
+
+class MessageAgentRun(Base):
+    __tablename__ = "message_agent_run"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    agent_name = Column(String(64), nullable=False, index=True)
+    agent_version = Column(String(16), nullable=False, default="1.0")
+    trade_date = Column(String(8), nullable=True, index=True)
+    input_ref_type = Column(String(32), nullable=True)
+    input_ref_id = Column(String(64), nullable=True)
+    input_digest = Column(String(64), nullable=True, index=True)
+    output_json = Column(JSON, nullable=True)
+    model_provider = Column(String(32), nullable=False, default="rules")
+    model_name = Column(String(80), nullable=False, default="deterministic-rule")
+    prompt_version = Column(String(16), nullable=True)
+    status = Column(String(16), nullable=False, default="success", index=True)
+    error_message = Column(Text, nullable=True)
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_message_agent_run_date_agent", "trade_date", "agent_name"),
     )
 
 

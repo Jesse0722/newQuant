@@ -10,9 +10,9 @@ export interface StockSearchItem {
 export const searchStocks = (q: string, limit = 20) =>
   client.get<StockSearchItem[]>('/stocks/search', { params: { q, limit } })
 
-export const getStockChart = (tsCode: string, period = 120) =>
+export const getStockChart = (tsCode: string, period = 120, autoSyncLatest = false) =>
   client.get<StockChartData>(`/stocks/${tsCode}/chart`, {
-    params: { period, auto_sync_latest: true },
+    params: { period, auto_sync_latest: autoSyncLatest },
   })
 
 export const getStockAlerts = (tsCode: string) =>

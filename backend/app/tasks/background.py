@@ -9,7 +9,7 @@ from datetime import datetime
 class TaskStatus:
     id: str
     type: str
-    status: str = "running"
+    status: str = "pending"
     progress: float = 0.0
     message: str = ""
     result: dict | None = None
@@ -20,9 +20,10 @@ task_registry: dict[str, TaskStatus] = {}
 
 def submit_task(task_type: str, fn, *args, **kwargs) -> str:
     task_id = str(uuid.uuid4())
-    task_registry[task_id] = TaskStatus(id=task_id, type=task_type)
+    task_registry[task_id] = TaskStatus(id=task_id, type=task_type, message="任务已提交，等待后台执行")
 
     def wrapper():
+        task_registry[task_id].status = "running"
         try:
             fn(task_id, *args, **kwargs)
             task_registry[task_id].status = "completed"

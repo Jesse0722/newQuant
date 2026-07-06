@@ -169,6 +169,34 @@ export const scanBuySignals = (
     limit_up_date_to: limitUpDateTo || null,
   })
 
+export interface BuySignalScanTaskStatus {
+  task_id: string
+  type: string
+  status: 'running' | 'completed' | 'failed'
+  progress: number
+  message: string
+  result?: BuySignalScanResult | null
+  created_at?: string
+}
+
+export const submitBuySignalScanTask = (
+  poolId?: string,
+  strategyId: string = 'two_phase',
+  minConfirmHits: number = 2,
+  limitUpDateFrom?: string,
+  limitUpDateTo?: string,
+) =>
+  client.post<{ task_id: string }>('/strategy/scan-buy-signals-task', {
+    pool_id: poolId || null,
+    strategy_id: strategyId,
+    min_confirm_hits: minConfirmHits,
+    limit_up_date_from: limitUpDateFrom || null,
+    limit_up_date_to: limitUpDateTo || null,
+  })
+
+export const getBuySignalScanTask = (taskId: string) =>
+  client.get<BuySignalScanTaskStatus>(`/strategy/scan-buy-signals-task/${taskId}`)
+
 export const listIntradayScanConfig = (poolId?: string) =>
   client.get<IntradayScanConfigItem[]>('/strategy/intraday-config', {
     params: poolId ? { pool_id: poolId } : undefined,
@@ -185,6 +213,11 @@ export const upsertIntradayScanConfig = (data: {
 export const getStockChartWithMarks = (tsCode: string, period: number, limitUpDate?: string) =>
   client.get<StockChartDataWithMarks>(`/stocks/${tsCode}/chart`, {
     params: { period, mark_signals: true, limit_up_date: limitUpDate || undefined },
+  })
+
+export const getStockChartPreview = (tsCode: string, period: number) =>
+  client.get<StockChartDataWithMarks>(`/stocks/${tsCode}/chart`, {
+    params: { period, mark_signals: false, auto_sync_latest: false },
   })
 
 export const submitStrategyBacktest = (data: {

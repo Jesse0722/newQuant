@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip, Modal, DatePicker, Progress, Table, Row, Col, Statistic } from 'antd'
-import { ScanOutlined, BarChartOutlined, BellOutlined } from '@ant-design/icons'
+import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip, Modal, DatePicker, Progress, Table, Row, Col, Statistic, Tag } from 'antd'
+import { ScanOutlined, BarChartOutlined, BellOutlined, ClearOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import {
-  scanBuySignals,
   getBuyStrategies,
+  getBuySignalScanTask,
+  submitBuySignalScanTask,
   submitStrategyBacktest,
   getStrategyBacktestResult,
 } from '../../api/strategy'
 import { getAlertsPendingCount } from '../../api/alerts'
-import { listPools, getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
+import { cleanupLimitUpPool, listPools, getCoreWatchCodes, toggleCoreWatch } from '../../api/pools'
+import type { LimitUpPoolCleanupResult } from '../../api/pools'
 import SignalList from './SignalList'
 import SignalDetail from './SignalDetail'
 import Alerts from '../Alerts'
@@ -26,6 +28,9 @@ type FilterStatus = 'all' | BuySignalStatus
 
 const ALL_STRATEGY_ID = 'all'
 const BUY_RADAR_RESULT_STORAGE_KEY = 'newQuant.buyRadar.lastScanResult.v1'
+const CLEANUP_REASON_LABELS: Record<string, string> = {
+  no_recent_limit_up: '区间内无涨停',
+}
 
 type StoredBuyRadarResult = {
   savedAt: string
@@ -87,6 +92,11 @@ const BuyRadarPage: React.FC = () => {
   )
   const [manualMinConfirmHits] = useState<number>(2)
   const [loading, setLoading] = useState(false)
+  const [scanMessage, setScanMessage] = useState('')
+  const [scanTaskId, setScanTaskId] = useState<string | null>(null)
+  const [scanProgress, setScanProgress] = useState(0)
+  const [cleanupBusy, setCleanupBusy] = useState(false)
+  const [cleanupDays, setCleanupDays] = useState(20)
   const [filter, setFilter] = useState<FilterStatus>('all')
   const [selectedSignal, setSelectedSignal] = useState<BuySignal | null>(null)
   const [coreWatchCodes, setCoreWatchCodes] = useState<Set<string>>(new Set())
@@ -107,7 +117,10 @@ const BuyRadarPage: React.FC = () => {
       : null
   ))
   const containerRef = useRef<HTMLDivElement>(null)
+  const scanPollingRef = useRef<number | null>(null)
   const backtestPollingRef = useRef<number | null>(null)
+  const activePool = useMemo(() => pools.find((pool) => pool.id === activePoolId), [activePoolId, pools])
+  const isLimitUpPool = !!activePool && activePool.name.includes('涨停')
 
   const refreshCoreWatch = useCallback(() => {
     getCoreWatchCodes()
@@ -250,9 +263,9 @@ const BuyRadarPage: React.FC = () => {
   )
 
   const activeScanResult = activeStrategyId === ALL_STRATEGY_ID
-    ? mergeAllStrategyResults(
+    ? (scanResultsByStrategy[ALL_STRATEGY_ID] ?? mergeAllStrategyResults(
         scanResultsList
-      )
+      ))
     : (scanResultsByStrategy[activeStrategyId] ?? null)
 
   useEffect(() => {
@@ -342,88 +355,112 @@ const BuyRadarPage: React.FC = () => {
     setCachedSelectedTsCode(null)
   }
 
-  const handleScan = async () => {
-    if (!activePoolId) {
-      message.warning('暂无可用股票池，请先在观察池页面创建')
-      return
+  const stopScanPolling = () => {
+    if (scanPollingRef.current != null) {
+      window.clearTimeout(scanPollingRef.current)
+      scanPollingRef.current = null
     }
+  }
+
+  const applyScanResult = useCallback((result: BuySignalScanResult, strategyId: string) => {
     const limitUpDateFrom = limitUpRange?.[0]?.format('YYYYMMDD')
     const limitUpDateTo = limitUpRange?.[1]?.format('YYYYMMDD')
-    const persistScan = (nextResults: Record<string, BuySignalScanResult>, selectedTsCode?: string | null) => {
-      setCachedSelectedTsCode(selectedTsCode || null)
+    let selectedTsCode: string | null = null
+    if (result.signals.length > 0) {
+      const first = result.signals.find((s) => s.signal_status !== 'invalidated') || result.signals[0]
+      selectedTsCode = first.ts_code
+      setSelectedSignal(first)
+    } else {
+      setSelectedSignal(null)
+    }
+
+    setScanResultsByStrategy((prev) => {
+      const nextResults = { ...prev, [strategyId]: result }
+      setCachedSelectedTsCode(selectedTsCode)
       saveStoredBuyRadarResult({
         activePoolId,
         activeStrategyId,
         limitUpRange: limitUpDateFrom && limitUpDateTo ? [limitUpDateFrom, limitUpDateTo] : null,
         scanResultsByStrategy: nextResults,
-        selectedTsCode: selectedTsCode || null,
+        selectedTsCode,
       })
-    }
-    setLoading(true)
-    try {
-      if (activeStrategyId === ALL_STRATEGY_ID) {
-        const targets = strategies.map((s) => s.id)
-        if (targets.length === 0) {
-          message.warning('暂无可用策略')
+      return nextResults
+    })
+    refreshPendingAlerts()
+    message.success(
+      strategyId === ALL_STRATEGY_ID
+        ? `全部策略扫描完成: ${result.triggered_count} 只触发, 共 ${result.total} 只。`
+        : `扫描完成: ${result.triggered_count} 只触发, 共 ${result.total} 只。待处理提醒已更新，可到买点提醒查看。`
+    )
+  }, [activePoolId, activeStrategyId, limitUpRange, refreshPendingAlerts])
+
+  const pollScanTask = useCallback((taskId: string, strategyId: string) => {
+    const tick = async () => {
+      try {
+        const res = await getBuySignalScanTask(taskId)
+        const data = res.data
+        setScanProgress(Math.max(3, Math.round((data.progress || 0) * 100)))
+        setScanMessage(data.message || '买点雷达扫描中...')
+        if (data.status === 'completed') {
+          if (data.result) {
+            applyScanResult(data.result, strategyId)
+          } else {
+            message.warning('扫描任务已完成，但未返回结果')
+          }
+          setLoading(false)
+          stopScanPolling()
           return
         }
-        const collected: BuySignalScanResult[] = []
-        const patch: Record<string, BuySignalScanResult> = {}
-        for (let i = 0; i < targets.length; i++) {
-          const sid = targets[i]
-          const res = await scanBuySignals(
-            activePoolId,
-            sid,
-            manualMinConfirmHits,
-            limitUpDateFrom,
-            limitUpDateTo
-          )
-          collected.push(res.data)
-          patch[sid] = res.data
-          if (i < targets.length - 1) {
-            await new Promise((r) => setTimeout(r, 150))
-          }
+        if (data.status === 'failed') {
+          setLoading(false)
+          message.error(data.message || '扫描失败，请确保已同步K线')
+          stopScanPolling()
+          return
         }
-        const nextResults = { ...scanResultsByStrategy, ...patch }
-        setScanResultsByStrategy(nextResults)
-        const merged = mergeAllStrategyResults(collected)
-        message.success(
-          `全部策略扫描完成: ${merged.triggered_count} 只触发, 共 ${merged.total} 只。`
-        )
-        refreshPendingAlerts()
-        let selectedTsCode: string | null = null
-        if (merged.signals.length > 0) {
-          const first = merged.signals.find((s) => s.signal_status !== 'invalidated') || merged.signals[0]
-          selectedTsCode = first.ts_code
-          setSelectedSignal(first)
-        }
-        persistScan(nextResults, selectedTsCode)
-      } else {
-        const res = await scanBuySignals(
-          activePoolId,
-          activeStrategyId,
-          manualMinConfirmHits,
-          limitUpDateFrom,
-          limitUpDateTo
-        )
-        const nextResults = { ...scanResultsByStrategy, [activeStrategyId]: res.data }
-        setScanResultsByStrategy(nextResults)
-        message.success(
-          `扫描完成: ${res.data.triggered_count} 只触发, 共 ${res.data.total} 只。待处理提醒已更新，可到买点提醒查看。`
-        )
-        refreshPendingAlerts()
-        let selectedTsCode: string | null = null
-        if (res.data.signals.length > 0) {
-          const first = res.data.signals.find((s) => s.signal_status !== 'invalidated') || res.data.signals[0]
-          selectedTsCode = first.ts_code
-          setSelectedSignal(first)
-        }
-        persistScan(nextResults, selectedTsCode)
+      } catch {
+        setLoading(false)
+        message.error('扫描任务状态查询失败')
+        stopScanPolling()
+        return
       }
+      scanPollingRef.current = window.setTimeout(tick, 1500)
+    }
+    tick()
+  }, [applyScanResult])
+
+  const handleScan = async () => {
+    if (!activePoolId) {
+      message.warning('暂无可用股票池，请先在观察池页面创建')
+      return
+    }
+    if (activeStrategyId === ALL_STRATEGY_ID && strategies.length === 0) {
+      message.warning('暂无可用策略')
+      return
+    }
+    const limitUpDateFrom = limitUpRange?.[0]?.format('YYYYMMDD')
+    const limitUpDateTo = limitUpRange?.[1]?.format('YYYYMMDD')
+    stopScanPolling()
+    setLoading(true)
+    setScanTaskId(null)
+    setScanProgress(0)
+    setScanMessage('提交扫描任务中...')
+    try {
+      const res = await submitBuySignalScanTask(
+        activePoolId,
+        activeStrategyId,
+        manualMinConfirmHits,
+        limitUpDateFrom,
+        limitUpDateTo
+      )
+      const taskId = res.data.task_id
+      setScanTaskId(taskId)
+      setScanProgress(3)
+      setScanMessage(activeStrategyId === ALL_STRATEGY_ID ? '全部策略扫描任务已提交，等待后台执行' : '扫描任务已提交，等待后台执行')
+      pollScanTask(taskId, activeStrategyId)
     } catch {
-      message.error('扫描失败，请确保已同步K线')
-    } finally {
       setLoading(false)
+      setScanProgress(0)
+      message.error('扫描失败，请确保已同步K线')
     }
   }
 
@@ -492,6 +529,87 @@ const BuyRadarPage: React.FC = () => {
     }
   }
 
+  const renderCleanupPreview = (preview: LimitUpPoolCleanupResult) => (
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <div style={{ fontSize: 13, color: '#595959' }}>
+        将从 {preview.pool_name} 清理 {preview.candidate_count} / {preview.total} 只股票。
+        下方已展示全部 {preview.preview.length} 只候选。
+        截止交易日：{preview.cutoff_trade_date_display || preview.cutoff_trade_date}。
+        {preview.protected_pinned_count > 0 && ` 已保护 ${preview.protected_pinned_count} 只置顶股票。`}
+      </div>
+      <Space wrap>
+        <Tag color="orange">近{preview.days}交易日无涨停 {preview.reason_counts.no_recent_limit_up}</Tag>
+      </Space>
+      <Table
+        className="cleanup-preview-table"
+        size="small"
+        rowKey="stock_id"
+        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (total) => `共 ${total} 只` }}
+        scroll={{ y: 420 }}
+        dataSource={preview.preview}
+        columns={[
+          { title: '股票', dataIndex: 'stock_name', key: 'stock_name', width: 120 },
+          { title: '代码', dataIndex: 'ts_code', key: 'ts_code', width: 110 },
+          { title: '最近涨停', dataIndex: 'limit_up_date_display', key: 'limit_up_date_display', width: 100, render: (v) => v || '-' },
+          {
+            title: '清理原因',
+            dataIndex: 'reasons',
+            key: 'reasons',
+            render: (reasons: string[]) => (
+              <Space size={4} wrap>
+                {reasons.map((reason) => (
+                  <Tag key={reason}>{CLEANUP_REASON_LABELS[reason] || reason}</Tag>
+                ))}
+              </Space>
+            ),
+          },
+        ]}
+      />
+    </Space>
+  )
+
+  const handleCleanupLimitUpPool = async () => {
+    if (!activePoolId) return
+    setCleanupBusy(true)
+    try {
+      const previewRes = await cleanupLimitUpPool(activePoolId, {
+        days: cleanupDays,
+        dry_run: true,
+        include_pinned: false,
+      })
+      const preview = previewRes.data
+      if (preview.candidate_count === 0) {
+        message.success('涨停股票池暂无需要清理的股票')
+        return
+      }
+      Modal.confirm({
+        title: `清理近${cleanupDays}交易日无涨停标的`,
+        width: 820,
+        content: renderCleanupPreview(preview),
+        okText: `确认清理 ${preview.candidate_count} 只`,
+        okButtonProps: { danger: true },
+        cancelText: '取消',
+        onOk: async () => {
+          const res = await cleanupLimitUpPool(activePoolId, {
+            days: cleanupDays,
+            dry_run: false,
+            include_pinned: false,
+          })
+          message.success(`已清理 ${res.data.deleted_count} 只无效股票`)
+          setScanResultsByStrategy({})
+          setSelectedSignal(null)
+          setCachedSelectedTsCode(null)
+          const poolsRes = await listPools()
+          setPools(poolsRes.data || [])
+        },
+      })
+    } catch {
+      message.error('清理预览失败，请稍后重试')
+    } finally {
+      setCleanupBusy(false)
+    }
+  }
+
 
   const handleSelect = useCallback((signal: BuySignal) => {
     setSelectedSignal(signal)
@@ -520,7 +638,10 @@ const BuyRadarPage: React.FC = () => {
   }, [filteredSignals, selectedSignal])
 
   useEffect(() => {
-    return () => stopBacktestPolling()
+    return () => {
+      stopScanPolling()
+      stopBacktestPolling()
+    }
   }, [])
 
   const scanTime = activeScanResult?.scan_time
@@ -611,6 +732,29 @@ const BuyRadarPage: React.FC = () => {
           >
             回测验证
           </Button>
+          {isLimitUpPool && (
+            <>
+              <Select
+                size="small"
+                value={cleanupDays}
+                style={{ width: 150 }}
+                options={[20, 30, 40, 60].map((days) => ({
+                  value: days,
+                  label: `${days}交易日无涨停`,
+                }))}
+                onChange={setCleanupDays}
+                disabled={cleanupBusy || loading}
+              />
+              <Button
+                icon={<ClearOutlined />}
+                loading={cleanupBusy}
+                onClick={handleCleanupLimitUpPool}
+                disabled={!activePoolId || loading}
+              >
+                清理无效
+              </Button>
+            </>
+          )}
           <Segmented
             options={[
               { label: `全部${activeScanResult ? ` (${activeScanResult.signals.filter(s => s.signal_status !== 'invalidated').length})` : ''}`, value: 'all' },
@@ -648,6 +792,34 @@ const BuyRadarPage: React.FC = () => {
           </span>
         </div>
       </div>
+
+      {(loading || scanTaskId) && (
+        <div style={{
+          padding: '8px 0 10px',
+          borderBottom: '1px solid #f5f5f5',
+          flexShrink: 0,
+        }}>
+          <Space size="small" wrap style={{ marginBottom: 4 }}>
+            <Tag color={loading ? 'processing' : 'success'}>
+              {loading ? '扫描中' : '最近任务'}
+            </Tag>
+            <span style={{ fontSize: 12, color: '#595959' }}>
+              {scanMessage || '买点雷达扫描任务已提交'}
+            </span>
+            {scanTaskId && (
+              <span style={{ fontSize: 12, color: '#8c8c8c' }}>
+                任务ID: {scanTaskId.slice(0, 8)}
+              </span>
+            )}
+          </Space>
+          <Progress
+            percent={scanProgress}
+            size="small"
+            status={loading ? 'active' : 'normal'}
+            showInfo
+          />
+        </div>
+      )}
 
       <Modal
         title="买点提醒"

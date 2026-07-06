@@ -326,6 +326,8 @@ def _sector_resonance_score(
     ts_code: str,
     df: pd.DataFrame,
     preferred_sector_codes: list[str] | None = None,
+    fallback_industry: str | None = None,
+    allow_external_sector_fetch: bool = True,
 ) -> tuple[int, list[str], dict[str, Any]]:
     maps_q = (
         db.query(StockSectorMap)
@@ -354,9 +356,32 @@ def _sector_resonance_score(
         }
         for m in maps
     ]
-    if not candidates:
+    if not candidates and allow_external_sector_fetch:
         candidates = get_relevant_concept_candidates(db, ts_code, limit=8)
+    if not candidates and fallback_industry:
+        industry = str(fallback_industry).strip()
+        if industry:
+            candidates = [
+                {
+                    "sector_code": None,
+                    "sector_name": industry,
+                    "sector_type": "industry",
+                    "latest_hot": None,
+                    "latest_pct_chg": None,
+                }
+            ]
     candidates = _rank_sector_candidates(db, candidates)
+    sectors = [
+        {
+            "sector_code": item.get("sector_code"),
+            "sector_name": item.get("sector_name"),
+            "sector_type": item.get("sector_type"),
+            "latest_hot": item.get("latest_hot"),
+            "latest_pct_chg": item.get("latest_pct_chg"),
+        }
+        for item in candidates
+        if item.get("sector_name")
+    ][:8]
     stock_ret20 = _pct_return(df, 20)
     stock_dd20 = _max_drawdown_pct(df.tail(20)["close"])
     best: dict[str, Any] | None = None
@@ -423,7 +448,7 @@ def _sector_resonance_score(
                 "sector_drawdown_20d": sector_dd20,
             }
 
-    return min(best_score, 15), best_reasons, {"best_sector": best, "sector_count": len(candidates)}
+    return min(best_score, 15), best_reasons, {"best_sector": best, "sectors": sectors, "sector_count": len(candidates)}
 
 
 def _status(total_score: int, ma20_state: str) -> str:
@@ -444,6 +469,7 @@ def analyze_main_wave_stock(
     db: Session,
     ts_code: str,
     preferred_sector_codes: list[str] | None = None,
+    allow_external_sector_fetch: bool = True,
 ) -> dict[str, Any]:
     code = ts_code.upper()
     df = _quote_df(db, code)
@@ -474,6 +500,8 @@ def analyze_main_wave_stock(
         code,
         df,
         preferred_sector_codes=preferred_sector_codes,
+        fallback_industry=basic.industry if basic else None,
+        allow_external_sector_fetch=allow_external_sector_fetch,
     )
     total = trend_score + structure_score + pullback_score + sector_score
 

@@ -13,7 +13,6 @@ from app.services.sector_data_service import (
     SOURCE,
     fetch_sector_daily_quotes,
     fetch_stock_concept_sectors,
-    get_or_create_quote_sync_state,
     refresh_quote_sync_state,
     sector_quote_coverage,
     upsert_sector_basic,
@@ -63,7 +62,7 @@ def _sector_by_code_or_name(db: Session, candidate: dict[str, Any]) -> SectorBas
     return None
 
 
-def _choose_stock_sector(db: Session, ts_code: str) -> SectorBasic | None:
+def _choose_stock_sector(db: Session, ts_code: str, *, allow_external_sector_fetch: bool = True) -> SectorBasic | None:
     mapped = (
         db.query(StockSectorMap)
         .filter(
@@ -79,6 +78,9 @@ def _choose_stock_sector(db: Session, ts_code: str) -> SectorBasic | None:
         if sector:
             return sector
 
+    if not allow_external_sector_fetch:
+        return None
+
     candidates = [
         c
         for c in get_relevant_concept_candidates(db, ts_code, limit=8)
@@ -91,7 +93,13 @@ def _choose_stock_sector(db: Session, ts_code: str) -> SectorBasic | None:
     return None
 
 
-def collect_main_wave_pool_concepts(db: Session, *, pool_id: str | None = None, target_days: int = 250) -> dict[str, Any]:
+def collect_main_wave_pool_concepts(
+    db: Session,
+    *,
+    pool_id: str | None = None,
+    target_days: int = 250,
+    sync_missing_sectors: bool = True,
+) -> dict[str, Any]:
     pool = _get_main_wave_pool(db, pool_id)
     if not pool:
         return {"pool": None, "stocks": [], "concepts": []}
@@ -103,8 +111,9 @@ def collect_main_wave_pool_concepts(db: Session, *, pool_id: str | None = None, 
     )
     concepts: dict[str, dict[str, Any]] = {}
     for stock in stocks:
-        _ensure_stock_f10_sectors(db, stock.ts_code)
-        sector = _choose_stock_sector(db, stock.ts_code)
+        if sync_missing_sectors:
+            _ensure_stock_f10_sectors(db, stock.ts_code)
+        sector = _choose_stock_sector(db, stock.ts_code, allow_external_sector_fetch=sync_missing_sectors)
         if not sector:
             continue
         item = concepts.setdefault(
@@ -115,8 +124,6 @@ def collect_main_wave_pool_concepts(db: Session, *, pool_id: str | None = None, 
             },
         )
         item["stocks"].append(stock.ts_code)
-        get_or_create_quote_sync_state(db, sector, target_days=target_days)
-        refresh_quote_sync_state(db, sector, target_days=target_days)
     return {"pool": pool, "stocks": stocks, "concepts": list(concepts.values())}
 
 
@@ -140,7 +147,12 @@ def _state_json(state: SectorQuoteSyncState, stocks: list[str] | None = None) ->
 
 
 def get_main_wave_sector_backfill_status(db: Session, *, pool_id: str | None = None, target_days: int = 250) -> dict[str, Any]:
-    collected = collect_main_wave_pool_concepts(db, pool_id=pool_id, target_days=target_days)
+    collected = collect_main_wave_pool_concepts(
+        db,
+        pool_id=pool_id,
+        target_days=target_days,
+        sync_missing_sectors=False,
+    )
     pool = collected["pool"]
     concepts = collected["concepts"]
     items: list[dict[str, Any]] = []

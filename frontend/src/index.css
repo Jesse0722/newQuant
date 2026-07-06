@@ -144,6 +144,23 @@ html, body, #root {
   background: rgba(0, 212, 255, 0.04) !important;
 }
 
+.cleanup-preview-table .ant-table {
+  background: #fff !important;
+}
+.cleanup-preview-table .ant-table-thead > tr > th {
+  background: #f5f8ff !important;
+  border-bottom: 1px solid #d9e2f3 !important;
+  color: #486083 !important;
+}
+.cleanup-preview-table .ant-table-tbody > tr > td {
+  background: #fff !important;
+  border-bottom: 1px solid #edf1f7 !important;
+  color: #1f2d3d !important;
+}
+.cleanup-preview-table .ant-table-tbody > tr:hover > td {
+  background: #f7fbff !important;
+}
+
 .ant-spin-dot-item { background: var(--accent) !important; }
 
 .ant-tooltip .ant-tooltip-inner {

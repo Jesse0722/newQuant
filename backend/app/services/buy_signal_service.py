@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import time
 from datetime import datetime
+from typing import Callable
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,7 @@ from app.services.trading_session import is_a_share_trading_session, shanghai_tr
 from app.services.tushare_adapter import tushare_adapter
 
 RT_K_CHUNK = 5000
+ProgressCallback = Callable[[float, str], None]
 
 # ---------- 策略参数 ----------
 
@@ -86,6 +88,62 @@ def _build_df(db: Session, ts_code: str, limit: int = 250) -> pd.DataFrame:
         for r in rows
     ]
     return pd.DataFrame(data)
+
+
+def _build_df_map(db: Session, ts_codes: list[str], limit: int = 250) -> dict[str, pd.DataFrame]:
+    unique_codes = list(dict.fromkeys([c for c in ts_codes if c]))
+    out = {code: pd.DataFrame() for code in unique_codes}
+    cols = [
+        "ts_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate",
+    ]
+    for i in range(0, len(unique_codes), 400):
+        chunk = unique_codes[i : i + 400]
+        rn = func.row_number().over(
+            partition_by=DailyQuote.ts_code,
+            order_by=DailyQuote.trade_date.desc(),
+        ).label("rn")
+        subq = (
+            db.query(
+                DailyQuote.ts_code.label("ts_code"),
+                DailyQuote.trade_date.label("trade_date"),
+                DailyQuote.open.label("open"),
+                DailyQuote.high.label("high"),
+                DailyQuote.low.label("low"),
+                DailyQuote.close.label("close"),
+                DailyQuote.pre_close.label("pre_close"),
+                DailyQuote.pct_chg.label("pct_chg"),
+                DailyQuote.vol.label("vol"),
+                DailyQuote.amount.label("amount"),
+                DailyQuote.turnover_rate.label("turnover_rate"),
+                rn,
+            )
+            .filter(DailyQuote.ts_code.in_(chunk))
+            .subquery()
+        )
+        rows = (
+            db.query(subq)
+            .filter(subq.c.rn <= limit)
+            .order_by(subq.c.ts_code.asc(), subq.c.trade_date.asc())
+            .all()
+        )
+        grouped: dict[str, list[dict]] = {}
+        for row in rows:
+            item = row._mapping
+            code = item["ts_code"]
+            grouped.setdefault(code, []).append({col: item[col] for col in cols if col != "ts_code"})
+        for code, data in grouped.items():
+            out[code] = pd.DataFrame(data)
+    return out
 
 
 def _calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -496,6 +554,7 @@ STRATEGY_REGISTRY: dict[str, dict] = {
 
 INTRADAY_PROVISIONAL = "provisional_triggered"
 INTRADAY_CONFIRMED = "confirmed_triggered"
+ALL_STRATEGY_ID = "all"
 
 
 def list_buy_strategies() -> list[dict]:
@@ -648,16 +707,46 @@ def _prepare_scan_dataframe(
     rt_map: dict[str, dict],
     trade_date_today: str,
     merge_rt: bool,
+    df_cache: dict[str, pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
+    if df_cache is not None and ts_code in df_cache:
+        return df_cache[ts_code].copy()
     df = _build_df(db, ts_code)
     if df.empty or len(df) < 10:
+        if df_cache is not None:
+            df_cache[ts_code] = df
         return df
     if merge_rt:
         rt = rt_map.get(ts_code)
         if rt is not None:
             df = _merge_rt_k_into_df(df, rt, trade_date_today)
     df = _apply_intraday_turnover_if_needed(db, df, ts_code, trade_date_today)
-    return _calc_indicators(df)
+    df = _calc_indicators(df)
+    if df_cache is not None:
+        df_cache[ts_code] = df
+    return df.copy()
+
+
+def _build_prepared_scan_dataframe_cache(
+    db: Session,
+    ts_codes: list[str],
+    rt_map: dict[str, dict],
+    trade_date_today: str,
+    merge_rt: bool,
+) -> dict[str, pd.DataFrame]:
+    raw_cache = _build_df_map(db, ts_codes)
+    prepared: dict[str, pd.DataFrame] = {}
+    for ts_code, df in raw_cache.items():
+        if df.empty or len(df) < 10:
+            prepared[ts_code] = df
+            continue
+        if merge_rt:
+            rt = rt_map.get(ts_code)
+            if rt is not None:
+                df = _merge_rt_k_into_df(df, rt, trade_date_today)
+        df = _apply_intraday_turnover_if_needed(db, df, ts_code, trade_date_today)
+        prepared[ts_code] = _calc_indicators(df)
+    return prepared
 
 
 def _inject_intraday_life_line_if_missing(
@@ -767,9 +856,9 @@ def _scan_context(db: Session, pool_id: str | None):
         return None, [], {}, {"requested": False, "applied": False, "error": None}, trade_date_today, False
     stocks = db.query(WatchStock).filter(WatchStock.pool_id == pid).all()
     in_session = is_a_share_trading_session()
-    # 非交易时段若池内存在“当日涨停”票，仍尝试拉一次 rt_k，补齐当日临时K线避免漏扫。
+    # 非交易时段小池保留“当日涨停”实时兜底；大池避免外部全市场快照拖慢扫描。
     need_today_fallback = any((ws.limit_up_date == trade_date_today) for ws in stocks)
-    should_fetch_rt = in_session or need_today_fallback
+    should_fetch_rt = in_session or (need_today_fallback and len(stocks) <= 200)
     realtime = {"requested": should_fetch_rt, "applied": False, "error": None}
     rt_map: dict[str, dict] = {}
     if should_fetch_rt and stocks:
@@ -813,6 +902,18 @@ def _batch_last_trade_dates(db: Session, ts_codes: list[str], fallback: str) -> 
         if c not in out:
             out[c] = fallback
     return out
+
+
+def _batch_stock_basic_cache(db: Session, ts_codes: list[str]) -> dict[str, StockBasic | None]:
+    cache: dict[str, StockBasic | None] = {}
+    unique_codes = list(dict.fromkeys([c for c in ts_codes if c]))
+    for i in range(0, len(unique_codes), 500):
+        chunk = unique_codes[i : i + 500]
+        rows = db.query(StockBasic).filter(StockBasic.ts_code.in_(chunk)).all()
+        cache.update({r.ts_code: r for r in rows})
+    for code in unique_codes:
+        cache.setdefault(code, None)
+    return cache
 
 
 def _sync_buy_radar_alerts(
@@ -958,7 +1059,10 @@ def scan_pool_buy_signals(
     min_confirm_hits: int = 2,
     limit_up_date_from: str | None = None,
     limit_up_date_to: str | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
+    if progress_callback:
+        progress_callback(0.03, "准备买点雷达扫描上下文")
     pid, stocks, rt_map, realtime, trade_date_today, merge_rt = _scan_context(db, pool_id)
     if not pid:
         meta = _scan_meta_fields(realtime, trade_date_today)
@@ -970,13 +1074,144 @@ def scan_pool_buy_signals(
     if not stocks:
         meta = _scan_meta_fields(realtime, trade_date_today)
         return {**_empty_result(strategy_id), **meta}
+    if progress_callback:
+        progress_callback(0.08, f"已载入 {len(stocks)} 只股票，开始策略扫描")
+    if strategy_id == ALL_STRATEGY_ID:
+        return _scan_all_strategies(
+            db, pid, stocks, rt_map, trade_date_today, merge_rt, realtime,
+            min_confirm_hits=min_confirm_hits, progress_callback=progress_callback
+        )
     if strategy_id in TACTIC_REGISTRY:
         return _scan_tactic(
-            db, pid, strategy_id, stocks, rt_map, trade_date_today, merge_rt, realtime, min_confirm_hits=min_confirm_hits
+            db, pid, strategy_id, stocks, rt_map, trade_date_today, merge_rt, realtime,
+            min_confirm_hits=min_confirm_hits, progress_callback=progress_callback,
+            progress_start=0.1, progress_end=0.92,
         )
     return _scan_two_phase(
-        db, pid, stocks, rt_map, trade_date_today, merge_rt, realtime, min_confirm_hits=min_confirm_hits
+        db, pid, stocks, rt_map, trade_date_today, merge_rt, realtime,
+        min_confirm_hits=min_confirm_hits, progress_callback=progress_callback,
+        progress_start=0.1, progress_end=0.92,
     )
+
+
+def _merge_strategy_scan_results(results: list[dict]) -> dict:
+    status_order = {
+        INTRADAY_CONFIRMED: 0,
+        "triggered": 0,
+        INTRADAY_PROVISIONAL: 1,
+        "approaching": 1,
+        "tracking": 2,
+        "invalidated": 3,
+    }
+    by_code: dict[str, dict] = {}
+    for result in results:
+        strategy_id = result.get("strategy_id") or ""
+        strategy_name = result.get("strategy_name") or strategy_id or "未知策略"
+        strategy_description = result.get("strategy_description") or ""
+        for signal in result.get("signals") or []:
+            enriched = {
+                **signal,
+                "strategy_id": signal.get("strategy_id") or strategy_id,
+                "strategy_name": signal.get("strategy_name") or strategy_name,
+                "strategy_description": signal.get("strategy_description") or strategy_description,
+            }
+            code = enriched.get("ts_code")
+            if not code:
+                continue
+            is_strategy_hit = enriched.get("signal_status") not in ("tracking", "invalidated")
+            current = by_code.get(code)
+            matches = list((current or {}).get("matched_strategies") or [])
+            if is_strategy_hit:
+                sid = enriched.get("strategy_id") or strategy_id
+                matches = [m for m in matches if m.get("strategy_id") != sid]
+                matches.append({
+                    "strategy_id": sid,
+                    "strategy_name": enriched.get("strategy_name") or strategy_name,
+                    "strategy_description": enriched.get("strategy_description") or strategy_description,
+                    "signal_status": enriched.get("signal_status"),
+                    "signal_score": int(enriched.get("signal_score") or 0),
+                })
+            if current is None:
+                by_code[code] = {**enriched, "matched_strategies": matches}
+                continue
+            cur_rank = status_order.get(current.get("signal_status"), 9)
+            next_rank = status_order.get(enriched.get("signal_status"), 9)
+            if next_rank < cur_rank or (
+                next_rank == cur_rank and int(enriched.get("signal_score") or 0) > int(current.get("signal_score") or 0)
+            ):
+                by_code[code] = {**enriched, "matched_strategies": matches}
+            else:
+                by_code[code] = {**current, "matched_strategies": matches}
+    signals = sorted(
+        by_code.values(),
+        key=lambda s: (
+            status_order.get(s.get("signal_status"), 9),
+            -int(s.get("signal_score") or 0),
+            str(s.get("ts_code") or ""),
+        ),
+    )
+    latest_scan_time = sorted([r.get("scan_time") for r in results if r.get("scan_time")])[-1:] or [datetime.now().isoformat()]
+    base = results[-1] if results else {}
+    return {
+        **{k: v for k, v in base.items() if k not in {"signals", "total", "triggered_count", "approaching_count", "strategy_id", "strategy_name", "strategy_description"}},
+        "signals": signals,
+        "scan_time": latest_scan_time[0],
+        "total": len(signals),
+        "triggered_count": sum(1 for s in signals if s.get("signal_status") in ("triggered", INTRADAY_CONFIRMED)),
+        "approaching_count": sum(1 for s in signals if s.get("signal_status") == "approaching"),
+        "strategy_id": ALL_STRATEGY_ID,
+        "strategy_name": "所有策略",
+        "strategy_description": "一次扫描全部买点策略并汇总每只股票的命中策略",
+    }
+
+
+def _scan_all_strategies(
+    db: Session,
+    pool_id: str,
+    stocks: list,
+    rt_map: dict[str, dict],
+    trade_date_today: str,
+    merge_rt: bool,
+    realtime: dict,
+    min_confirm_hits: int = 2,
+    progress_callback: ProgressCallback | None = None,
+) -> dict:
+    df_cache = _build_prepared_scan_dataframe_cache(
+        db, [ws.ts_code for ws in stocks], rt_map, trade_date_today, merge_rt
+    )
+    basic_cache = _batch_stock_basic_cache(db, [ws.ts_code for ws in stocks])
+    strategy_ids = ["two_phase", *TACTIC_REGISTRY.keys()]
+    total = max(1, len(strategy_ids))
+    segment_start = 0.1
+    segment_span = 0.82
+
+    def _segment(index: int) -> tuple[float, float]:
+        start = segment_start + segment_span * (index / total)
+        end = segment_start + segment_span * ((index + 1) / total)
+        return start, end
+
+    start, end = _segment(0)
+    results = [
+        _scan_two_phase(
+            db, pool_id, stocks, rt_map, trade_date_today, merge_rt, realtime,
+            min_confirm_hits=min_confirm_hits, df_cache=df_cache,
+            basic_cache=basic_cache,
+            progress_callback=progress_callback, progress_start=start, progress_end=end,
+        )
+    ]
+    for index, sid in enumerate(TACTIC_REGISTRY.keys(), start=1):
+        start, end = _segment(index)
+        results.append(
+            _scan_tactic(
+                db, pool_id, sid, stocks, rt_map, trade_date_today, merge_rt, realtime,
+                min_confirm_hits=min_confirm_hits, df_cache=df_cache,
+                basic_cache=basic_cache,
+                progress_callback=progress_callback, progress_start=start, progress_end=end,
+            )
+        )
+    if progress_callback:
+        progress_callback(0.94, "正在汇总全部策略扫描结果")
+    return _merge_strategy_scan_results(results)
 
 
 def _scan_two_phase(
@@ -988,12 +1223,27 @@ def _scan_two_phase(
     merge_rt: bool,
     realtime: dict,
     min_confirm_hits: int = 2,
+    df_cache: dict[str, pd.DataFrame] | None = None,
+    basic_cache: dict[str, StockBasic | None] | None = None,
+    progress_callback: ProgressCallback | None = None,
+    progress_start: float = 0.1,
+    progress_end: float = 0.9,
 ) -> dict:
-    basic_cache: dict[str, StockBasic | None] = {}
+    if basic_cache is None:
+        basic_cache = _batch_stock_basic_cache(db, [ws.ts_code for ws in stocks])
+    if df_cache is None:
+        df_cache = _build_prepared_scan_dataframe_cache(
+            db, [ws.ts_code for ws in stocks], rt_map, trade_date_today, merge_rt
+        )
     signals: list[dict] = []
     params = DEFAULT_PARAMS.copy()
+    total = max(1, len(stocks))
+    progress_step = max(1, total // 20)
 
-    for ws in stocks:
+    for index, ws in enumerate(stocks):
+        if progress_callback and index % progress_step == 0:
+            progress = progress_start + (progress_end - progress_start) * (index / total)
+            progress_callback(progress, f"二阶段买点识别：已扫描 {index}/{total} 只")
         ts_code = ws.ts_code
         if not ws.limit_up_date:
             signals.append(
@@ -1004,7 +1254,7 @@ def _scan_two_phase(
             )
             continue
 
-        df = _prepare_scan_dataframe(db, ts_code, rt_map, trade_date_today, merge_rt)
+        df = _prepare_scan_dataframe(db, ts_code, rt_map, trade_date_today, merge_rt, df_cache=df_cache)
         df, _ = _inject_intraday_life_line_if_missing(
             df, ts_code, ws.limit_up_date, rt_map, trade_date_today
         )
@@ -1061,6 +1311,8 @@ def _scan_two_phase(
             **analysis,
         })
 
+    if progress_callback:
+        progress_callback(progress_end, f"二阶段买点识别：已扫描 {total}/{total} 只，正在同步提醒")
     _align_signal_latest_display_with_daily_db(db, signals, merge_rt)
     meta = _scan_meta_fields(realtime, trade_date_today)
     provisional_cnt, confirmed_cnt = _apply_intraday_reliability_state(
@@ -1086,16 +1338,32 @@ def _scan_tactic(
     merge_rt: bool,
     realtime: dict,
     min_confirm_hits: int = 2,
+    df_cache: dict[str, pd.DataFrame] | None = None,
+    basic_cache: dict[str, StockBasic | None] | None = None,
+    progress_callback: ProgressCallback | None = None,
+    progress_start: float = 0.1,
+    progress_end: float = 0.9,
 ) -> dict:
     """六大战法通用扫描器"""
     tactic = TACTIC_REGISTRY[strategy_id]
     analyze_fn = tactic["analyze_fn"]
     tactic_max_days = tactic.get("max_days", 20)
+    tactic_name = tactic.get("name", strategy_id)
 
-    basic_cache: dict[str, StockBasic | None] = {}
+    if basic_cache is None:
+        basic_cache = _batch_stock_basic_cache(db, [ws.ts_code for ws in stocks])
+    if df_cache is None:
+        df_cache = _build_prepared_scan_dataframe_cache(
+            db, [ws.ts_code for ws in stocks], rt_map, trade_date_today, merge_rt
+        )
     signals: list[dict] = []
+    total = max(1, len(stocks))
+    progress_step = max(1, total // 20)
 
-    for ws in stocks:
+    for index, ws in enumerate(stocks):
+        if progress_callback and index % progress_step == 0:
+            progress = progress_start + (progress_end - progress_start) * (index / total)
+            progress_callback(progress, f"{tactic_name}：已扫描 {index}/{total} 只")
         ts_code = ws.ts_code
         if not ws.limit_up_date:
             signals.append(
@@ -1103,7 +1371,7 @@ def _scan_tactic(
             )
             continue
 
-        df = _prepare_scan_dataframe(db, ts_code, rt_map, trade_date_today, merge_rt)
+        df = _prepare_scan_dataframe(db, ts_code, rt_map, trade_date_today, merge_rt, df_cache=df_cache)
         df, _ = _inject_intraday_life_line_if_missing(
             df, ts_code, ws.limit_up_date, rt_map, trade_date_today
         )
@@ -1172,6 +1440,8 @@ def _scan_tactic(
             **analysis,
         })
 
+    if progress_callback:
+        progress_callback(progress_end, f"{tactic_name}：已扫描 {total}/{total} 只，正在同步提醒")
     _align_signal_latest_display_with_daily_db(db, signals, merge_rt)
     meta = _scan_meta_fields(realtime, trade_date_today)
     provisional_cnt, confirmed_cnt = _apply_intraday_reliability_state(

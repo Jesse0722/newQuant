@@ -75,6 +75,48 @@ def test_generate_industry_report_from_seed_graph():
     assert daily.json()["id"] == body["id"]
 
 
+def test_industry_report_candidate_includes_message_evidence():
+    client = _client()
+
+    imported = client.post(
+        "/api/messages/source-items/import",
+        json={
+            "aggregate": True,
+            "items": [
+                {
+                    "trade_date": "20260528",
+                    "channel": "X",
+                    "source_name": "server_watch",
+                    "content": "AI server demand remains strong as cloud capex expands.",
+                    "theme": "AI服务器",
+                    "ts_code": "601138.SH",
+                    "stock_name": "工业富联",
+                    "heat_score": 82,
+                    "credibility_score": 72,
+                }
+            ],
+        },
+    )
+    assert imported.status_code == 201
+
+    resp = client.post(
+        "/api/industry-reports/generate",
+        json={"trade_date": "20260528", "refresh_seeds": True},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    candidate = next(item for item in body["candidates"] if item["ts_code"] == "601138.SH")
+    evidence_rows = [
+        item for item in candidate["evidence_json"]
+        if item.get("relation") == "message_evidence"
+    ]
+    assert evidence_rows
+    assert evidence_rows[0]["source_item_id"]
+    assert "AI server demand" in evidence_rows[0]["evidence_text"]
+    assert "当日舆情证据" in candidate["reason"]
+
+
 def test_generate_industry_report_with_mocked_llm(monkeypatch):
     client = _client()
 

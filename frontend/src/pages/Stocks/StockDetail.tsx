@@ -71,6 +71,17 @@ interface DetailFormValues {
   exec_note?: string
 }
 
+const latestQuoteDate = (data?: StockChartData | null) => data?.quotes?.[data.quotes.length - 1]?.date || ''
+
+const shouldUseRefreshedChart = (current: StockChartData, refreshed: StockChartData) => {
+  const currentLatest = latestQuoteDate(current)
+  const refreshedLatest = latestQuoteDate(refreshed)
+  if (!refreshedLatest) return false
+  if (!currentLatest) return true
+  if (refreshedLatest > currentLatest) return true
+  return refreshedLatest === currentLatest && refreshed.quotes.length >= current.quotes.length
+}
+
 const StockDetail: React.FC<StockDetailProps> = ({ embedded = false, tsCode: propTsCode, stockNote, onEditNote }) => {
   const { tsCode: routeTsCode } = useParams<{ tsCode: string }>()
   const tsCode = propTsCode || routeTsCode
@@ -91,6 +102,9 @@ const StockDetail: React.FC<StockDetailProps> = ({ embedded = false, tsCode: pro
   const [coreStarLoading, setCoreStarLoading] = useState(false)
   const [aiAnalysis, setAiAnalysis] = useState<StockAiAnalysisRecord | null>(null)
   const [aiLoadingMode, setAiLoadingMode] = useState<'fast' | 'deep' | null>(null)
+  const [chartLoading, setChartLoading] = useState(false)
+  const [chartRefreshing, setChartRefreshing] = useState(false)
+  const [chartError, setChartError] = useState<string | null>(null)
   const [quickRecordForm] = Form.useForm()
   const [detailForm] = Form.useForm()
   const [editDetailForm] = Form.useForm()
@@ -103,6 +117,13 @@ const StockDetail: React.FC<StockDetailProps> = ({ embedded = false, tsCode: pro
   )
   const poolName = embedded ? undefined : locationState?.poolName
   const currentNavIndex = poolNavStocks.findIndex((s) => s.ts_code === tsCode)
+
+  useEffect(() => {
+    return () => {
+      chartInstance.current?.dispose()
+      chartInstance.current = null
+    }
+  }, [tsCode])
 
   const jumpToStock = useCallback((idx: number) => {
     if (idx < 0 || idx >= poolNavStocks.length) return
@@ -213,10 +234,50 @@ const StockDetail: React.FC<StockDetailProps> = ({ embedded = false, tsCode: pro
 
   useEffect(() => {
     if (!tsCode) return
-    getStockChart(tsCode, period).then((res) => setChartData(res.data))
+    let cancelled = false
+
+    const loadChart = async () => {
+      setChartLoading(true)
+      setChartRefreshing(false)
+      setChartError(null)
+
+      try {
+        const localRes = await getStockChart(tsCode, period, false)
+        if (cancelled) return
+        setChartData(localRes.data)
+        setChartLoading(false)
+
+        setChartRefreshing(true)
+        try {
+          const refreshedRes = await getStockChart(tsCode, period, true)
+          if (cancelled) return
+          setChartData((current) => (
+            current && shouldUseRefreshedChart(current, refreshedRes.data)
+              ? refreshedRes.data
+              : current
+          ))
+        } catch {
+          // Keep the locally rendered chart visible when latest-data refresh fails.
+        } finally {
+          if (!cancelled) setChartRefreshing(false)
+        }
+      } catch (error: unknown) {
+        if (cancelled) return
+        const maybeResponse = (error as { response?: { data?: { message?: string } } }).response
+        setChartData(null)
+        setChartError(maybeResponse?.data?.message || 'K 线数据加载失败')
+        setChartLoading(false)
+        setChartRefreshing(false)
+      }
+    }
+
+    loadChart()
     if (SHOW_STOCK_DETAIL_ALERTS_AND_DETAILS) {
       getStockAlerts(tsCode).then((res) => setAlerts(res.data))
       fetchDetails()
+    }
+    return () => {
+      cancelled = true
     }
   }, [tsCode, period, fetchDetails])
 
@@ -348,8 +409,14 @@ const StockDetail: React.FC<StockDetailProps> = ({ embedded = false, tsCode: pro
   const renderChart = useCallback(() => {
     if (!chartRef.current || !chartData || chartData.quotes.length === 0) return
 
-    if (!chartInstance.current) {
-      chartInstance.current = echarts.init(chartRef.current)
+    const chartEl = chartRef.current
+    if (
+      !chartInstance.current ||
+      chartInstance.current.isDisposed() ||
+      chartInstance.current.getDom() !== chartEl
+    ) {
+      chartInstance.current?.dispose()
+      chartInstance.current = echarts.getInstanceByDom(chartEl) || echarts.init(chartEl)
     }
     const chart = chartInstance.current
     const { quotes, indicators } = chartData
@@ -424,7 +491,35 @@ const StockDetail: React.FC<StockDetailProps> = ({ embedded = false, tsCode: pro
     chart.setOption(option, true)
   }, [chartData, subIndicator])
 
-  useEffect(() => { renderChart() }, [renderChart])
+  useEffect(() => {
+    if (chartLoading) return
+    const frame = window.requestAnimationFrame(() => {
+      renderChart()
+      window.setTimeout(() => chartInstance.current?.resize(), 0)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [chartLoading, renderChart])
+
+  useEffect(() => {
+    if (chartLoading || !chartRef.current) return
+    const chartEl = chartRef.current
+    const observer = new ResizeObserver(() => {
+      if (chartInstance.current) {
+        chartInstance.current.resize()
+      } else {
+        renderChart()
+      }
+    })
+    observer.observe(chartEl)
+    return () => observer.disconnect()
+  }, [chartLoading, renderChart])
+
+  useEffect(() => {
+    if (chartError || chartData?.quotes.length === 0) {
+      chartInstance.current?.dispose()
+      chartInstance.current = null
+    }
+  }, [chartData, chartError])
 
   useEffect(() => {
     const onResize = () => chartInstance.current?.resize()
@@ -713,10 +808,26 @@ const StockDetail: React.FC<StockDetailProps> = ({ embedded = false, tsCode: pro
               value={subIndicator}
               onChange={(v) => setSubIndicator(v as string)}
             />
+            {chartRefreshing && (
+              <Tag icon={<ReloadOutlined spin />} color="processing" style={{ marginInlineEnd: 0 }}>
+                同步最新
+              </Tag>
+            )}
           </Space>
         }
       >
-        {chartData && chartData.quotes.length === 0 ? (
+        {chartError ? (
+          <Alert
+            type="warning"
+            showIcon
+            title={chartError}
+            description="请确认股票代码包含交易所后缀，或先在数据管理/同步任务中补齐该股票历史行情。"
+          />
+        ) : chartLoading ? (
+          <div style={{ height: embedded ? 440 : 520, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+            K 线加载中...
+          </div>
+        ) : chartData && chartData.quotes.length === 0 ? (
           <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
             K 线数据不足，请先同步该股票历史行情
           </div>

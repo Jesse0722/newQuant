@@ -22,6 +22,7 @@ from app.tasks.background import get_task_status, submit_task, task_registry
 from app.services.trading_session import shanghai_trade_date_str, latest_daily_k_trade_date_str
 from app.services.tushare_adapter import tushare_adapter, TushareAdapter, TencentAdapter, BaoStockAdapter, AkshareAdapter
 from app.exceptions import AppError
+from app.utils import normalize_ts_code
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -57,6 +58,13 @@ _CONCEPT_EXCLUDE_KEYWORDS = (
     "深证",
     "深成",
 )
+
+
+def _normalize_route_ts_code(ts_code: str) -> str:
+    try:
+        return normalize_ts_code(ts_code)
+    except ValueError:
+        return ts_code.strip().upper()
 
 
 class StockAiAnalysisRequest(BaseModel):
@@ -491,6 +499,7 @@ def get_stock_chart(
     auto_sync_latest: bool = Query(True, description="查询前是否自动补齐最新日K"),
     db: Session = Depends(get_db),
 ):
+    ts_code = _normalize_route_ts_code(ts_code)
     basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
     # K 线首屏优先返回本地数据；行业/上市日缺失不阻塞图表加载。
     # 完全不存在的股票仍保留一次同步兜底，用于支持直接访问新代码。
@@ -603,6 +612,7 @@ def get_stock_chart(
 
 @router.get("/{ts_code}/alerts")
 def get_stock_alerts(ts_code: str, db: Session = Depends(get_db)):
+    ts_code = _normalize_route_ts_code(ts_code)
     alerts = (
         db.query(Alert)
         .filter(Alert.ts_code == ts_code)
@@ -624,6 +634,7 @@ def get_stock_alerts(ts_code: str, db: Session = Depends(get_db)):
 
 @router.get("/{ts_code}/ai-analysis")
 def get_stock_ai_analysis(ts_code: str, db: Session = Depends(get_db)):
+    ts_code = _normalize_route_ts_code(ts_code)
     record = get_latest_stock_analysis(db, ts_code)
     if not record:
         return {"analysis": None}
@@ -632,6 +643,7 @@ def get_stock_ai_analysis(ts_code: str, db: Session = Depends(get_db)):
 
 @router.post("/{ts_code}/ai-analysis-task")
 def create_stock_ai_analysis_task(ts_code: str, body: StockAiAnalysisRequest):
+    ts_code = _normalize_route_ts_code(ts_code)
     payload = body.model_dump()
     payload["mode"] = payload.get("mode") or "deep"
     task_key = json.dumps(
@@ -675,6 +687,7 @@ def get_stock_ai_analysis_task(task_id: str):
 
 @router.post("/{ts_code}/ai-analysis")
 def run_stock_ai_analysis(ts_code: str, body: StockAiAnalysisRequest, db: Session = Depends(get_db)):
+    ts_code = _normalize_route_ts_code(ts_code)
     try:
         return analyze_stock_detail(
             db,
@@ -695,6 +708,7 @@ def run_stock_ai_analysis(ts_code: str, body: StockAiAnalysisRequest, db: Sessio
 
 @router.get("/{ts_code}/details", response_model=list[TradeDetailOut])
 def get_stock_details(ts_code: str, db: Session = Depends(get_db)):
+    ts_code = _normalize_route_ts_code(ts_code)
     details = (
         db.query(TradeDetail)
         .filter(TradeDetail.ts_code == ts_code)
@@ -707,6 +721,7 @@ def get_stock_details(ts_code: str, db: Session = Depends(get_db)):
 
 @router.post("/{ts_code}/details", response_model=TradeDetailOut, status_code=201)
 def create_stock_detail(ts_code: str, body: TradeDetailCreate, db: Session = Depends(get_db)):
+    ts_code = _normalize_route_ts_code(ts_code)
     basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
     if not basic:
         raise AppError(code=5001, message="股票不存在", status_code=404)

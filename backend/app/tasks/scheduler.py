@@ -8,9 +8,11 @@ from datetime import datetime
 from app.services.scheduled_jobs_service import (
     run_4pm_collect_limit_up_job,
     run_5pm_sync_latest_kline_job,
+    run_idle_pool_kline_backfill_job,
     run_industry_report_job,
     run_intraday_scan_job,
 )
+from app.config import IDLE_KLINE_BACKFILL_ENABLED, IDLE_KLINE_BACKFILL_INTERVAL_MINUTES
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,7 @@ class DailyJobScheduler:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_run_date: dict[str, str] = {}
+        self._last_run_at: dict[str, datetime] = {}
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -47,6 +50,15 @@ class DailyJobScheduler:
 
     def _mark_run(self, key: str, now: datetime):
         self._last_run_date[key] = now.strftime("%Y%m%d")
+
+    def _should_run_interval(self, key: str, now: datetime, interval_minutes: int) -> bool:
+        last = self._last_run_at.get(key)
+        if last is None:
+            return True
+        return (now - last).total_seconds() >= max(1, interval_minutes) * 60
+
+    def _mark_interval_run(self, key: str, now: datetime):
+        self._last_run_at[key] = now
 
     def _safe_run(self, key: str, fn):
         try:
@@ -80,6 +92,17 @@ class DailyJobScheduler:
             if self._should_run("sync_latest_kline_17", now, 17, 0):
                 if self._safe_run("sync_latest_kline_17", run_5pm_sync_latest_kline_job):
                     self._mark_run("sync_latest_kline_17", now)
+
+            if (
+                IDLE_KLINE_BACKFILL_ENABLED
+                and self._should_run_interval(
+                    "idle_pool_kline_backfill",
+                    now,
+                    IDLE_KLINE_BACKFILL_INTERVAL_MINUTES,
+                )
+            ):
+                self._mark_interval_run("idle_pool_kline_backfill", now)
+                self._safe_run("idle_pool_kline_backfill", run_idle_pool_kline_backfill_job)
 
             time.sleep(20)
 

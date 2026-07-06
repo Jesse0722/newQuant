@@ -12,7 +12,7 @@ import {
   getCoreWatchCodes, toggleCoreWatch,
 } from '../../api/pools'
 import { runStockAiAnalysis, runStockAiAnalysisTask, searchStocks } from '../../api/stocks'
-import { getStockChartWithMarks } from '../../api/strategy'
+import { getStockChartPreview, getStockChartWithMarks } from '../../api/strategy'
 import { syncPool } from '../../api/sync'
 import { getPoolRules, createPoolRule, deleteRule, listTemplates } from '../../api/monitor'
 import type {
@@ -77,6 +77,7 @@ const PoolList: React.FC = () => {
 
   const [stockSearchOptions, setStockSearchOptions] = useState<Array<{ value: string; label: string }>>([])
   const [stockSearching, setStockSearching] = useState(false)
+  const [addingStock, setAddingStock] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [poolRules, setPoolRules] = useState<MonitorRule[]>([])
   const [monitorTemplates, setMonitorTemplates] = useState<MonitorTemplate[]>([])
@@ -339,7 +340,10 @@ const PoolList: React.FC = () => {
     }
     const reqSeq = ++chartReqSeqRef.current
     setChartLoading(true)
-    getStockChartWithMarks(selectedCode, chartPeriod, selectedLimitUpDate)
+    const chartRequest = isMainWavePool
+      ? getStockChartPreview(selectedCode, chartPeriod)
+      : getStockChartWithMarks(selectedCode, chartPeriod, selectedLimitUpDate)
+    chartRequest
       .then(res => {
         if (reqSeq !== chartReqSeqRef.current) return
         chartCacheRef.current.set(cacheKey, res.data)
@@ -358,32 +362,35 @@ const PoolList: React.FC = () => {
         if (reqSeq !== chartReqSeqRef.current) return
         setChartLoading(false)
       })
-  }, [selectedCode, chartPeriod, selectedLimitUpDate])
+  }, [isMainWavePool, selectedCode, chartPeriod, selectedLimitUpDate])
 
   // Chart rendering with signal marks
   useEffect(() => {
+    if (chartLoading) return
     if (chartInstance.current) {
       try { chartInstance.current.dispose() } catch { /* noop */ }
       chartInstance.current = null
     }
-    const timer = setTimeout(() => {
-      if (!chartDivRef.current || !chartData?.quotes?.length) return
-      chartInstance.current = echarts.init(chartDivRef.current)
-      const { quotes, indicators, signal_marks } = chartData
-      const dates = quotes.map(q => q.date)
-      const ohlc = quotes.map(q => [q.open, q.close, q.low, q.high])
-      const volumes = quotes.map(q => ({
-        value: q.vol,
-        itemStyle: { color: q.close >= q.open ? '#ec0000' : '#00da3c' },
-      }))
+    let timer: number | undefined
+    const frame = window.requestAnimationFrame(() => {
+      timer = window.setTimeout(() => {
+        if (!chartDivRef.current || !chartData?.quotes?.length) return
+        chartInstance.current = echarts.init(chartDivRef.current)
+        const { quotes, indicators, signal_marks } = chartData
+        const dates = quotes.map(q => q.date)
+        const ohlc = quotes.map(q => [q.open, q.close, q.low, q.high])
+        const volumes = quotes.map(q => ({
+          value: q.vol,
+          itemStyle: { color: q.close >= q.open ? '#ec0000' : '#00da3c' },
+        }))
 
-      const markPoints: ChartMark[] = []
-      const markLines: ChartMark[] = []
-      const addedDate = selectedStock?.added_at ? dayjs(selectedStock.added_at).format('YYYYMMDD') : ''
-      if (addedDate && dates.includes(addedDate)) {
-        const addedQuote = quotes.find(q => q.date === addedDate)
-        const addedY = addedQuote?.low ?? addedQuote?.close
-        if (typeof addedY === 'number' && Number.isFinite(addedY) && addedY > 0) {
+        const markPoints: ChartMark[] = []
+        const markLines: ChartMark[] = []
+        const addedDate = selectedStock?.added_at ? dayjs(selectedStock.added_at).format('YYYYMMDD') : ''
+        if (addedDate && dates.includes(addedDate)) {
+          const addedQuote = quotes.find(q => q.date === addedDate)
+          const addedY = addedQuote?.low ?? addedQuote?.close
+          if (typeof addedY === 'number' && Number.isFinite(addedY) && addedY > 0) {
         markPoints.push({
           name: '加入池时间',
           coord: [addedDate, addedY],
@@ -490,9 +497,14 @@ const PoolList: React.FC = () => {
         ],
         series,
       }, true)
-    }, 80)
-    return () => clearTimeout(timer)
-  }, [chartData, subIndicator, selectedCode, selectedStock?.added_at])
+      chartInstance.current.resize()
+    }, 0)
+    })
+    return () => {
+      window.cancelAnimationFrame(frame)
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [chartData, chartLoading, subIndicator, selectedCode, selectedStock?.added_at])
 
   useEffect(() => {
     const onResize = () => chartInstance.current?.resize()
@@ -640,14 +652,29 @@ const PoolList: React.FC = () => {
   }
 
   const handleAddStock = async () => {
-    const values = await addForm.validateFields()
-    await addStock(activePoolId, values)
-    message.success('添加成功')
-    setAddModalOpen(false)
-    addForm.resetFields()
-    setStockSearchOptions([])
-    loadInitial(activePoolId)
-    fetchPools()
+    if (!activePoolId || addingStock) return
+    try {
+      const values = await addForm.validateFields()
+      const rawCode = String(values.ts_code || '').trim()
+      const exact = stockSearchOptions.find((option) => option.value === rawCode)
+      const fuzzyMatches = stockSearchOptions.filter((option) => option.label.includes(rawCode))
+      const matchedCode = exact?.value || (fuzzyMatches.length === 1 ? fuzzyMatches[0].value : rawCode)
+      setAddingStock(true)
+      await addStock(activePoolId, { ...values, ts_code: matchedCode })
+      message.success('添加成功')
+      setAddModalOpen(false)
+      addForm.resetFields()
+      setStockSearchOptions([])
+      loadInitial(activePoolId)
+      fetchPools()
+    } catch (error: unknown) {
+      const maybeResponse = (error as { response?: { data?: { message?: string } } }).response
+      if (maybeResponse?.data?.message) {
+        message.error(maybeResponse.data.message)
+      }
+    } finally {
+      setAddingStock(false)
+    }
   }
 
   const handleDeleteStock = async (stockId: string) => {
@@ -950,6 +977,7 @@ const PoolList: React.FC = () => {
               onImport={() => setImportModalOpen(true)}
               onSelectStock={setSelectedCode}
               onTogglePin={handleTogglePin}
+              poolId={activePoolId}
               selectedStock={selectedStock}
               stocks={stocks}
             />
@@ -983,10 +1011,18 @@ const PoolList: React.FC = () => {
 
       {/* ===== Modals ===== */}
 
-      <Modal title="添加股票" open={addModalOpen} onOk={handleAddStock} onCancel={() => { setAddModalOpen(false); setStockSearchOptions([]) }}>
+      <Modal
+        title="添加股票"
+        open={addModalOpen}
+        onOk={handleAddStock}
+        confirmLoading={addingStock}
+        okButtonProps={{ disabled: !activePoolId }}
+        onCancel={() => { setAddModalOpen(false); setStockSearchOptions([]); addForm.resetFields() }}
+      >
         <Form form={addForm} layout="vertical">
-          <Form.Item name="ts_code" label="股票" rules={[{ required: true, message: '请输入股票代码或名称' }]}>
+          <Form.Item name="ts_code" label="股票" extra="可输入完整代码；输入名称搜索后请选择下拉结果。" rules={[{ required: true, message: '请输入股票代码或名称' }]}>
             <AutoComplete options={stockSearchOptions} placeholder="输入代码或名称搜索" onSearch={handleStockSearch}
+              onSelect={(value) => addForm.setFieldValue('ts_code', value)}
               notFoundContent={stockSearching ? '搜索中...' : stockSearchOptions.length === 0 ? '输入至少2个字符' : null} />
           </Form.Item>
           <Form.Item name="added_price" label="加入价格"><InputNumber style={{ width: '100%' }} placeholder="可选" /></Form.Item>
