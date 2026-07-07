@@ -20,23 +20,52 @@ except Exception:  # pragma: no cover - 允许未安装时仍可导入模块
 from app.config import (
     COMPOSITE_ORDER,
     DATA_PROVIDER,
+    MARKET_DATA_REQUEST_TIMEOUT_SECONDS,
+    MARKET_DATA_RETRY_WARNING_COOLDOWN_SECONDS,
     TUSHARE_API_URL,
     TUSHARE_TOKEN,
 )
 from app.utils import normalize_ts_code
 
 logger = logging.getLogger(__name__)
+_warning_lock = threading.Lock()
+_warning_last_at: dict[str, float] = {}
+
+
+def _warning_key(label: str) -> str:
+    text = str(label or "")
+    return text.split("(", 1)[0].split()[0] or text
+
+
+def _log_warning_throttled(key: str, message: str, *args):
+    now = time.monotonic()
+    cooldown = max(0, int(MARKET_DATA_RETRY_WARNING_COOLDOWN_SECONDS))
+    with _warning_lock:
+        last = _warning_last_at.get(key)
+        if last is not None and now - last < cooldown:
+            logger.debug(message, *args)
+            return
+        _warning_last_at[key] = now
+    logger.warning(message, *args)
 
 
 def _call_with_retry(label: str, fn, retries: int = 2, base_sleep: float = 0.9):
     """网络类调用：失败时有限次重试（指数退避），最后一次异常向上抛出。"""
     last: BaseException | None = None
+    warn_key = _warning_key(label)
     for i in range(retries):
         try:
             return fn()
         except Exception as e:
             last = e
-            logger.warning("%s 第 %s/%s 次失败: %s", label, i + 1, retries, str(e)[:160])
+            _log_warning_throttled(
+                warn_key,
+                "%s 第 %s/%s 次失败: %s",
+                label,
+                i + 1,
+                retries,
+                str(e)[:160],
+            )
             if i < retries - 1:
                 time.sleep(base_sleep * (i + 1))
     assert last is not None
@@ -372,7 +401,7 @@ class BaoStockAdapter:
 
 
 class TencentAdapter:
-    CURL_TIMEOUT = 20
+    CURL_TIMEOUT = max(3, int(MARKET_DATA_REQUEST_TIMEOUT_SECONDS))
 
     @staticmethod
     def _to_symbol(ts_code: str) -> str:
@@ -564,7 +593,7 @@ class TencentAdapter:
 
 
 class AkshareAdapter:
-    REQUEST_TIMEOUT = 18.0
+    REQUEST_TIMEOUT = max(3.0, float(MARKET_DATA_REQUEST_TIMEOUT_SECONDS))
 
     @staticmethod
     def _to_ts_code(symbol: str) -> str:
@@ -593,7 +622,7 @@ class AkshareAdapter:
                 if df is not None and not df.empty:
                     return df
             except Exception as e:
-                logger.warning("AkShare 行情快照 %s: %s", label, str(e)[:120])
+                _log_warning_throttled("AkShareSpot", "AkShare 行情快照 %s: %s", label, str(e)[:120])
         return pd.DataFrame()
 
     def _zt_pool_df(self, trade_date: str) -> pd.DataFrame:
@@ -605,7 +634,7 @@ class AkshareAdapter:
                     retries=2,
                 )
             except Exception as e:
-                logger.warning("stock_em_zt_pool: %s", str(e)[:120])
+                _log_warning_throttled("stock_em_zt_pool", "stock_em_zt_pool: %s", str(e)[:120])
         if hasattr(ak, "stock_zt_pool_em"):
             try:
                 return _call_with_retry(
@@ -614,7 +643,7 @@ class AkshareAdapter:
                     retries=2,
                 )
             except Exception as e:
-                logger.warning("stock_zt_pool_em: %s", str(e)[:120])
+                _log_warning_throttled("stock_zt_pool_em", "stock_zt_pool_em: %s", str(e)[:120])
         return pd.DataFrame()
 
     def _stock_basic_single_em(self, ts_code: str) -> pd.DataFrame | None:
@@ -633,7 +662,7 @@ class AkshareAdapter:
         try:
             raw = _call_with_retry(f"stock_individual_info_em({sym6})", _fetch, retries=2)
         except Exception as e:
-            logger.warning("stock_individual_info_em %s: %s", ts_code, str(e)[:120])
+            _log_warning_throttled("stock_individual_info_em", "stock_individual_info_em %s: %s", ts_code, str(e)[:120])
             return None
         if raw is None or raw.empty or "item" not in raw.columns:
             return None
@@ -687,7 +716,7 @@ class AkshareAdapter:
                 retries=2,
             )
         except Exception as e:
-            logger.warning("get_stock_basic AkShare 全市场: %s", str(e)[:120])
+            _log_warning_throttled("AkShareStockBasicAll", "get_stock_basic AkShare 全市场: %s", str(e)[:120])
             base = None
         if base is None or base.empty:
             return pd.DataFrame(columns=cols)
@@ -728,7 +757,7 @@ class AkshareAdapter:
         try:
             df = _call_with_retry(f"stock_zh_a_hist({symbol})", _fetch_hist, retries=2)
         except Exception as e:
-            logger.warning("AkShare get_daily %s: %s", ts_code, str(e)[:120])
+            _log_warning_throttled("AkShareDaily", "AkShare get_daily %s: %s", ts_code, str(e)[:120])
             return self._empty_daily()
         if df is None or df.empty:
             return self._empty_daily()
@@ -773,7 +802,7 @@ class AkshareAdapter:
         try:
             df = _call_with_retry(f"stock_zh_a_hist_basic({symbol})", _fetch_hist, retries=2)
         except Exception as e:
-            logger.warning("AkShare get_daily_basic %s: %s", ts_code, str(e)[:120])
+            _log_warning_throttled("AkShareDailyBasic", "AkShare get_daily_basic %s: %s", ts_code, str(e)[:120])
             return empty
         if df is None or df.empty:
             return empty
@@ -789,7 +818,8 @@ class AkshareAdapter:
         # 这里若强行使用实时快照并打上历史 trade_date，会污染数据库（同一快照被写入多天）。
         today = datetime.now().strftime("%Y%m%d")
         if trade_date != today:
-            logger.warning(
+            _log_warning_throttled(
+                "AkShareDailyByDateHistory",
                 "AkShare get_daily_by_date 不支持历史日期(%s)，返回空结果避免写入错误历史K线",
                 trade_date,
             )
@@ -797,7 +827,7 @@ class AkshareAdapter:
         try:
             df = self._spot_df()
         except Exception as e:
-            logger.warning("get_daily_by_date spot: %s", str(e)[:120])
+            _log_warning_throttled("AkShareDailyByDateSpot", "get_daily_by_date spot: %s", str(e)[:120])
             return self._empty_daily()
         if df is None or df.empty:
             return self._empty_daily()
@@ -838,7 +868,7 @@ class AkshareAdapter:
         try:
             df = self._spot_df()
         except Exception as e:
-            logger.warning("get_rt_k spot: %s", str(e)[:120])
+            _log_warning_throttled("AkShareRtKSpot", "get_rt_k spot: %s", str(e)[:120])
             return pd.DataFrame()
         if df is None or df.empty or "代码" not in df.columns:
             return pd.DataFrame()
@@ -863,7 +893,7 @@ class AkshareAdapter:
         try:
             full = _call_with_retry("tool_trade_date_hist_sina", ak.tool_trade_date_hist_sina, retries=2)
         except Exception as e:
-            logger.warning("get_sse_open_dates AkShare: %s", str(e)[:120])
+            _log_warning_throttled("AkShareOpenDates", "get_sse_open_dates AkShare: %s", str(e)[:120])
             return []
         if full is None or full.empty or "trade_date" not in full.columns:
             return []
@@ -890,7 +920,7 @@ class AkshareAdapter:
             g["rank"] = g["up_nums"].rank(method="min", ascending=False).astype(int).astype(str)
             return g[["ts_code", "name", "trade_date", "up_nums", "pct_chg", "rank"]]
         except Exception as e:
-            logger.warning("get_limit_cpt_list: %s", str(e)[:120])
+            _log_warning_throttled("AkShareLimitCpt", "get_limit_cpt_list: %s", str(e)[:120])
             return pd.DataFrame()
 
     def get_limit_step(self, trade_date: str) -> pd.DataFrame:
@@ -908,7 +938,7 @@ class AkshareAdapter:
                 return out[["ts_code", "name", "trade_date", "nums", "industry"]]
             return out[["ts_code", "name", "trade_date", "nums"]]
         except Exception as e:
-            logger.warning("get_limit_step: %s", str(e)[:120])
+            _log_warning_throttled("AkShareLimitStep", "get_limit_step: %s", str(e)[:120])
             return pd.DataFrame()
 
 

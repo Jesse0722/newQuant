@@ -32,6 +32,8 @@ COMPOSITE_ORDER = [
     for x in (os.getenv("COMPOSITE_ORDER") or "tencent,baostock,akshare").split(",")
     if x.strip()
 ]
+MARKET_DATA_REQUEST_TIMEOUT_SECONDS = float(os.getenv("MARKET_DATA_REQUEST_TIMEOUT_SECONDS") or "8")
+MARKET_DATA_RETRY_WARNING_COOLDOWN_SECONDS = int(os.getenv("MARKET_DATA_RETRY_WARNING_COOLDOWN_SECONDS") or "300")
 APP_ENV = (os.getenv("APP_ENV") or "development").strip().lower()
 AUTO_INIT_DB = env_flag("AUTO_INIT_DB", True)
 RUN_STARTUP_MIGRATIONS = env_flag("RUN_STARTUP_MIGRATIONS", True)
