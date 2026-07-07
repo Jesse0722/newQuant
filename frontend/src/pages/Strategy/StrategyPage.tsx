@@ -13,7 +13,7 @@ import { listSectors, type SectorBasicItem } from '../../api/market'
 import { listPools, batchAddStocks, quickCreatePool } from '../../api/pools'
 import type { JsonObject, JsonValue, Pool, StockChartDataWithMarks } from '../../types'
 import { upsertNotification } from '../../services/notificationCenter'
-import { openStockDetail } from '../../utils/openStockDetail'
+import { openStockDetail, stockDetailPath } from '../../utils/openStockDetail'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const MAX_CONDITIONS = 10
@@ -206,10 +206,12 @@ const getInitialStrategyTab = (): StrategyTabKey => {
 }
 
 const MainWaveStockPreview: React.FC<{
+  asButton?: boolean
   enabled: boolean
   label: React.ReactNode
   tsCode: string
-}> = ({ enabled, label, tsCode }) => {
+  trigger?: 'hover' | 'click'
+}> = ({ asButton = false, enabled, label, tsCode, trigger = 'hover' }) => {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
   const requestSeqRef = useRef(0)
@@ -345,8 +347,10 @@ const MainWaveStockPreview: React.FC<{
     }
   }, [])
 
-  const link = <a onClick={() => openStockDetail(tsCode)}>{label}</a>
-  if (!enabled) return link
+  const triggerNode = asButton
+    ? <Button size="small" type="link">{label}</Button>
+    : <a href={stockDetailPath(tsCode)} target="_blank" rel="noreferrer">{label}</a>
+  if (!enabled) return triggerNode
 
   const content = (
     <div style={{ width: 380, height: 260 }}>
@@ -371,12 +375,12 @@ const MainWaveStockPreview: React.FC<{
   return (
     <Popover
       content={content}
-      trigger="hover"
+      trigger={trigger}
       placement="right"
       mouseEnterDelay={0.25}
       onOpenChange={handleOpenChange}
     >
-      {link}
+      {triggerNode}
     </Popover>
   )
 }
@@ -817,11 +821,27 @@ const StrategyPage: React.FC = () => {
     ] : []),
     {
       title: '操作',
-      width: 110,
+      width: activeTab === 'main_wave' ? 190 : 110,
       render: (_: unknown, r: { ts_code: string }) => (
-        <Button size="small" type="link" onClick={() => openAddSingleStock(r.ts_code)}>
-          加入股票池
-        </Button>
+        <Space size={4}>
+          {activeTab === 'main_wave' && (
+            <>
+              <MainWaveStockPreview
+                asButton
+                enabled
+                trigger="click"
+                tsCode={r.ts_code}
+                label="K线"
+              />
+              <Button size="small" type="link" href={stockDetailPath(r.ts_code)} target="_blank" rel="noreferrer">
+                详情
+              </Button>
+            </>
+          )}
+          <Button size="small" type="link" onClick={() => openAddSingleStock(r.ts_code)}>
+            加入股票池
+          </Button>
+        </Space>
       ),
     },
   ]
