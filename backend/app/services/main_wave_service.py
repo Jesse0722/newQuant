@@ -11,6 +11,8 @@ from app.models.stock import DailyQuote, StockBasic
 from app.services.indicator import calc_ma, calc_vol_ma
 from app.services.sector_data_service import SOURCE as SECTOR_SOURCE, fetch_stock_concept_sectors
 
+MainWaveCache = dict[str, dict[Any, Any]]
+
 MAIN_WAVE_THEME_KEYWORDS = (
     "AI",
     "算力",
@@ -33,7 +35,17 @@ MAIN_WAVE_THEME_KEYWORDS = (
 )
 
 
-def _quote_df(db: Session, ts_code: str, limit: int = 180) -> pd.DataFrame:
+def _cache_bucket(cache: MainWaveCache | None, name: str) -> dict[Any, Any] | None:
+    if cache is None:
+        return None
+    return cache.setdefault(name, {})
+
+
+def _quote_df(db: Session, ts_code: str, limit: int = 180, cache: MainWaveCache | None = None) -> pd.DataFrame:
+    bucket = _cache_bucket(cache, "quotes")
+    cache_key = (ts_code, limit)
+    if bucket is not None and cache_key in bucket:
+        return bucket[cache_key].copy()
     rows = (
         db.query(DailyQuote)
         .filter(DailyQuote.ts_code == ts_code)
@@ -44,7 +56,7 @@ def _quote_df(db: Session, ts_code: str, limit: int = 180) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
     rows = list(reversed(rows))
-    return pd.DataFrame(
+    df = pd.DataFrame(
         [
             {
                 "trade_date": r.trade_date,
@@ -60,9 +72,16 @@ def _quote_df(db: Session, ts_code: str, limit: int = 180) -> pd.DataFrame:
             for r in rows
         ]
     )
+    if bucket is not None:
+        bucket[cache_key] = df
+    return df
 
 
-def _sector_quote_df(db: Session, sector_code: str, limit: int = 80) -> pd.DataFrame:
+def _sector_quote_df(db: Session, sector_code: str, limit: int = 80, cache: MainWaveCache | None = None) -> pd.DataFrame:
+    bucket = _cache_bucket(cache, "sector_quotes")
+    cache_key = (sector_code, limit)
+    if bucket is not None and cache_key in bucket:
+        return bucket[cache_key].copy()
     rows = (
         db.query(SectorDailyQuote)
         .filter(SectorDailyQuote.sector_code == sector_code)
@@ -73,7 +92,7 @@ def _sector_quote_df(db: Session, sector_code: str, limit: int = 80) -> pd.DataF
     if not rows:
         return pd.DataFrame()
     rows = list(reversed(rows))
-    return pd.DataFrame(
+    df = pd.DataFrame(
         [
             {
                 "trade_date": r.trade_date,
@@ -84,6 +103,9 @@ def _sector_quote_df(db: Session, sector_code: str, limit: int = 80) -> pd.DataF
             if r.close is not None
         ]
     )
+    if bucket is not None:
+        bucket[cache_key] = df
+    return df
 
 
 def _theme_keyword_score(name: str) -> int:
@@ -91,17 +113,27 @@ def _theme_keyword_score(name: str) -> int:
     return sum(1 for keyword in MAIN_WAVE_THEME_KEYWORDS if keyword.lower() in text.lower())
 
 
-def _sector_recent_quote_count(db: Session, sector_code: str | None) -> int:
+def _sector_recent_quote_count(db: Session, sector_code: str | None, cache: MainWaveCache | None = None) -> int:
     if not sector_code:
         return 0
-    return (
+    bucket = _cache_bucket(cache, "sector_quote_counts")
+    if bucket is not None and sector_code in bucket:
+        return int(bucket[sector_code])
+    count = (
         db.query(SectorDailyQuote)
         .filter(SectorDailyQuote.sector_code == sector_code)
         .count()
     )
+    if bucket is not None:
+        bucket[sector_code] = count
+    return count
 
 
-def _rank_sector_candidates(db: Session, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _rank_sector_candidates(
+    db: Session,
+    candidates: list[dict[str, Any]],
+    cache: MainWaveCache | None = None,
+) -> list[dict[str, Any]]:
     dedup: dict[str, dict[str, Any]] = {}
     for item in candidates:
         name = str(item.get("sector_name") or "").strip()
@@ -120,7 +152,7 @@ def _rank_sector_candidates(db: Session, candidates: list[dict[str, Any]]) -> li
         return (
             0 if sector_type == "concept" else 1,
             -_theme_keyword_score(str(item.get("sector_name") or "")),
-            -_sector_recent_quote_count(db, str(sector_code) if sector_code else None),
+            -_sector_recent_quote_count(db, str(sector_code) if sector_code else None, cache=cache),
             -(float(hot) if hot is not None else 0.0),
             -(float(pct) if pct is not None else 0.0),
             str(item.get("sector_name") or ""),
@@ -129,7 +161,12 @@ def _rank_sector_candidates(db: Session, candidates: list[dict[str, Any]]) -> li
     return sorted(rows, key=sort_key)
 
 
-def get_relevant_concept_candidates(db: Session, ts_code: str, limit: int = 8) -> list[dict[str, Any]]:
+def get_relevant_concept_candidates(
+    db: Session,
+    ts_code: str,
+    limit: int = 8,
+    cache: MainWaveCache | None = None,
+) -> list[dict[str, Any]]:
     """返回个股最相关概念候选，概念板块优先，行业仅作兜底。"""
     code = ts_code.upper()
     basic = db.query(StockBasic).filter(StockBasic.ts_code == code).first()
@@ -184,7 +221,7 @@ def get_relevant_concept_candidates(db: Session, ts_code: str, limit: int = 8) -
                 "latest_pct_chg": sector.latest_pct_chg if sector else None,
             }
         )
-    return _rank_sector_candidates(db, candidates)[:limit]
+    return _rank_sector_candidates(db, candidates, cache=cache)[:limit]
 
 
 def _pct_return(df: pd.DataFrame, days: int) -> float | None:
@@ -328,24 +365,31 @@ def _sector_resonance_score(
     preferred_sector_codes: list[str] | None = None,
     fallback_industry: str | None = None,
     allow_external_sector_fetch: bool = True,
+    cache: MainWaveCache | None = None,
 ) -> tuple[int, list[str], dict[str, Any]]:
-    maps_q = (
-        db.query(StockSectorMap)
-        .filter(StockSectorMap.ts_code == ts_code)
-    )
     preferred_codes = [str(x) for x in (preferred_sector_codes or []) if x]
-    if preferred_codes:
-        maps = (
-            maps_q.filter(StockSectorMap.sector_code.in_(preferred_codes))
-            .order_by(StockSectorMap.sector_name.asc())
+    maps_bucket = _cache_bucket(cache, "stock_sector_maps")
+    all_maps = maps_bucket.get(ts_code) if maps_bucket is not None else None
+    if all_maps is None:
+        all_maps = (
+            db.query(StockSectorMap)
+            .filter(StockSectorMap.ts_code == ts_code)
+            .order_by(StockSectorMap.sector_type.asc(), StockSectorMap.sector_name.asc())
             .all()
+        )
+        if maps_bucket is not None:
+            maps_bucket[ts_code] = all_maps
+
+    if preferred_codes:
+        preferred_set = set(preferred_codes)
+        maps = sorted(
+            [m for m in all_maps if m.sector_code in preferred_set],
+            key=lambda m: m.sector_name or "",
         )
     else:
         maps = []
-    source_maps = maps_q.filter(StockSectorMap.source == SECTOR_SOURCE).all()
-    maps = maps or source_maps or (
-        maps_q.order_by(StockSectorMap.sector_type.asc(), StockSectorMap.sector_name.asc()).limit(12).all()
-    )
+    source_maps = [m for m in all_maps if m.source == SECTOR_SOURCE]
+    maps = maps or source_maps or all_maps[:12]
     candidates = [
         {
             "sector_code": m.sector_code,
@@ -357,7 +401,7 @@ def _sector_resonance_score(
         for m in maps
     ]
     if not candidates and allow_external_sector_fetch:
-        candidates = get_relevant_concept_candidates(db, ts_code, limit=8)
+        candidates = get_relevant_concept_candidates(db, ts_code, limit=8, cache=cache)
     if not candidates and fallback_industry:
         industry = str(fallback_industry).strip()
         if industry:
@@ -370,7 +414,7 @@ def _sector_resonance_score(
                     "latest_pct_chg": None,
                 }
             ]
-    candidates = _rank_sector_candidates(db, candidates)
+    candidates = _rank_sector_candidates(db, candidates, cache=cache)
     sectors = [
         {
             "sector_code": item.get("sector_code"),
@@ -403,7 +447,7 @@ def _sector_resonance_score(
             }
         if not m.get("sector_code"):
             continue
-        sdf = _sector_quote_df(db, str(m["sector_code"]), limit=40)
+        sdf = _sector_quote_df(db, str(m["sector_code"]), limit=40, cache=cache)
         if len(sdf) < 21 or stock_ret20 is None:
             continue
         sector_ret20 = _pct_return(sdf, 20)
@@ -470,10 +514,16 @@ def analyze_main_wave_stock(
     ts_code: str,
     preferred_sector_codes: list[str] | None = None,
     allow_external_sector_fetch: bool = True,
+    cache: MainWaveCache | None = None,
 ) -> dict[str, Any]:
     code = ts_code.upper()
-    df = _quote_df(db, code)
-    basic = db.query(StockBasic).filter(StockBasic.ts_code == code).first()
+    df = _quote_df(db, code, cache=cache)
+    basic_bucket = _cache_bucket(cache, "basics")
+    basic = basic_bucket.get(code) if basic_bucket is not None else None
+    if basic_bucket is None or code not in basic_bucket:
+        basic = db.query(StockBasic).filter(StockBasic.ts_code == code).first()
+        if basic_bucket is not None:
+            basic_bucket[code] = basic
     if df.empty or len(df) < 60:
         return {
             "ts_code": code,
@@ -502,6 +552,7 @@ def analyze_main_wave_stock(
         preferred_sector_codes=preferred_sector_codes,
         fallback_industry=basic.industry if basic else None,
         allow_external_sector_fetch=allow_external_sector_fetch,
+        cache=cache,
     )
     total = trend_score + structure_score + pullback_score + sector_score
 
@@ -550,8 +601,9 @@ def scan_main_wave_pool(
     stocks = q.order_by(WatchStock.pinned.desc(), WatchStock.created_at.desc()).all()
     status_set = set(statuses or [])
     rows: list[dict[str, Any]] = []
+    cache: MainWaveCache = {}
     for stock in stocks:
-        item = analyze_main_wave_stock(db, stock.ts_code)
+        item = analyze_main_wave_stock(db, stock.ts_code, allow_external_sector_fetch=False, cache=cache)
         if min_score is not None and int(item.get("total_score") or 0) < min_score:
             continue
         if status_set and item.get("status") not in status_set:

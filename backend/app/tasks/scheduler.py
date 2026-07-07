@@ -8,11 +8,17 @@ from datetime import datetime
 from app.services.scheduled_jobs_service import (
     run_4pm_collect_limit_up_job,
     run_5pm_sync_latest_kline_job,
+    run_idle_main_wave_concept_backfill_job,
     run_idle_pool_kline_backfill_job,
     run_industry_report_job,
     run_intraday_scan_job,
 )
-from app.config import IDLE_KLINE_BACKFILL_ENABLED, IDLE_KLINE_BACKFILL_INTERVAL_MINUTES
+from app.config import (
+    IDLE_KLINE_BACKFILL_ENABLED,
+    IDLE_KLINE_BACKFILL_INTERVAL_MINUTES,
+    IDLE_MAIN_WAVE_CONCEPT_BACKFILL_ENABLED,
+    IDLE_MAIN_WAVE_CONCEPT_BACKFILL_INTERVAL_MINUTES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +109,17 @@ class DailyJobScheduler:
             ):
                 self._mark_interval_run("idle_pool_kline_backfill", now)
                 self._safe_run("idle_pool_kline_backfill", run_idle_pool_kline_backfill_job)
+
+            if (
+                IDLE_MAIN_WAVE_CONCEPT_BACKFILL_ENABLED
+                and self._should_run_interval(
+                    "idle_main_wave_concept_backfill",
+                    now,
+                    IDLE_MAIN_WAVE_CONCEPT_BACKFILL_INTERVAL_MINUTES,
+                )
+            ):
+                self._mark_interval_run("idle_main_wave_concept_backfill", now)
+                self._safe_run("idle_main_wave_concept_backfill", run_idle_main_wave_concept_backfill_job)
 
             time.sleep(20)
 

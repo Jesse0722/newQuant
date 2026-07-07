@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import func
 from app.database import SessionLocal
+from app.models.sector import StockSectorMap
 from app.models.pool import WatchStock
 from app.models.stock import DailyQuote
 from app.models.sync_log import SyncLog
@@ -17,11 +18,15 @@ from app.config import (
     IDLE_KLINE_BACKFILL_MAX_SECONDS,
     IDLE_KLINE_BACKFILL_RETRY_COOLDOWN_HOURS,
     IDLE_KLINE_BACKFILL_TARGET_ROWS,
+    IDLE_MAIN_WAVE_CONCEPT_BACKFILL_BATCH_SIZE,
+    IDLE_MAIN_WAVE_CONCEPT_BACKFILL_MAX_SECONDS,
+    IDLE_MAIN_WAVE_CONCEPT_BACKFILL_RETRY_COOLDOWN_HOURS,
 )
 from app.services.limit_up_service import get_or_create_limit_up_pool, collect_limit_up_stocks
 from app.services.trade_date_resolver import resolve_dashboard_trade_date
 from app.services.trading_session import is_a_share_trading_session
 from app.services.buy_signal_service import scan_pool_buy_signals
+from app.services.main_wave_sector_backfill_service import _ensure_stock_f10_sectors, _get_main_wave_pool
 from app.services.sync_service import _sync_stock_basic_full, sync_stock_info, sync_daily, sync_daily_backward
 from app.services.industry_report_service import generate_industry_report
 
@@ -242,6 +247,192 @@ def _recent_idle_backfill_attempts(db) -> set[str]:
             if ts_code:
                 attempted.add(str(ts_code))
     return attempted
+
+
+def _recent_main_wave_concept_attempts(db) -> set[str]:
+    threshold = datetime.utcnow() - timedelta(
+        hours=max(1, int(IDLE_MAIN_WAVE_CONCEPT_BACKFILL_RETRY_COOLDOWN_HOURS))
+    )
+    logs = (
+        db.query(SyncLog.result)
+        .filter(
+            SyncLog.task_type == "idle_main_wave_concept_backfill",
+            SyncLog.started_at >= threshold,
+            SyncLog.result.isnot(None),
+        )
+        .order_by(SyncLog.started_at.desc())
+        .limit(50)
+        .all()
+    )
+    attempted: set[str] = set()
+    for (raw,) in logs:
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            continue
+        for item in payload.get("items") or []:
+            ts_code = item.get("ts_code") if isinstance(item, dict) else None
+            if ts_code:
+                attempted.add(str(ts_code))
+    return attempted
+
+
+def run_idle_main_wave_concept_backfill_job() -> dict:
+    """
+    空闲时预热主升浪池股票的概念映射。
+
+    主升浪评分需要股票-概念映射和板块 K 线。若在页面扫描时逐股拉 F10，
+    会把池内扫描拖到分钟级；这里提前小批量补齐映射，使页面扫描只读本地库。
+    """
+    result = {
+        "job": "idle_main_wave_concept_backfill",
+        "ran": False,
+        "reason": "",
+        "pool_id": None,
+        "pool_name": None,
+        "total_stocks": 0,
+        "missing_candidates": 0,
+        "selected_limit": 0,
+        "processed": 0,
+        "updated": 0,
+        "skipped": 0,
+        "failed": 0,
+        "items": [],
+    }
+    if is_a_share_trading_session():
+        return {**result, "reason": "trading_session"}
+
+    db = SessionLocal()
+    log_id = str(uuid.uuid4())
+    try:
+        if _has_kline_sync_running():
+            return {**result, "reason": "kline_or_sector_sync_running"}
+
+        pool = _get_main_wave_pool(db, None)
+        if not pool:
+            return {**result, "reason": "main_wave_pool_not_found"}
+        result["pool_id"] = pool.id
+        result["pool_name"] = pool.name
+
+        batch_size = max(1, int(IDLE_MAIN_WAVE_CONCEPT_BACKFILL_BATCH_SIZE))
+        max_seconds = max(10, int(IDLE_MAIN_WAVE_CONCEPT_BACKFILL_MAX_SECONDS))
+        started = time.monotonic()
+        recent_attempts = _recent_main_wave_concept_attempts(db)
+
+        stocks = (
+            db.query(WatchStock)
+            .filter(WatchStock.pool_id == pool.id)
+            .order_by(WatchStock.pinned.desc(), WatchStock.created_at.desc())
+            .all()
+        )
+        result["total_stocks"] = len(stocks)
+        candidates = []
+        for stock in stocks:
+            if stock.ts_code in recent_attempts:
+                continue
+            mapped_count = (
+                db.query(func.count(StockSectorMap.sector_code))
+                .filter(StockSectorMap.ts_code == stock.ts_code)
+                .scalar()
+                or 0
+            )
+            if int(mapped_count) <= 0:
+                candidates.append(stock)
+
+        result["missing_candidates"] = len(candidates)
+        selected = candidates[:batch_size]
+        result["selected_limit"] = batch_size
+        if not selected:
+            return {**result, "reason": "no_candidate"}
+
+        db.add(
+            SyncLog(
+                id=log_id,
+                task_type="idle_main_wave_concept_backfill",
+                target=pool.id,
+                status="running",
+            )
+        )
+        db.commit()
+
+        for stock in selected:
+            if time.monotonic() - started >= max_seconds:
+                result["reason"] = "time_budget_exhausted"
+                break
+            before = (
+                db.query(func.count(StockSectorMap.sector_code))
+                .filter(StockSectorMap.ts_code == stock.ts_code)
+                .scalar()
+                or 0
+            )
+            try:
+                changed = _ensure_stock_f10_sectors(db, stock.ts_code)
+                after = (
+                    db.query(func.count(StockSectorMap.sector_code))
+                    .filter(StockSectorMap.ts_code == stock.ts_code)
+                    .scalar()
+                    or 0
+                )
+                result["processed"] += 1
+                if int(after) > int(before):
+                    result["updated"] += 1
+                else:
+                    result["skipped"] += 1
+                result["items"].append(
+                    {
+                        "ts_code": stock.ts_code,
+                        "before_count": int(before or 0),
+                        "after_count": int(after or 0),
+                        "changed": int(changed or 0),
+                    }
+                )
+            except Exception as e:
+                result["processed"] += 1
+                result["failed"] += 1
+                result["items"].append({"ts_code": stock.ts_code, "error": str(e)[:120]})
+
+        result["ran"] = True
+        if not result["reason"]:
+            result["reason"] = "processed"
+        log = db.query(SyncLog).filter(SyncLog.id == log_id).first()
+        if log:
+            log.status = "completed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(
+                {
+                    "success_count": result["processed"] - result["failed"],
+                    "failed_count": result["failed"],
+                    "skipped_count": result["skipped"],
+                    "days_synced": 0,
+                    "message": f"主升浪概念映射预热：处理 {result['processed']}，更新 {result['updated']}，失败 {result['failed']}",
+                    **result,
+                },
+                ensure_ascii=False,
+            )
+            db.commit()
+        return result
+    except Exception as e:
+        log = db.query(SyncLog).filter(SyncLog.id == log_id).first()
+        if log:
+            log.status = "failed"
+            log.completed_at = datetime.utcnow()
+            log.result = json.dumps(
+                {
+                    "success_count": result["processed"] - result["failed"],
+                    "failed_count": result["failed"] + 1,
+                    "skipped_count": result["skipped"],
+                    "days_synced": 0,
+                    "message": str(e),
+                    **result,
+                },
+                ensure_ascii=False,
+            )
+            db.commit()
+        raise
+    finally:
+        db.close()
 
 
 def run_idle_pool_kline_backfill_job() -> dict:

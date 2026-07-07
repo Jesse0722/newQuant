@@ -44,7 +44,18 @@ def _get_main_wave_pool(db: Session, pool_id: str | None) -> WatchPool | None:
 
 def _ensure_stock_f10_sectors(db: Session, ts_code: str) -> int:
     try:
-        return upsert_sector_basic(db, fetch_stock_concept_sectors(ts_code))
+        sectors = fetch_stock_concept_sectors(ts_code)
+        sector_count = upsert_sector_basic(db, sectors)
+        map_rows = [
+            {
+                **sector,
+                "ts_code": ts_code,
+                "weight": 1.0,
+            }
+            for sector in sectors
+            if sector.get("sector_code")
+        ]
+        return sector_count + upsert_stock_sector_map(db, map_rows)
     except Exception:
         return 0
 

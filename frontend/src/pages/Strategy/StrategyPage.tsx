@@ -414,6 +414,15 @@ const StrategyPage: React.FC = () => {
   const [resultPage, setResultPage] = useState(1)
   const [resultPageSize, setResultPageSize] = useState(20)
   const [quickForm] = Form.useForm()
+  const recommendedMainWavePool = useMemo(
+    () => pools.find((p) => p.name.includes('主升浪')),
+    [pools]
+  )
+  const mainWaveSelectedPool = useMemo(
+    () => pools.find((p) => p.id === mainWaveParams.scope),
+    [mainWaveParams.scope, pools]
+  )
+  const mainWaveIsFullMarket = mainWaveParams.scope === 'full'
 
   useEffect(() => {
     getScreenTemplates().then((r) => setTemplates(r.data))
@@ -437,7 +446,10 @@ const StrategyPage: React.FC = () => {
 
   const resetMainWaveParams = () => {
     clearStoredMainWaveParams()
-    setMainWaveParams(DEFAULT_MAIN_WAVE_PARAMS)
+    setMainWaveParams({
+      ...DEFAULT_MAIN_WAVE_PARAMS,
+      scope: recommendedMainWavePool?.id || DEFAULT_MAIN_WAVE_PARAMS.scope,
+    })
     message.success('已恢复默认条件')
   }
 
@@ -919,6 +931,16 @@ const StrategyPage: React.FC = () => {
                     ...pools.map((p) => ({ value: p.id, label: `${p.name} (${p.stock_count})` })),
                   ]}
                 />
+                {recommendedMainWavePool && mainWaveParams.scope !== recommendedMainWavePool.id && (
+                  <Button size="small" onClick={() => updateMainWaveParams({ scope: recommendedMainWavePool.id })}>
+                    主升浪池
+                  </Button>
+                )}
+                {mainWaveIsFullMarket ? (
+                  <Tag color="orange">全市场约 7000 只，耗时较长</Tag>
+                ) : mainWaveSelectedPool ? (
+                  <Tag color="blue">{mainWaveSelectedPool.stock_count} 只</Tag>
+                ) : null}
                 <span>概念板块：</span>
                 <Select
                   mode="multiple"
@@ -1016,6 +1038,17 @@ const StrategyPage: React.FC = () => {
               <Button type="primary" loading={loading} onClick={runMainWave}>
                 执行主升浪选股
               </Button>
+              {loading && result && taskKind === 'main_wave' && (
+                <>
+                  <Tag color="processing">{Math.round(result.progress * 100)}%</Tag>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {result.message || '主升浪选股任务运行中'}
+                  </span>
+                  <span className="mono" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                    {result.task_id.slice(0, 8)}
+                  </span>
+                </>
+              )}
               {resultItems.length > 0 && (
                 <Button onClick={() => setAddModalOpen(true)}>
                   添加结果到股票池

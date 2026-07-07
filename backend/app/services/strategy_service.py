@@ -483,6 +483,7 @@ def run_main_wave_screen(task_id: str, scope: str, params: dict):
         codes = _main_wave_scope_codes(db, scope or "full", sector_codes, sector_logic)
         total = len(codes)
         matched: list[dict] = []
+        main_wave_cache: dict = {}
 
         for i, ts_code in enumerate(codes):
             task.progress = (i + 1) / total if total else 1.0
@@ -490,7 +491,13 @@ def run_main_wave_screen(task_id: str, scope: str, params: dict):
             ok, extra_metrics = _passes_main_wave_hard_filters(db, ts_code, params)
             if not ok:
                 continue
-            item = analyze_main_wave_stock(db, ts_code, preferred_sector_codes=sector_codes or None)
+            item = analyze_main_wave_stock(
+                db,
+                ts_code,
+                preferred_sector_codes=sector_codes or None,
+                allow_external_sector_fetch=False,
+                cache=main_wave_cache,
+            )
             item.setdefault("metrics", {}).update(extra_metrics)
             if not _passes_main_wave_score_filters(item, params):
                 continue
