@@ -9,7 +9,7 @@ import {
   ReloadOutlined,
   SyncOutlined,
 } from '@ant-design/icons'
-import { Button, Checkbox, Empty, InputNumber, Progress, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
+import { Button, Checkbox, Empty, InputNumber, Modal, Progress, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import * as echarts from 'echarts'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -23,6 +23,7 @@ import {
   type MainWaveSectorBackfillStatus,
   type MainWaveSectorBackfillTask,
 } from '../../api/market'
+import { cleanupPoolSector } from '../../api/pools'
 import type { StockChartDataWithMarks, WatchStock } from '../../types'
 import { openStockDetail } from '../../utils/openStockDetail'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
@@ -30,11 +31,15 @@ import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 const { Text } = Typography
 
 interface MainWaveResearchPanelProps {
+  activeSectorCode?: string
+  activeSectorName?: string
   onDeleteStock: (stockId: string) => void
   onEditNote: () => void
   onAddStock: () => void
   onImport: () => void
   onExport: () => void
+  onRefreshStocks: (removedStockIds?: string[]) => void
+  onSelectSector: (sector: { code: string; name: string }) => void
   onSelectStock: (tsCode: string) => void
   onTogglePin: (stock: WatchStock) => void
   poolId: string
@@ -67,6 +72,7 @@ const SECTOR_SYNC_META: Record<string, { label: string; color: string }> = {
   pending: { label: '等待', color: 'default' },
   partial: { label: '部分', color: 'gold' },
   success: { label: '已完成', color: 'green' },
+  stale: { label: '已过期', color: 'red' },
   cooldown: { label: '冷却中', color: 'orange' },
   running: { label: '同步中', color: 'blue' },
 }
@@ -92,11 +98,15 @@ function ma20Tag(state?: string) {
 }
 
 const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
+  activeSectorCode,
+  activeSectorName,
   onDeleteStock,
   onEditNote,
   onAddStock,
   onImport,
   onExport,
+  onRefreshStocks,
+  onSelectSector,
   onSelectStock,
   onTogglePin,
   poolId,
@@ -114,23 +124,33 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
   const [ma20Filter, setMa20Filter] = useState<string[]>([])
   const [minScore, setMinScore] = useState<number | null>(null)
   const [resonanceOnly, setResonanceOnly] = useState(false)
+  const [cleaningSectorCode, setCleaningSectorCode] = useState<string | null>(null)
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
+  const analysisMapRef = useRef(analysisMap)
 
-  const loadAnalyses = useCallback(async () => {
+  useEffect(() => {
+    analysisMapRef.current = analysisMap
+  }, [analysisMap])
+
+  const loadAnalyses = useCallback(async (force = false) => {
     if (!stocks.length) {
       setAnalysisMap({})
       return
     }
+    const targetStocks = force
+      ? stocks
+      : stocks.filter((stock) => !analysisMapRef.current[stock.ts_code])
+    if (!targetStocks.length) return
     setLoading(true)
     try {
-      const res = await analyzeMainWaveBatch(stocks.map((stock) => stock.ts_code))
+      const res = await analyzeMainWaveBatch(targetStocks.map((stock) => stock.ts_code))
       const nextMap = Object.fromEntries(
         (res.data.items || []).map((item) => [item.ts_code, item])
       )
       setAnalysisMap((prev) => {
-        const merged = { ...nextMap }
-        for (const [tsCode, existing] of Object.entries(prev)) {
+        const merged = { ...prev, ...nextMap }
+        for (const [tsCode, existing] of Object.entries(analysisMapRef.current)) {
           const next = merged[tsCode]
           const existingSectorCount = existing.metrics?.sectors?.length || 0
           const nextSectorCount = next?.metrics?.sectors?.length || 0
@@ -151,7 +171,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
     } catch {
       setAnalysisMap((prev) => {
         const next = { ...prev }
-        for (const stock of stocks) {
+        for (const stock of targetStocks) {
           if (next[stock.ts_code]) continue
           next[stock.ts_code] = {
             ts_code: stock.ts_code,
@@ -169,7 +189,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
   }, [stocks])
 
   useEffect(() => {
-    loadAnalyses()
+    loadAnalyses(false)
   }, [loadAnalyses])
 
   useEffect(() => {
@@ -208,7 +228,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
         if (res.data.status !== 'running') {
           window.clearInterval(timer)
           loadSectorStatus()
-          loadAnalyses()
+          loadAnalyses(true)
         }
       } catch {
         window.clearInterval(timer)
@@ -235,6 +255,59 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
       setSyncingSectors(false)
     }
   }
+
+  const handleCleanupSector = useCallback(async (item: MainWaveSectorBackfillStatus['items'][number]) => {
+    if (!poolId || !item.sector_code) return
+    setCleaningSectorCode(item.sector_code)
+    try {
+      const previewRes = await cleanupPoolSector(poolId, {
+        sector_code: item.sector_code,
+        dry_run: true,
+      })
+      const preview = previewRes.data
+      if (preview.candidate_count === 0) {
+        message.info(`${preview.sector_name} 暂无可删除标的`)
+        return
+      }
+      const sample = preview.preview.slice(0, 8)
+      Modal.confirm({
+        title: `删除「${preview.sector_name}」相关标的？`,
+        okText: `删除 ${preview.candidate_count} 只`,
+        okButtonProps: { danger: true },
+        cancelText: '取消',
+        content: (
+          <div>
+            <p>
+              将从当前观察池移除命中该概念板块的 {preview.candidate_count} 只股票。
+              {preview.pinned_count > 0 ? ` 其中包含 ${preview.pinned_count} 只置顶股票。` : ''}
+            </p>
+            <Space size={6} wrap>
+              {sample.map((stock) => (
+                <Tag key={stock.stock_id} color={stock.pinned ? 'gold' : 'default'}>
+                  {stock.stock_name || stock.ts_code}
+                </Tag>
+              ))}
+              {preview.candidate_count > sample.length && <Tag>+{preview.candidate_count - sample.length}</Tag>}
+            </Space>
+          </div>
+        ),
+        onOk: async () => {
+          const res = await cleanupPoolSector(poolId, {
+            sector_code: item.sector_code,
+            dry_run: false,
+          })
+          message.success(`已删除 ${res.data.deleted_count} 只「${res.data.sector_name}」相关标的`)
+          onRefreshStocks(res.data.preview.map((stock) => stock.stock_id))
+          loadSectorStatus().catch(() => {})
+        },
+      })
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } }
+      message.error(err.response?.data?.message || '板块标的删除失败')
+    } finally {
+      setCleaningSectorCode(null)
+    }
+  }, [loadSectorStatus, onRefreshStocks, poolId])
 
   const rows = useMemo(() => {
     return stocks.map((stock) => ({
@@ -385,7 +458,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
     }
   }, [])
   const summary = useMemo(() => {
-    const items = Object.values(analysisMap)
+    const items = stocks.map((stock) => analysisMap[stock.ts_code]).filter(Boolean)
     return {
       total: stocks.length,
       confirmed: items.filter(x => x.status === 'main_wave_confirmed').length,
@@ -393,7 +466,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
       warning: items.filter(x => x.status === 'divergence_warning' || x.status === 'exit_signal').length,
       repaired: items.filter(x => x.ma20_state?.state === 'repaired').length,
     }
-  }, [analysisMap, stocks.length])
+  }, [analysisMap, stocks])
 
   const columns: ColumnsType<{ key: string; stock: WatchStock; analysis?: MainWaveAnalysis }> = [
     {
@@ -502,7 +575,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
           <Button size="small" icon={<SyncOutlined spin={syncingSectors || sectorTask?.status === 'running'} />} loading={syncingSectors} onClick={() => handleBackfillSectors('backfill')}>补齐K线</Button>
           <Button size="small" onClick={() => handleBackfillSectors('backfill', true)}>重试失败</Button>
           <Button size="small" onClick={() => handleBackfillSectors('incremental')}>同步增量</Button>
-          <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={loadAnalyses}>刷新评分</Button>
+          <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={() => loadAnalyses(true)}>刷新评分</Button>
         </Space>
       </div>
 
@@ -533,9 +606,22 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
             ))}
           </div>
 
-          <SectorBackfillStatusPanel status={sectorStatus} task={sectorTask} onRefresh={loadSectorStatus} />
+          <SectorBackfillStatusPanel
+            activeSectorCode={activeSectorCode}
+            cleaningSectorCode={cleaningSectorCode}
+            onCleanupSector={handleCleanupSector}
+            onRefresh={loadSectorStatus}
+            onSelectSector={onSelectSector}
+            status={sectorStatus}
+            task={sectorTask}
+          />
 
           <Space size={8} wrap>
+            {activeSectorCode && (
+              <Tag color="cyan" closable onClose={() => onSelectSector({ code: activeSectorCode, name: activeSectorName || activeSectorCode })}>
+                板块 {activeSectorName || activeSectorCode}
+              </Tag>
+            )}
             <Select
               mode="multiple"
               allowClear
@@ -564,7 +650,7 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
             <Table
               columns={columns}
               dataSource={rows}
-              loading={loading}
+              loading={loading && rows.length === 0}
               pagination={false}
               rowKey="key"
               size="small"
@@ -710,12 +796,17 @@ const Metric: React.FC<{ label: string; value: string | number }> = ({ label, va
 )
 
 const SectorBackfillStatusPanel: React.FC<{
+  activeSectorCode?: string
+  cleaningSectorCode?: string | null
+  onCleanupSector: (item: MainWaveSectorBackfillStatus['items'][number]) => void
+  onSelectSector: (sector: { code: string; name: string }) => void
   status: MainWaveSectorBackfillStatus | null
   task: MainWaveSectorBackfillTask | null
   onRefresh: () => void
-}> = ({ status, task, onRefresh }) => {
+}> = ({ activeSectorCode, cleaningSectorCode, onCleanupSector, onSelectSector, status, task, onRefresh }) => {
   const items = status?.items || []
   const progress = status?.concept_count ? Math.round((status.completed_count / status.concept_count) * 100) : 0
+  const staleCount = status?.stale_count ?? items.filter((item) => item.status === 'stale').length
   return (
     <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 10, background: 'rgba(255,255,255,0.03)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
@@ -723,8 +814,10 @@ const SectorBackfillStatusPanel: React.FC<{
           <Text strong>板块K线数据底座</Text>
           <Tag color="blue">概念 {status?.concept_count ?? '-'}</Tag>
           <Tag color="green">完成 {status?.completed_count ?? '-'}</Tag>
+          <Tag color="red">过期 {staleCount}</Tag>
           <Tag color="orange">冷却 {status?.cooldown_count ?? '-'}</Tag>
           <Tag>股票映射 {status?.stock_count ?? '-'}</Tag>
+          {status?.required_trade_date && <Tag>参考 {status.required_trade_date}</Tag>}
         </Space>
         <Button size="small" type="text" icon={<ReloadOutlined />} onClick={onRefresh}>刷新</Button>
       </div>
@@ -739,13 +832,32 @@ const SectorBackfillStatusPanel: React.FC<{
       <Space size={6} wrap style={{ marginTop: 8 }}>
         {items.slice(0, 10).map((item) => {
           const meta = SECTOR_SYNC_META[item.status] || { label: item.status || '-', color: 'default' }
+          const lagText = item.freshness_lag_days == null ? '' : `；落后 ${item.freshness_lag_days} 天`
+          const warning = item.freshness_warning || item.last_error || ''
+          const active = activeSectorCode === item.sector_code
           return (
             <Tooltip
               key={item.sector_code}
-              title={`已有 ${item.quote_count}/${item.target_days || '-'}；最新 ${item.last_trade_date || '-'}；${item.last_error || ''}`}
+              title={`点击筛选该板块股票；已有 ${item.quote_count}/${item.target_days || '-'}；最新 ${item.last_trade_date || '-'}；参考 ${item.required_trade_date || '-'}${lagText}；${warning}`}
             >
-              <Tag color={meta.color} style={{ marginInlineEnd: 0 }}>
-                {item.sector_name} {item.quote_count}/{item.target_days || '-'} {meta.label}
+              <Tag
+                closable
+                closeIcon={<DeleteOutlined />}
+                color={active ? 'cyan' : meta.color}
+                onClick={() => onSelectSector({ code: item.sector_code, name: item.sector_name })}
+                onClose={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onCleanupSector(item)
+                }}
+                style={{
+                  cursor: 'pointer',
+                  marginInlineEnd: 0,
+                  opacity: cleaningSectorCode === item.sector_code ? 0.55 : 1,
+                  outline: active ? '1px solid var(--accent)' : undefined,
+                }}
+              >
+                {item.sector_name} {item.quote_count}/{item.target_days || '-'} {cleaningSectorCode === item.sector_code ? '处理中' : meta.label}
               </Tag>
             </Tooltip>
           )

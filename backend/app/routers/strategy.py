@@ -15,6 +15,7 @@ from app.schemas.strategy import (
     AiAnalyzeRequest,
     LimitUpBuyPointRequest,
     MainWaveScreenRequest,
+    MainWaveBacktestRequest,
     BacktestRequest,
     BacktestResult,
     StrategyBacktestRequest,
@@ -40,6 +41,7 @@ from app.models.sync_log import SyncLog
 from app.models.intraday_scan import IntradayScanConfig
 from app.tasks.background import submit_task, get_task_status
 from app.services.strategy_backtest import run_strategy_backtest_task
+from app.services.main_wave_backtest_service import run_main_wave_backtest_task
 from app.exceptions import AppError
 
 
@@ -177,6 +179,30 @@ def run_main_wave_strategy_screen(body: MainWaveScreenRequest):
         body.model_dump(),
     )
     return {"task_id": task_id}
+
+
+@router.post("/main-wave-backtest")
+def submit_main_wave_backtest(body: MainWaveBacktestRequest):
+    """提交主升浪规则回测任务。"""
+    task_id = submit_task("main_wave_backtest", run_main_wave_backtest_task, body.model_dump())
+    return {"task_id": task_id}
+
+
+@router.get("/main-wave-backtest/{task_id}")
+def get_main_wave_backtest_result(task_id: str):
+    """查询主升浪规则回测任务状态与结果。"""
+    status = get_task_status(task_id)
+    if not status:
+        raise AppError(code=1004, message="任务不存在", status_code=404)
+    return {
+        "task_id": status.id,
+        "type": status.type,
+        "status": status.status,
+        "progress": status.progress,
+        "message": status.message,
+        "result": status.result,
+        "created_at": status.created_at.isoformat(),
+    }
 
 
 @router.post("/backtest", response_model=BacktestResult)

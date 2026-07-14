@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -17,6 +19,11 @@ def _session():
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine)
     return Session()
+
+
+def _date_range(start: str, count: int) -> list[str]:
+    base = datetime.strptime(start, "%Y%m%d")
+    return [(base + timedelta(days=i)).strftime("%Y%m%d") for i in range(count)]
 
 
 def test_analyze_main_wave_stock_scores_uptrend_with_sector_resonance():
@@ -76,6 +83,172 @@ def test_analyze_main_wave_stock_scores_uptrend_with_sector_resonance():
     assert result["total_score"] >= 60
     assert result["ma20_state"]["state"] == "above"
     assert result["scores"]["sector_resonance"] > 0
+
+
+def test_analyze_main_wave_stock_respects_as_of_date():
+    db = _session()
+    db.add(StockBasic(ts_code="000012.SZ", symbol="000012", name="历史股份", industry="软件开发"))
+
+    price = 10.0
+    for trade_date in _date_range("20260401", 80):
+        price *= 1.01
+        db.add(
+            DailyQuote(
+                ts_code="000012.SZ",
+                trade_date=trade_date,
+                open=price * 0.99,
+                high=price * 1.02,
+                low=price * 0.98,
+                close=price,
+                pct_chg=1.0,
+                vol=100000.0,
+                amount=price * 100000.0,
+            )
+        )
+    db.commit()
+
+    result = analyze_main_wave_stock(db, "000012.SZ", as_of_date="20260530")
+
+    assert result["trade_date"] == "20260530"
+    assert result["metrics"]["latest_close"] < price
+
+
+def test_analyze_main_wave_stock_marks_overheated_as_avoid_chase():
+    db = _session()
+    db.add(StockBasic(ts_code="000010.SZ", symbol="000010", name="过热股份", industry="半导体"))
+
+    price = 10.0
+    for i, trade_date in enumerate(_date_range("20260401", 90)):
+        if i >= 70:
+            price *= 1.055
+        else:
+            price *= 1.006
+        db.add(
+            DailyQuote(
+                ts_code="000010.SZ",
+                trade_date=trade_date,
+                open=price * 0.98,
+                high=price * 1.03,
+                low=price * 0.97,
+                close=price,
+                pct_chg=5.5 if i >= 70 else 0.6,
+                vol=350000.0 if i == 70 else 100000.0,
+                amount=price * 100000.0,
+            )
+        )
+    db.commit()
+
+    result = analyze_main_wave_stock(db, "000010.SZ")
+
+    assert result["total_score"] >= 60
+    assert result["status"] == "accelerating_hot"
+    assert result["entry"]["stage"] == "avoid_chase"
+    assert result["entry"]["score"] <= 55
+    assert result["metrics"]["overheat"]["reasons"]
+
+
+def test_analyze_main_wave_stock_rewards_market_relative_strength():
+    db = _session()
+    db.add(StockBasic(ts_code="300001.SZ", symbol="300001", name="逆势股份", industry="软件开发"))
+
+    dates = _date_range("20260409", 90)
+    target_price = 10.0
+    peer_prices = {"300002.SZ": 10.0, "300003.SZ": 10.0, "300004.SZ": 10.0}
+    for idx, trade_date in enumerate(dates):
+        target_pct = 1.0
+        target_price *= 1 + target_pct / 100
+        db.add(
+            DailyQuote(
+                ts_code="300001.SZ",
+                trade_date=trade_date,
+                open=target_price * 0.99,
+                high=target_price * 1.02,
+                low=target_price * 0.98,
+                close=target_price,
+                pct_chg=target_pct,
+                vol=100000.0,
+                amount=target_price * 100000.0,
+            )
+        )
+        for code, price in list(peer_prices.items()):
+            peer_pct = -2.0 if idx == len(dates) - 1 else 0.0
+            price *= 1 + peer_pct / 100
+            peer_prices[code] = price
+            db.add(
+                DailyQuote(
+                    ts_code=code,
+                    trade_date=trade_date,
+                    close=price,
+                    pct_chg=peer_pct,
+                    vol=100000.0,
+                    amount=price * 100000.0,
+                )
+            )
+    db.commit()
+
+    result = analyze_main_wave_stock(db, "300001.SZ")
+
+    assert result["scores"]["market_relative"] > 0
+    assert result["metrics"]["market_proxy"]["group"] == "cyb"
+    assert result["metrics"]["market_proxy"]["latest_pct_chg"] < 0
+    assert result["metrics"]["market_proxy"]["latest_relative_pct_chg"] >= 2
+    assert "大盘/风格下跌时个股逆势上涨" in result["reasons"]["market_relative"]
+
+
+def test_stale_sector_quotes_do_not_add_resonance_score():
+    db = _session()
+    db.add(StockBasic(ts_code="000011.SZ", symbol="000011", name="新鲜个股", industry="AI算力"))
+    db.add(
+        StockSectorMap(
+            ts_code="000011.SZ",
+            sector_code="BKAI",
+            sector_name="AI算力",
+            sector_type="concept",
+            source="eastmoney_direct",
+        )
+    )
+    price = 10.0
+    for trade_date in _date_range("20260409", 90):
+        price *= 1.006
+        db.add(
+            DailyQuote(
+                ts_code="000011.SZ",
+                trade_date=trade_date,
+                open=price * 0.99,
+                high=price * 1.02,
+                low=price * 0.98,
+                close=price,
+                pct_chg=0.6,
+                vol=100000.0,
+                amount=price * 100000.0,
+            )
+        )
+
+    sector_price = 100.0
+    for trade_date in _date_range("20260413", 40):
+        sector_price *= 1.01
+        db.add(
+            SectorDailyQuote(
+                sector_code="BKAI",
+                trade_date=trade_date,
+                sector_name="AI算力",
+                sector_type="concept",
+                source="eastmoney_direct",
+                open=sector_price * 0.99,
+                high=sector_price * 1.01,
+                low=sector_price * 0.98,
+                close=sector_price,
+                pct_chg=1.0,
+            )
+        )
+    db.commit()
+
+    result = analyze_main_wave_stock(db, "000011.SZ")
+
+    assert result["trade_date"] == "20260707"
+    assert result["scores"]["sector_resonance"] == 0
+    assert result["metrics"]["sector_data_status"] == "stale"
+    assert "过期" in result["metrics"]["sector_data_warning"]
 
 
 def test_main_wave_scope_fetches_missing_sector_constituents_and_intersects_pool(monkeypatch):

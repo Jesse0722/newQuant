@@ -9,11 +9,11 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models.sector import SectorBasic, StockSectorMap
+from app.models.sector import SectorBasic, SectorDailyQuote, StockSectorMap
 from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchPool, WatchStock
 from app.services.indicator import calc_ma, calc_macd, calc_rsi, calc_vol_ma, calc_n_day_high
-from app.services.main_wave_service import analyze_main_wave_stock
+from app.services.main_wave_service import analyze_main_wave_stock, _market_group, _market_group_filter
 from app.services.sector_data_service import fetch_sector_constituents, fetch_stock_concept_sectors, upsert_stock_sector_map
 from app.services.tushare_adapter import tushare_adapter
 from app.services.limit_up_service import fetch_limit_up_stocks_in_range
@@ -46,8 +46,17 @@ MAIN_WAVE_DEFAULT_STATUSES = [
     "main_wave_confirmed",
     "breakout_tracking",
     "watching",
-    "divergence_warning",
 ]
+MAIN_WAVE_SCAN_PRELOAD_LOOKBACK_DAYS = 760
+MAIN_WAVE_SCAN_SECTOR_PRELOAD_LOOKBACK_DAYS = 140
+MAIN_WAVE_SCAN_MARKET_PRELOAD_LOOKBACK_DAYS = 130
+MAIN_WAVE_SCAN_PRELOAD_MAX_CODES = 8000
+MAIN_WAVE_SCAN_PRELOAD_CHUNK_SIZE = 500
+MAIN_WAVE_SCAN_PRELOAD_MAX_SECTORS = 800
+
+
+def _chunked(values: list[str], size: int) -> list[list[str]]:
+    return [values[i:i + size] for i in range(0, len(values), size)]
 
 
 def _get_df_from_db(db: Session, ts_code: str, limit: int = 250) -> pd.DataFrame:
@@ -221,6 +230,311 @@ def _float_market_cap_yi(basic: StockBasic | None, latest: DailyQuote | None) ->
     return round(float(latest.close) * float(float_share) / 10000.0, 2)
 
 
+def _main_wave_preload_start_date(end_date: str | None) -> str | None:
+    if not end_date:
+        return None
+    try:
+        return (datetime.strptime(end_date, "%Y%m%d") - timedelta(days=MAIN_WAVE_SCAN_PRELOAD_LOOKBACK_DAYS)).strftime("%Y%m%d")
+    except ValueError:
+        return None
+
+
+def _main_wave_preload_start_date_with_lookback(end_date: str | None, lookback_days: int) -> str | None:
+    if not end_date:
+        return None
+    try:
+        return (datetime.strptime(end_date, "%Y%m%d") - timedelta(days=lookback_days)).strftime("%Y%m%d")
+    except ValueError:
+        return None
+
+
+def _latest_trade_date_for_codes(db: Session, codes: list[str]) -> str | None:
+    latest: str | None = None
+    for chunk in _chunked(codes, MAIN_WAVE_SCAN_PRELOAD_CHUNK_SIZE):
+        row = (
+            db.query(func.max(DailyQuote.trade_date))
+            .filter(DailyQuote.ts_code.in_(chunk))
+            .first()
+        )
+        if row and row[0] and (latest is None or str(row[0]) > latest):
+            latest = str(row[0])
+    return latest
+
+
+def _prime_main_wave_basics(db: Session, codes: list[str], cache: dict) -> dict:
+    started = time.perf_counter()
+    bucket = cache.setdefault("basics", {})
+    for chunk in _chunked(codes, MAIN_WAVE_SCAN_PRELOAD_CHUNK_SIZE):
+        rows = db.query(StockBasic).filter(StockBasic.ts_code.in_(chunk)).all()
+        for row in rows:
+            bucket[row.ts_code] = row
+    return {
+        "loaded_codes": len(bucket),
+        "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
+    }
+
+
+def _prime_main_wave_quote_history(db: Session, codes: list[str], end_date: str | None, cache: dict) -> dict:
+    started = time.perf_counter()
+    preload = {
+        "enabled": False,
+        "loaded_codes": 0,
+        "row_count": 0,
+        "start_date": _main_wave_preload_start_date(end_date),
+        "end_date": end_date,
+        "skipped_reason": None,
+        "elapsed_ms": 0.0,
+    }
+    if not codes:
+        preload["skipped_reason"] = "empty_scope"
+        return preload
+    if not end_date or not preload["start_date"]:
+        preload["skipped_reason"] = "missing_trade_date"
+        return preload
+    if len(codes) > MAIN_WAVE_SCAN_PRELOAD_MAX_CODES:
+        preload["skipped_reason"] = "scope_too_large"
+        return preload
+
+    bucket = cache.setdefault("quote_history", {})
+    columns = ["trade_date", "open", "high", "low", "close", "pct_chg", "vol", "amount", "turnover_rate", "float_share"]
+    for chunk in _chunked(codes, MAIN_WAVE_SCAN_PRELOAD_CHUNK_SIZE):
+        rows = (
+            db.query(
+                DailyQuote.ts_code,
+                DailyQuote.trade_date,
+                DailyQuote.open,
+                DailyQuote.high,
+                DailyQuote.low,
+                DailyQuote.close,
+                DailyQuote.pct_chg,
+                DailyQuote.vol,
+                DailyQuote.amount,
+                DailyQuote.turnover_rate,
+                DailyQuote.float_share,
+            )
+            .filter(
+                DailyQuote.ts_code.in_(chunk),
+                DailyQuote.trade_date >= preload["start_date"],
+                DailyQuote.trade_date <= end_date,
+            )
+            .order_by(DailyQuote.ts_code.asc(), DailyQuote.trade_date.asc())
+            .all()
+        )
+        if not rows:
+            continue
+        raw = pd.DataFrame(
+            [
+                {
+                    "ts_code": row.ts_code,
+                    "trade_date": row.trade_date,
+                    "open": row.open,
+                    "high": row.high,
+                    "low": row.low,
+                    "close": row.close,
+                    "pct_chg": row.pct_chg,
+                    "vol": row.vol,
+                    "amount": row.amount,
+                    "turnover_rate": row.turnover_rate,
+                    "float_share": row.float_share,
+                }
+                for row in rows
+            ]
+        )
+        for ts_code, group in raw.groupby("ts_code"):
+            bucket[str(ts_code)] = group[columns].sort_values("trade_date").reset_index(drop=True)
+
+    preload["enabled"] = True
+    preload["loaded_codes"] = len(bucket)
+    preload["row_count"] = int(sum(len(df) for df in bucket.values()))
+    preload["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)
+    return preload
+
+
+def _prime_main_wave_sector_maps(db: Session, codes: list[str], cache: dict) -> dict:
+    started = time.perf_counter()
+    preload = {"enabled": False, "loaded_codes": 0, "row_count": 0, "sector_count": 0, "elapsed_ms": 0.0}
+    if not codes:
+        return preload
+    bucket = cache.setdefault("stock_sector_maps", {})
+    sector_codes: set[str] = set()
+    row_count = 0
+    for chunk in _chunked(codes, MAIN_WAVE_SCAN_PRELOAD_CHUNK_SIZE):
+        rows = (
+            db.query(StockSectorMap)
+            .filter(StockSectorMap.ts_code.in_(chunk))
+            .order_by(StockSectorMap.ts_code.asc(), StockSectorMap.sector_type.asc(), StockSectorMap.sector_name.asc())
+            .all()
+        )
+        grouped: dict[str, list[StockSectorMap]] = {}
+        for row in rows:
+            grouped.setdefault(row.ts_code, []).append(row)
+            if row.sector_code:
+                sector_codes.add(str(row.sector_code))
+            row_count += 1
+        for code in chunk:
+            bucket[code] = grouped.get(code, [])
+    preload.update({
+        "enabled": True,
+        "loaded_codes": len(bucket),
+        "row_count": row_count,
+        "sector_count": len(sector_codes),
+        "sector_codes": sorted(sector_codes),
+        "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
+    })
+    return preload
+
+
+def _prime_main_wave_sector_quote_history(db: Session, sector_codes: list[str], end_date: str | None, cache: dict) -> dict:
+    started = time.perf_counter()
+    preload = {
+        "enabled": False,
+        "loaded_sectors": 0,
+        "row_count": 0,
+        "start_date": _main_wave_preload_start_date_with_lookback(end_date, MAIN_WAVE_SCAN_SECTOR_PRELOAD_LOOKBACK_DAYS),
+        "end_date": end_date,
+        "skipped_reason": None,
+        "elapsed_ms": 0.0,
+    }
+    if not sector_codes:
+        preload["skipped_reason"] = "empty_scope"
+        return preload
+    if len(sector_codes) > MAIN_WAVE_SCAN_PRELOAD_MAX_SECTORS:
+        preload["skipped_reason"] = "sector_scope_too_large"
+        return preload
+    if not end_date or not preload["start_date"]:
+        preload["skipped_reason"] = "missing_trade_date"
+        return preload
+
+    bucket = cache.setdefault("sector_quote_history", {})
+    columns = ["trade_date", "close", "pct_chg"]
+    for chunk in _chunked(sector_codes, MAIN_WAVE_SCAN_PRELOAD_CHUNK_SIZE):
+        rows = (
+            db.query(SectorDailyQuote.sector_code, SectorDailyQuote.trade_date, SectorDailyQuote.close, SectorDailyQuote.pct_chg)
+            .filter(
+                SectorDailyQuote.sector_code.in_(chunk),
+                SectorDailyQuote.trade_date >= preload["start_date"],
+                SectorDailyQuote.trade_date <= end_date,
+                SectorDailyQuote.close.isnot(None),
+            )
+            .order_by(SectorDailyQuote.sector_code.asc(), SectorDailyQuote.trade_date.asc())
+            .all()
+        )
+        if not rows:
+            continue
+        raw = pd.DataFrame(
+            [
+                {
+                    "sector_code": row.sector_code,
+                    "trade_date": row.trade_date,
+                    "close": row.close,
+                    "pct_chg": row.pct_chg,
+                }
+                for row in rows
+            ]
+        )
+        for sector_code, group in raw.groupby("sector_code"):
+            bucket[str(sector_code)] = group[columns].sort_values("trade_date").reset_index(drop=True)
+
+    preload["enabled"] = True
+    preload["loaded_sectors"] = len(bucket)
+    preload["row_count"] = int(sum(len(df) for df in bucket.values()))
+    preload["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)
+    return preload
+
+
+def _prime_main_wave_market_proxy_history(db: Session, codes: list[str], end_date: str | None, cache: dict) -> dict:
+    started = time.perf_counter()
+    preload = {
+        "enabled": False,
+        "groups": [],
+        "row_count": 0,
+        "start_date": _main_wave_preload_start_date_with_lookback(end_date, MAIN_WAVE_SCAN_MARKET_PRELOAD_LOOKBACK_DAYS),
+        "end_date": end_date,
+        "skipped_reason": None,
+        "elapsed_ms": 0.0,
+    }
+    if not codes:
+        preload["skipped_reason"] = "empty_scope"
+        return preload
+    if not end_date or not preload["start_date"]:
+        preload["skipped_reason"] = "missing_trade_date"
+        return preload
+    groups = sorted({_market_group(code) for code in codes})
+    bucket = cache.setdefault("market_proxy_history", {})
+    for group in groups:
+        condition = _market_group_filter(group)
+        rows = (
+            db.query(DailyQuote.trade_date, DailyQuote.ts_code, DailyQuote.close, DailyQuote.pct_chg)
+            .filter(
+                condition,
+                DailyQuote.trade_date >= preload["start_date"],
+                DailyQuote.trade_date <= end_date,
+                DailyQuote.close.isnot(None),
+            )
+            .order_by(DailyQuote.ts_code.asc(), DailyQuote.trade_date.asc())
+            .all()
+        )
+        if not rows:
+            continue
+        raw = pd.DataFrame(
+            [
+                {
+                    "trade_date": row.trade_date,
+                    "ts_code": row.ts_code,
+                    "close": row.close,
+                    "pct_chg": row.pct_chg,
+                }
+                for row in rows
+            ]
+        )
+        raw["close"] = pd.to_numeric(raw["close"], errors="coerce")
+        raw["pct_chg"] = pd.to_numeric(raw["pct_chg"], errors="coerce")
+        raw["pct_chg"] = raw["pct_chg"].fillna(raw.groupby("ts_code")["close"].pct_change() * 100)
+        raw = raw.dropna(subset=["pct_chg"])
+        if raw.empty:
+            continue
+        grouped = (
+            raw.groupby("trade_date", as_index=False)
+            .agg(pct_chg=("pct_chg", "mean"), member_count=("ts_code", "nunique"))
+            .sort_values("trade_date")
+        )
+        close = 1000.0
+        closes = []
+        for pct_chg in grouped["pct_chg"].tolist():
+            close *= 1 + float(pct_chg) / 100
+            closes.append(round(close, 4))
+        grouped["close"] = closes
+        grouped["pct_chg"] = grouped["pct_chg"].round(4)
+        bucket[group] = grouped.reset_index(drop=True)
+
+    preload["enabled"] = True
+    preload["groups"] = sorted(bucket.keys())
+    preload["row_count"] = int(sum(len(df) for df in bucket.values()))
+    preload["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)
+    return preload
+
+
+def _prime_main_wave_scan_cache(db: Session, codes: list[str], cache: dict) -> dict:
+    started = time.perf_counter()
+    latest_trade_date = _latest_trade_date_for_codes(db, codes)
+    basics = _prime_main_wave_basics(db, codes, cache)
+    quotes = _prime_main_wave_quote_history(db, codes, latest_trade_date, cache)
+    maps = _prime_main_wave_sector_maps(db, codes, cache)
+    sector_quote_codes = maps.get("sector_codes") or []
+    sectors = _prime_main_wave_sector_quote_history(db, sector_quote_codes, latest_trade_date, cache)
+    markets = _prime_main_wave_market_proxy_history(db, codes, latest_trade_date, cache)
+    maps.pop("sector_codes", None)
+    return {
+        "latest_trade_date": latest_trade_date,
+        "basics": basics,
+        "quotes": quotes,
+        "sector_maps": maps,
+        "sector_quotes": sectors,
+        "market_proxy": markets,
+        "total_elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
+    }
+
+
 def _watch_pool_codes(db: Session, scope: str) -> list[str]:
     pool = db.query(WatchPool).filter(WatchPool.id == scope).first()
     if not pool:
@@ -370,10 +684,34 @@ def _passes_main_wave_hard_filters(
     db: Session,
     ts_code: str,
     params: dict,
+    cache: dict | None = None,
 ) -> tuple[bool, dict]:
-    basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
-    latest = _latest_quote(db, ts_code)
-    if not latest or latest.close is None:
+    basic_bucket = (cache or {}).get("basics") or {}
+    quote_history = (cache or {}).get("quote_history") or {}
+    basic = basic_bucket.get(ts_code)
+    if basic is None and ts_code not in basic_bucket:
+        basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
+
+    history = quote_history.get(ts_code)
+    latest = None
+    latest_close = None
+    latest_float_share = None
+    avg_amount_yi = None
+    quote_count = None
+    if history is not None and not history.empty:
+        quote_count = len(history)
+        latest_row = history.iloc[-1]
+        latest_close = latest_row.get("close")
+        latest_float_share = latest_row.get("float_share")
+        amount_series = history.tail(20)["amount"] if "amount" in history.columns else pd.Series(dtype=float)
+        amount_vals = pd.to_numeric(amount_series, errors="coerce").dropna()
+        if not amount_vals.empty:
+            avg_amount_yi = round(float(amount_vals.mean()) / 100000.0, 2)
+    else:
+        latest = _latest_quote(db, ts_code)
+        latest_close = latest.close if latest else None
+
+    if latest_close is None or pd.isna(latest_close):
         return False, {"skip_reason": "缺少最新行情"}
 
     name = basic.name if basic else ""
@@ -381,10 +719,12 @@ def _passes_main_wave_hard_filters(
         return False, {"skip_reason": "ST或退市风险"}
 
     min_days = int(params.get("min_data_days") or 120)
-    if _quote_count(db, ts_code) < min_days:
+    if quote_count is None:
+        quote_count = _quote_count(db, ts_code)
+    if quote_count < min_days:
         return False, {"skip_reason": f"K线不足{min_days}日"}
 
-    close = float(latest.close)
+    close = float(latest_close)
     min_price = params.get("min_price")
     max_price = params.get("max_price")
     if min_price is not None and close < float(min_price):
@@ -392,12 +732,17 @@ def _passes_main_wave_hard_filters(
     if max_price is not None and close > float(max_price):
         return False, {"skip_reason": "价格高于上限"}
 
-    cap_yi = _float_market_cap_yi(basic, latest)
+    if latest is not None:
+        cap_yi = _float_market_cap_yi(basic, latest)
+    else:
+        float_share = latest_float_share if latest_float_share is not None and not pd.isna(latest_float_share) else (basic.float_share if basic else None)
+        cap_yi = round(close * float(float_share) / 10000.0, 2) if float_share is not None else None
     min_cap = params.get("min_float_market_cap_yi")
     if min_cap is not None and (cap_yi is None or cap_yi < float(min_cap)):
         return False, {"skip_reason": "流通市值低于下限", "float_market_cap_yi": cap_yi}
 
-    avg_amount_yi = _avg_amount_20d_yi(db, ts_code)
+    if avg_amount_yi is None:
+        avg_amount_yi = _avg_amount_20d_yi(db, ts_code)
     min_amount = params.get("min_avg_amount_20d_yi")
     if min_amount is not None and (avg_amount_yi is None or avg_amount_yi < float(min_amount)):
         return False, {"skip_reason": "20日成交额低于下限", "avg_amount_20d_yi": avg_amount_yi}
@@ -432,18 +777,33 @@ def _passes_main_wave_score_filters(item: dict, params: dict) -> bool:
             return False
 
     best_sector = metrics.get("best_sector") or {}
-    if params.get("require_sector_resonance", True) and int((item.get("scores") or {}).get("sector_resonance") or 0) <= 0:
+    sector_status = metrics.get("sector_data_status")
+    sector_is_stale_or_missing = sector_status in {"stale", "missing"}
+    if (
+        params.get("require_sector_resonance", False)
+        and not sector_is_stale_or_missing
+        and int((item.get("scores") or {}).get("sector_resonance") or 0) <= 0
+    ):
         return False
     min_sector_return = params.get("min_sector_return_20d")
-    if min_sector_return is not None:
+    if min_sector_return is not None and not sector_is_stale_or_missing:
         sector_return = best_sector.get("sector_return_20d")
         if sector_return is None or float(sector_return) < float(min_sector_return):
             return False
     min_relative = params.get("min_relative_strength_20d")
-    if min_relative is not None:
+    if min_relative is not None and not sector_is_stale_or_missing:
         relative = best_sector.get("relative_strength_20d")
         if relative is None or float(relative) < float(min_relative):
             return False
+    entry = item.get("entry") or {}
+    entry_stages = set(params.get("entry_stages") or [])
+    if entry_stages and entry.get("stage") not in entry_stages:
+        return False
+    min_entry_score = params.get("min_entry_score")
+    if min_entry_score is not None and int(entry.get("score") or 0) < int(min_entry_score):
+        return False
+    if params.get("exclude_overheat", True) and entry.get("stage") == "avoid_chase":
+        return False
     return True
 
 
@@ -451,6 +811,7 @@ def _main_wave_result_item(item: dict) -> dict:
     scores = item.get("scores") or {}
     metrics = item.get("metrics") or {}
     best_sector = metrics.get("best_sector") or {}
+    entry = item.get("entry") or {}
     return {
         "ts_code": item.get("ts_code"),
         "stock_name": item.get("name") or "",
@@ -460,11 +821,22 @@ def _main_wave_result_item(item: dict) -> dict:
         "structure_score": scores.get("structure") or 0,
         "pullback_repair_score": scores.get("pullback_repair") or 0,
         "sector_resonance_score": scores.get("sector_resonance") or 0,
+        "market_relative_score": scores.get("market_relative") or 0,
         "best_sector": best_sector,
+        "market_proxy": metrics.get("market_proxy"),
         "return_20d": metrics.get("return_20d"),
         "return_60d": metrics.get("return_60d"),
         "relative_strength_20d": best_sector.get("relative_strength_20d"),
         "ma20_state": item.get("ma20_state"),
+        "entry_score": entry.get("score"),
+        "entry_stage": entry.get("stage"),
+        "entry_label": entry.get("label"),
+        "entry_reasons": entry.get("reasons") or [],
+        "entry_risks": entry.get("risks") or [],
+        "sector_data_status": metrics.get("sector_data_status"),
+        "sector_data_warning": metrics.get("sector_data_warning"),
+        "overheat_reasons": (metrics.get("overheat") or {}).get("reasons") or [],
+        "data_quality": metrics.get("data_quality"),
         "float_market_cap_yi": metrics.get("float_market_cap_yi"),
         "avg_amount_20d_yi": metrics.get("avg_amount_20d_yi"),
     }
@@ -477,42 +849,84 @@ def run_main_wave_screen(task_id: str, scope: str, params: dict):
         return
     db = SessionLocal()
     try:
+        scan_started = time.perf_counter()
         sector_codes = [str(x) for x in (params.get("sector_codes") or []) if x]
         sector_logic = str(params.get("sector_logic") or "any")
         task.message = "正在准备主升浪扫描范围..."
+        task.progress = 0.01
+        scope_started = time.perf_counter()
         codes = _main_wave_scope_codes(db, scope or "full", sector_codes, sector_logic)
+        scope_elapsed_ms = round((time.perf_counter() - scope_started) * 1000, 1)
         total = len(codes)
         matched: list[dict] = []
         main_wave_cache: dict = {}
+        hard_filter_elapsed = 0.0
+        analyze_elapsed = 0.0
+        score_filter_elapsed = 0.0
+        hard_filtered = 0
+        score_filtered = 0
+
+        task.progress = 0.03
+        task.message = f"正在预载主升浪扫描数据：{total} 只"
+        preload = _prime_main_wave_scan_cache(db, codes, main_wave_cache)
+        as_of_date = preload.get("latest_trade_date")
 
         for i, ts_code in enumerate(codes):
-            task.progress = (i + 1) / total if total else 1.0
-            task.message = f"主升浪扫描 {i + 1}/{total}"
-            ok, extra_metrics = _passes_main_wave_hard_filters(db, ts_code, params)
+            task.progress = 0.08 + ((i + 1) / total) * 0.86 if total else 0.94
+            if i == 0 or (i + 1) % 25 == 0 or i + 1 == total:
+                elapsed = time.perf_counter() - scan_started
+                task.message = f"主升浪评分 {i + 1}/{total}，已命中 {len(matched)}，耗时 {elapsed:.1f}s"
+            hard_started = time.perf_counter()
+            ok, extra_metrics = _passes_main_wave_hard_filters(db, ts_code, params, cache=main_wave_cache)
+            hard_filter_elapsed += time.perf_counter() - hard_started
             if not ok:
+                hard_filtered += 1
                 continue
+            analyze_started = time.perf_counter()
             item = analyze_main_wave_stock(
                 db,
                 ts_code,
                 preferred_sector_codes=sector_codes or None,
                 allow_external_sector_fetch=False,
                 cache=main_wave_cache,
+                as_of_date=as_of_date,
             )
+            analyze_elapsed += time.perf_counter() - analyze_started
             item.setdefault("metrics", {}).update(extra_metrics)
+            score_started = time.perf_counter()
             if not _passes_main_wave_score_filters(item, params):
+                score_filter_elapsed += time.perf_counter() - score_started
+                score_filtered += 1
                 continue
+            score_filter_elapsed += time.perf_counter() - score_started
             matched.append(_main_wave_result_item(item))
 
+        sort_started = time.perf_counter()
         matched.sort(key=lambda x: (-(int(x.get("total_score") or 0)), str(x.get("ts_code") or "")))
+        sort_elapsed_ms = round((time.perf_counter() - sort_started) * 1000, 1)
+        elapsed_total = time.perf_counter() - scan_started
         task.result = {
             "ts_codes": [x["ts_code"] for x in matched if x.get("ts_code")],
             "stock_names": {x["ts_code"]: x.get("stock_name", "") for x in matched if x.get("ts_code")},
             "items": matched,
             "total": len(matched),
+            "performance": {
+                "scope_elapsed_ms": scope_elapsed_ms,
+                "preload": preload,
+                "hard_filter_elapsed_ms": round(hard_filter_elapsed * 1000, 1),
+                "analyze_elapsed_ms": round(analyze_elapsed * 1000, 1),
+                "score_filter_elapsed_ms": round(score_filter_elapsed * 1000, 1),
+                "sort_elapsed_ms": sort_elapsed_ms,
+                "total_elapsed_ms": round(elapsed_total * 1000, 1),
+                "total_codes": total,
+                "hard_filtered": hard_filtered,
+                "score_filtered": score_filtered,
+                "matched": len(matched),
+            },
         }
         task.status = "completed"
         task.progress = 1.0
-        task.message = f"主升浪筛选完成，共 {len(matched)} 只"
+        task.message = f"主升浪筛选完成，共 {len(matched)} 只，耗时 {elapsed_total:.1f}s"
     except Exception as e:
         task.status = "failed"
         task.message = str(e)

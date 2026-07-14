@@ -16,12 +16,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.sector import SectorBasic, SectorDailyQuote, SectorQuoteSyncState, StockSectorMap
+from app.models.stock import DailyQuote
 from app.utils import normalize_ts_code
 
 logger = logging.getLogger(__name__)
 
 SectorType = Literal["concept", "industry"]
 SOURCE = "eastmoney_direct"
+LOCAL_PROXY_SOURCE = "local_proxy"
 
 _CLIST_HOSTS = (
     "https://79.push2.eastmoney.com",
@@ -452,27 +454,198 @@ def _normalize_hist_df(df: pd.DataFrame, sector: SectorBasic) -> list[dict[str, 
     return out
 
 
-def fetch_sector_daily_quotes(sector: SectorBasic, start_date: str, end_date: str, *, limit: int | None = None) -> list[dict[str, Any]]:
-    raw_code = sector.raw_code or sector.sector_code
-    if not raw_code:
+def _fetch_sector_daily_quotes_akshare(
+    sector: SectorBasic,
+    start_date: str,
+    end_date: str,
+    *,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    import akshare as ak  # type: ignore
+
+    name = str(sector.sector_name or "").strip()
+    if not name:
         return []
-    period_map = {"concept": "101", "industry": "101"}
-    params = {
-        "secid": f"90.{raw_code}",
-        "fields1": "f1,f2,f3,f4,f5,f6",
-        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
-        "klt": period_map.get(str(sector.sector_type), "101"),
-        "fqt": 1,
-        "beg": start_date,
-        "end": end_date,
-        "lmt": limit or 1000000,
-    }
-    payload = _em_get_json(_KLINE_HOSTS, "/api/qt/stock/kline/get", params)
-    klines = ((payload.get("data") or {}).get("klines") or [])
-    rows = _normalize_kline_rows(klines, sector)
+    if str(sector.sector_type) == "industry":
+        df = ak.stock_board_industry_hist_em(
+            symbol=name,
+            start_date=start_date,
+            end_date=end_date,
+            period="日k",
+            adjust="",
+        )
+    else:
+        df = ak.stock_board_concept_hist_em(
+            symbol=name,
+            period="daily",
+            start_date=start_date,
+            end_date=end_date,
+            adjust="",
+        )
+    rows = _normalize_hist_df(df, sector)
     if limit is not None and limit > 0:
         rows = rows[-limit:]
     return rows
+
+
+def fetch_sector_daily_quotes(
+    sector: SectorBasic,
+    start_date: str,
+    end_date: str,
+    *,
+    limit: int | None = None,
+    allow_fallback: bool = True,
+) -> list[dict[str, Any]]:
+    raw_code = sector.raw_code or sector.sector_code
+    primary_error: Exception | None = None
+    if raw_code:
+        period_map = {"concept": "101", "industry": "101"}
+        params = {
+            "secid": f"90.{raw_code}",
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+            "klt": period_map.get(str(sector.sector_type), "101"),
+            "fqt": 1,
+            "beg": start_date,
+            "end": end_date,
+            "lmt": limit or 1000000,
+        }
+        try:
+            payload = _em_get_json(_KLINE_HOSTS, "/api/qt/stock/kline/get", params)
+            klines = ((payload.get("data") or {}).get("klines") or [])
+            rows = _normalize_kline_rows(klines, sector)
+            if limit is not None and limit > 0:
+                rows = rows[-limit:]
+            if rows:
+                return rows
+        except Exception as exc:
+            primary_error = exc
+
+    fallback_error: Exception | None = None
+    if allow_fallback:
+        try:
+            rows = _fetch_sector_daily_quotes_akshare(sector, start_date=start_date, end_date=end_date, limit=limit)
+            if rows:
+                logger.info("sector quote fallback used: %s %s rows=%s", sector.sector_code, sector.sector_name, len(rows))
+                return rows
+        except Exception as exc:
+            fallback_error = exc
+
+    if primary_error:
+        if fallback_error:
+            raise EastMoneyRequestError(f"{primary_error}; akshare fallback: {fallback_error}") from primary_error
+        raise primary_error
+    return []
+
+
+def build_local_proxy_sector_daily_quotes(
+    db: Session,
+    sector: SectorBasic,
+    start_date: str,
+    end_date: str,
+    *,
+    limit: int | None = None,
+    min_members: int = 5,
+) -> list[dict[str, Any]]:
+    members = [
+        row[0]
+        for row in (
+            db.query(StockSectorMap.ts_code)
+            .filter(StockSectorMap.sector_code == sector.sector_code)
+            .distinct()
+            .all()
+        )
+        if row[0]
+    ]
+    if len(members) < min_members:
+        return []
+
+    rows = (
+        db.query(
+            DailyQuote.ts_code,
+            DailyQuote.trade_date,
+            DailyQuote.close,
+            DailyQuote.pct_chg,
+            DailyQuote.vol,
+            DailyQuote.amount,
+        )
+        .filter(
+            DailyQuote.ts_code.in_(members),
+            DailyQuote.trade_date >= start_date,
+            DailyQuote.trade_date <= end_date,
+            DailyQuote.close.isnot(None),
+        )
+        .order_by(DailyQuote.ts_code.asc(), DailyQuote.trade_date.asc())
+        .all()
+    )
+    if not rows:
+        return []
+
+    df = pd.DataFrame(
+        [
+            {
+                "ts_code": r.ts_code,
+                "trade_date": r.trade_date,
+                "close": r.close,
+                "pct_chg": r.pct_chg,
+                "vol": r.vol,
+                "amount": r.amount,
+            }
+            for r in rows
+        ]
+    )
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df["pct_chg"] = pd.to_numeric(df["pct_chg"], errors="coerce")
+    fallback_pct = df.groupby("ts_code")["close"].pct_change() * 100
+    df["pct_chg"] = df["pct_chg"].fillna(fallback_pct)
+    df = df.dropna(subset=["pct_chg"])
+    if df.empty:
+        return []
+
+    grouped = (
+        df.groupby("trade_date", as_index=False)
+        .agg(
+            pct_chg=("pct_chg", "mean"),
+            member_count=("ts_code", "nunique"),
+            vol=("vol", "sum"),
+            amount=("amount", "sum"),
+        )
+        .sort_values("trade_date")
+    )
+    grouped = grouped[grouped["member_count"] >= min_members]
+    if limit is not None and limit > 0:
+        grouped = grouped.tail(limit)
+    if grouped.empty:
+        return []
+
+    out: list[dict[str, Any]] = []
+    prev_close = 1000.0
+    for _, row in grouped.iterrows():
+        pct_chg = round(float(row["pct_chg"]), 4)
+        open_price = prev_close
+        close = round(prev_close * (1 + pct_chg / 100), 4)
+        high = round(max(open_price, close), 4)
+        low = round(min(open_price, close), 4)
+        out.append(
+            {
+                "sector_code": sector.sector_code,
+                "trade_date": str(row["trade_date"]),
+                "sector_name": sector.sector_name,
+                "sector_type": sector.sector_type,
+                "source": LOCAL_PROXY_SOURCE,
+                "open": round(open_price, 4),
+                "high": high,
+                "low": low,
+                "close": close,
+                "pct_chg": pct_chg,
+                "change": round(close - open_price, 4),
+                "vol": _safe_float(row.get("vol")),
+                "amount": _safe_float(row.get("amount")),
+                "turnover_rate": None,
+            }
+        )
+        prev_close = close
+    return out
 
 
 def upsert_sector_basic(db: Session, rows: list[dict[str, Any]]) -> int:
@@ -662,9 +835,10 @@ def refresh_quote_sync_state(
         row.last_error = last_error
     if next_retry_at is not None:
         row.next_retry_at = next_retry_at
-    if status == "success":
-        row.last_error = None
+    if status in {"success", "partial", "stale"}:
         row.next_retry_at = None
+        if status != "stale" and last_error is None:
+            row.last_error = None
     if status == "success":
         row.last_success_at = datetime.utcnow()
     row.updated_at = datetime.utcnow()

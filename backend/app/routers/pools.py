@@ -10,9 +10,10 @@ from fastapi import APIRouter, Depends, UploadFile, File, Query, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, select
 from app.database import get_db
 from app.models.pool import WatchPool, WatchStock
+from app.models.sector import SectorBasic, StockSectorMap
 from app.models.stock import StockBasic, DailyQuote
 from app.schemas.pool import (
     PoolCreate, PoolUpdate, PoolOut,
@@ -34,6 +35,11 @@ class LimitUpPoolCleanupRequest(BaseModel):
     days: int = Field(20, ge=1, le=120, description="最近 N 个交易日内没有涨停则清理")
     dry_run: bool = Field(True, description="仅预览，不实际删除")
     include_pinned: bool = Field(False, description="是否允许清理置顶股票")
+
+
+class SectorPoolCleanupRequest(BaseModel):
+    sector_code: str = Field(..., min_length=1, description="要清理的概念板块代码")
+    dry_run: bool = Field(True, description="仅预览，不实际删除")
 
 
 def _batch_latest_quotes(db: Session, ts_codes: list[str]) -> dict[str, DailyQuote]:
@@ -234,6 +240,75 @@ def _build_limit_up_cleanup_candidates(
     }
 
 
+def _build_sector_cleanup_candidates(
+    db: Session,
+    pool_id: str,
+    sector_code: str,
+    *,
+    dry_run: bool,
+) -> dict:
+    pool = db.query(WatchPool).filter(WatchPool.id == pool_id).first()
+    if not pool:
+        raise AppError(code=2001, message="观察池不存在", status_code=404)
+
+    code = str(sector_code or "").strip()
+    if not code:
+        raise AppError(code=2003, message="板块代码不能为空", status_code=400)
+
+    sector = db.query(SectorBasic).filter(SectorBasic.sector_code == code).first()
+    mapping_rows = (
+        db.query(StockSectorMap.ts_code, StockSectorMap.sector_name, StockSectorMap.sector_type)
+        .filter(StockSectorMap.sector_code == code)
+        .all()
+    )
+    mapped_codes = sorted({row.ts_code for row in mapping_rows if row.ts_code})
+    sector_meta = mapping_rows[0] if mapping_rows else None
+    rows = (
+        db.query(WatchStock)
+        .filter(
+            WatchStock.pool_id == pool_id,
+            WatchStock.ts_code.in_(mapped_codes),
+        )
+        .order_by(WatchStock.pinned.desc(), WatchStock.created_at.desc())
+        .all()
+        if mapped_codes
+        else []
+    )
+    basic_map = _batch_stock_basics(db, [stock.ts_code for stock in rows])
+    preview = []
+    stock_ids = []
+    pinned_count = 0
+    sector_name = sector.sector_name if sector else getattr(sector_meta, "sector_name", None)
+    sector_type = sector.sector_type if sector else getattr(sector_meta, "sector_type", None)
+    for stock in rows:
+        basic = basic_map.get(stock.ts_code)
+        stock_ids.append(stock.id)
+        if stock.pinned:
+            pinned_count += 1
+        preview.append(
+            {
+                "stock_id": stock.id,
+                "ts_code": stock.ts_code,
+                "stock_name": basic.name if basic else stock.ts_code,
+                "pinned": bool(stock.pinned),
+            }
+        )
+
+    return {
+        "pool_id": pool.id,
+        "pool_name": pool.name,
+        "sector_code": code,
+        "sector_name": sector_name or code,
+        "sector_type": sector_type or "concept",
+        "dry_run": dry_run,
+        "candidate_count": len(preview),
+        "deleted_count": 0,
+        "pinned_count": pinned_count,
+        "preview": preview,
+        "_stock_ids": stock_ids,
+    }
+
+
 def _enrich_stock(
     db: Session,
     stock: WatchStock,
@@ -250,6 +325,30 @@ def _enrich_stock(
         out.pct_chg = latest.pct_chg
         out.trade_date = latest.trade_date
     return out
+
+
+def _make_watch_stock_out(
+    stock: WatchStock,
+    *,
+    basic: StockBasic | None = None,
+    latest: DailyQuote | None = None,
+) -> WatchStockOut:
+    out = WatchStockOut.model_validate(stock)
+    out.stock_name = basic.name if basic else None
+    out.industry = basic.industry if basic else None
+    if latest:
+        out.latest_price = latest.close
+        out.pct_chg = latest.pct_chg
+        out.trade_date = latest.trade_date
+    return out
+
+
+def _apply_sector_stock_filter(query, sector_code: str | None):
+    code = str(sector_code or "").strip()
+    if not code:
+        return query
+    sector_codes = select(StockSectorMap.ts_code).filter(StockSectorMap.sector_code == code)
+    return query.filter(WatchStock.ts_code.in_(sector_codes))
 
 
 def _calc_limit_up_streak_and_5d_pct(db: Session, ts_code: str) -> tuple[int, float | None]:
@@ -350,11 +449,16 @@ def _passes_pool_advanced_filters(
 @router.get("", response_model=list[PoolOut])
 def list_pools(db: Session = Depends(get_db)):
     pools = db.query(WatchPool).order_by(WatchPool.sort_order.asc(), WatchPool.created_at.desc()).all()
+    count_rows = (
+        db.query(WatchStock.pool_id, func.count(WatchStock.id))
+        .group_by(WatchStock.pool_id)
+        .all()
+    )
+    count_map = {pool_id: count for pool_id, count in count_rows}
     result = []
     for p in pools:
-        count = db.query(func.count(WatchStock.id)).filter(WatchStock.pool_id == p.id).scalar()
         out = PoolOut.model_validate(p)
-        out.stock_count = count
+        out.stock_count = count_map.get(p.id, 0)
         result.append(out)
     return result
 
@@ -486,6 +590,33 @@ def cleanup_limit_up_pool(
     return result
 
 
+@router.post("/{pool_id}/cleanup/sector")
+def cleanup_pool_sector(
+    pool_id: str,
+    body: SectorPoolCleanupRequest,
+    db: Session = Depends(get_db),
+):
+    """按概念板块清理当前观察池股票；只影响当前池，不删除全局板块和其它池。"""
+    result = _build_sector_cleanup_candidates(
+        db,
+        pool_id,
+        body.sector_code,
+        dry_run=body.dry_run,
+    )
+    stock_ids = result.pop("_stock_ids", [])
+    if not body.dry_run and stock_ids:
+        rows = (
+            db.query(WatchStock)
+            .filter(WatchStock.pool_id == pool_id, WatchStock.id.in_(stock_ids))
+            .all()
+        )
+        for row in rows:
+            db.delete(row)
+        db.commit()
+        result["deleted_count"] = len(rows)
+    return result
+
+
 @router.get("/{pool_id}", response_model=PoolOut)
 def get_pool(pool_id: str, db: Session = Depends(get_db)):
     pool = db.query(WatchPool).filter(WatchPool.id == pool_id).first()
@@ -528,6 +659,7 @@ def list_stocks(
     monitor_status: str = Query(None),
     limit_up_date_from: str = Query(None, description="涨停日期起 YYYYMMDD"),
     limit_up_date_to: str = Query(None, description="涨停日期止 YYYYMMDD"),
+    sector_code: Optional[str] = Query(None, description="按概念板块代码筛选当前池股票"),
     price_min: Optional[float] = Query(None, description="最新收盘价下限"),
     price_max: Optional[float] = Query(None, description="最新收盘价上限"),
     circ_mv_min: Optional[float] = Query(None, description="估算流通市值下限（亿元，收盘价×流通股本）"),
@@ -563,22 +695,54 @@ def list_stocks(
         q = q.filter(WatchStock.limit_up_date >= limit_up_date_from)
     if limit_up_date_to:
         q = q.filter(WatchStock.limit_up_date <= limit_up_date_to)
+    q = _apply_sector_stock_filter(q, sector_code)
+    need_luc = limit_up_stats_from and limit_up_stats_to and (
+        limit_up_count_min is not None or limit_up_count_max is not None
+    )
+    has_advanced_filter = bool(
+        keyword
+        or price_min is not None
+        or price_max is not None
+        or circ_mv_min is not None
+        or circ_mv_max is not None
+        or need_luc
+        or rising_trend
+    )
+    if not has_advanced_filter:
+        total = q.count()
+        rev = order == "desc"
+        if sort_by == "limit_up_date":
+            null_val = "00000000" if rev else "99999999"
+            sort_expr = func.coalesce(WatchStock.limit_up_date, null_val)
+        else:
+            sort_expr = WatchStock.created_at
+        q = q.order_by(
+            WatchStock.pinned.desc(),
+            sort_expr.desc() if rev else sort_expr.asc(),
+        )
+        page_stocks = q.offset((page - 1) * size).limit(size).all()
+        page_codes = [stock.ts_code for stock in page_stocks]
+        latest_map = _batch_latest_quotes(db, page_codes)
+        basic_map = _batch_stock_basics(db, page_codes)
+        items = [
+            _make_watch_stock_out(stock, basic=basic_map.get(stock.ts_code), latest=latest_map.get(stock.ts_code))
+            for stock in page_stocks
+        ]
+        return WatchStockPagination(items=items, total=total)
+
     stocks = q.all()
     ts_codes = list({s.ts_code for s in stocks})
     latest_map = _batch_latest_quotes(db, ts_codes)
     basic_map = _batch_stock_basics(db, ts_codes)
     luc_map: dict[str, int] = {}
     trend_map: dict[str, bool] = {}
-    need_luc = limit_up_stats_from and limit_up_stats_to and (
-        limit_up_count_min is not None or limit_up_count_max is not None
-    )
     if need_luc:
         luc_map = _batch_limit_up_counts(db, ts_codes, limit_up_stats_from, limit_up_stats_to, basic_map)
     if rising_trend:
         trend_map = _batch_rising_trend_flags(db, ts_codes)
     result = []
     for s in stocks:
-        out = _enrich_stock(db, s)
+        out = _make_watch_stock_out(s, basic=basic_map.get(s.ts_code), latest=latest_map.get(s.ts_code))
         if keyword and keyword.lower() not in (s.ts_code + (out.stock_name or "")).lower():
             continue
         if not _passes_pool_advanced_filters(
@@ -618,6 +782,7 @@ def export_stocks_csv(
     monitor_status: str = Query(None),
     limit_up_date_from: str = Query(None, description="涨停日期起 YYYYMMDD"),
     limit_up_date_to: str = Query(None, description="涨停日期止 YYYYMMDD"),
+    sector_code: Optional[str] = Query(None),
     price_min: Optional[float] = Query(None),
     price_max: Optional[float] = Query(None),
     circ_mv_min: Optional[float] = Query(None),
@@ -652,6 +817,7 @@ def export_stocks_csv(
         q = q.filter(WatchStock.limit_up_date >= limit_up_date_from)
     if limit_up_date_to:
         q = q.filter(WatchStock.limit_up_date <= limit_up_date_to)
+    q = _apply_sector_stock_filter(q, sector_code)
     stocks = q.all()
 
     ts_codes = list({s.ts_code for s in stocks})
@@ -669,7 +835,7 @@ def export_stocks_csv(
 
     result = []
     for s in stocks:
-        out = _enrich_stock(db, s)
+        out = _make_watch_stock_out(s, basic=basic_map.get(s.ts_code), latest=latest_map.get(s.ts_code))
         if keyword and keyword.lower() not in (s.ts_code + (out.stock_name or "")).lower():
             continue
         if not _passes_pool_advanced_filters(

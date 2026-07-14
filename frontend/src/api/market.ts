@@ -13,6 +13,7 @@ export interface MainWaveAnalysis {
     structure: number
     pullback_repair: number
     sector_resonance: number
+    market_relative?: number
   }
   ma20_state?: {
     state: string
@@ -46,12 +47,21 @@ export interface MainWaveAnalysis {
       latest_pct_chg?: number | null
     }>
     sector_count?: number
+    market_proxy?: {
+      group?: string
+      label?: string
+      status?: string
+      latest_pct_chg?: number | null
+      latest_relative_pct_chg?: number | null
+      relative_strength_20d?: number | null
+    }
   }
   reasons?: {
     trend?: string[]
     structure?: string[]
     pullback_repair?: string[]
     sector_resonance?: string[]
+    market_relative?: string[]
   }
 }
 
@@ -116,6 +126,11 @@ export interface MainWaveSectorBackfillItem {
   quote_count: number
   first_trade_date?: string | null
   last_trade_date?: string | null
+  required_trade_date?: string | null
+  freshness_status?: string | null
+  freshness_lag_days?: number | null
+  freshness_warning?: string | null
+  is_fresh?: boolean
   attempts: number
   last_error?: string | null
   next_retry_at?: string | null
@@ -128,8 +143,10 @@ export interface MainWaveSectorBackfillStatus {
   pool_name?: string | null
   stock_count: number
   concept_count: number
+  required_trade_date?: string | null
   completed_count: number
   partial_count: number
+  stale_count?: number
   cooldown_count: number
   missing_count: number
   items: MainWaveSectorBackfillItem[]
@@ -145,6 +162,9 @@ export interface MainWaveSectorBackfillTask {
     quote_count?: number
     map_count?: number
     skipped?: number
+    stale?: number
+    local_proxy?: number
+    required_trade_date?: string | null
     failed?: Array<{
       sector_code: string
       sector_name: string

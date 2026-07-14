@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.sector import SectorBasic, SectorDailyQuote, StockSectorMap
@@ -34,6 +36,23 @@ MAIN_WAVE_THEME_KEYWORDS = (
     "数据中心",
 )
 
+SECTOR_MAX_STALE_CALENDAR_DAYS = 10
+ENTRY_STAGE_LABELS = {
+    "pullback_entry_watch": "回踩买点观察",
+    "breakout_wait_pullback": "突破后等回踩",
+    "trend_hold": "趋势持有观察",
+    "avoid_chase": "过热不追",
+    "risk_observe": "风险观察",
+}
+MARKET_PROXY_LABELS = {
+    "cyb": "创业板代理",
+    "kcb": "科创板代理",
+    "sh_main": "沪主板代理",
+    "sz_main": "深主板代理",
+    "bj": "北交所代理",
+    "all": "全市场代理",
+}
+
 
 def _cache_bucket(cache: MainWaveCache | None, name: str) -> dict[Any, Any] | None:
     if cache is None:
@@ -41,18 +60,30 @@ def _cache_bucket(cache: MainWaveCache | None, name: str) -> dict[Any, Any] | No
     return cache.setdefault(name, {})
 
 
-def _quote_df(db: Session, ts_code: str, limit: int = 180, cache: MainWaveCache | None = None) -> pd.DataFrame:
+def _quote_df(
+    db: Session,
+    ts_code: str,
+    limit: int = 180,
+    cache: MainWaveCache | None = None,
+    end_date: str | None = None,
+) -> pd.DataFrame:
     bucket = _cache_bucket(cache, "quotes")
-    cache_key = (ts_code, limit)
+    cache_key = (ts_code, limit, end_date)
     if bucket is not None and cache_key in bucket:
         return bucket[cache_key].copy()
-    rows = (
-        db.query(DailyQuote)
-        .filter(DailyQuote.ts_code == ts_code)
-        .order_by(DailyQuote.trade_date.desc())
-        .limit(limit)
-        .all()
-    )
+    history_bucket = _cache_bucket(cache, "quote_history")
+    if end_date and history_bucket is not None and ts_code in history_bucket:
+        history = history_bucket[ts_code]
+        if not history.empty:
+            df = history[history["trade_date"] <= end_date].tail(limit).copy()
+            if not df.empty:
+                if bucket is not None:
+                    bucket[cache_key] = df
+                return df
+    query = db.query(DailyQuote).filter(DailyQuote.ts_code == ts_code)
+    if end_date:
+        query = query.filter(DailyQuote.trade_date <= end_date)
+    rows = query.order_by(DailyQuote.trade_date.desc()).limit(limit).all()
     if not rows:
         return pd.DataFrame()
     rows = list(reversed(rows))
@@ -77,18 +108,30 @@ def _quote_df(db: Session, ts_code: str, limit: int = 180, cache: MainWaveCache 
     return df
 
 
-def _sector_quote_df(db: Session, sector_code: str, limit: int = 80, cache: MainWaveCache | None = None) -> pd.DataFrame:
+def _sector_quote_df(
+    db: Session,
+    sector_code: str,
+    limit: int = 80,
+    cache: MainWaveCache | None = None,
+    end_date: str | None = None,
+) -> pd.DataFrame:
     bucket = _cache_bucket(cache, "sector_quotes")
-    cache_key = (sector_code, limit)
+    cache_key = (sector_code, limit, end_date)
     if bucket is not None and cache_key in bucket:
         return bucket[cache_key].copy()
-    rows = (
-        db.query(SectorDailyQuote)
-        .filter(SectorDailyQuote.sector_code == sector_code)
-        .order_by(SectorDailyQuote.trade_date.desc())
-        .limit(limit)
-        .all()
-    )
+    history_bucket = _cache_bucket(cache, "sector_quote_history")
+    if end_date and history_bucket is not None and sector_code in history_bucket:
+        history = history_bucket[sector_code]
+        if not history.empty:
+            df = history[history["trade_date"] <= end_date].tail(limit).copy()
+            if not df.empty:
+                if bucket is not None:
+                    bucket[cache_key] = df
+                return df
+    query = db.query(SectorDailyQuote).filter(SectorDailyQuote.sector_code == sector_code)
+    if end_date:
+        query = query.filter(SectorDailyQuote.trade_date <= end_date)
+    rows = query.order_by(SectorDailyQuote.trade_date.desc()).limit(limit).all()
     if not rows:
         return pd.DataFrame()
     rows = list(reversed(rows))
@@ -106,6 +149,136 @@ def _sector_quote_df(db: Session, sector_code: str, limit: int = 80, cache: Main
     if bucket is not None:
         bucket[cache_key] = df
     return df
+
+
+def _market_group(ts_code: str) -> str:
+    code = str(ts_code or "").upper()
+    symbol = code.split(".")[0]
+    suffix = code.split(".")[-1] if "." in code else ""
+    if suffix == "SZ" and symbol.startswith(("300", "301")):
+        return "cyb"
+    if suffix == "SH" and symbol.startswith("688"):
+        return "kcb"
+    if suffix == "SH":
+        return "sh_main"
+    if suffix == "SZ":
+        return "sz_main"
+    if suffix == "BJ":
+        return "bj"
+    return "all"
+
+
+def _market_group_filter(group: str):
+    if group == "cyb":
+        return or_(DailyQuote.ts_code.like("300%.SZ"), DailyQuote.ts_code.like("301%.SZ"))
+    if group == "kcb":
+        return DailyQuote.ts_code.like("688%.SH")
+    if group == "sh_main":
+        return or_(
+            DailyQuote.ts_code.like("600%.SH"),
+            DailyQuote.ts_code.like("601%.SH"),
+            DailyQuote.ts_code.like("603%.SH"),
+            DailyQuote.ts_code.like("605%.SH"),
+        )
+    if group == "sz_main":
+        return or_(
+            DailyQuote.ts_code.like("000%.SZ"),
+            DailyQuote.ts_code.like("001%.SZ"),
+            DailyQuote.ts_code.like("002%.SZ"),
+            DailyQuote.ts_code.like("003%.SZ"),
+        )
+    if group == "bj":
+        return DailyQuote.ts_code.like("%.BJ")
+    return or_(
+        DailyQuote.ts_code.like("%.SZ"),
+        DailyQuote.ts_code.like("%.SH"),
+        DailyQuote.ts_code.like("%.BJ"),
+    )
+
+
+def _market_proxy_df(
+    db: Session,
+    group: str,
+    limit: int = 80,
+    cache: MainWaveCache | None = None,
+    min_members: int = 3,
+    end_date: str | None = None,
+) -> pd.DataFrame:
+    bucket = _cache_bucket(cache, "market_proxy")
+    cache_key = (group, limit, min_members, end_date)
+    if bucket is not None and cache_key in bucket:
+        return bucket[cache_key].copy()
+    history_bucket = _cache_bucket(cache, "market_proxy_history")
+    if end_date and history_bucket is not None and group in history_bucket:
+        history = history_bucket[group]
+        if not history.empty:
+            grouped = history[history["trade_date"] <= end_date].tail(limit).copy()
+            grouped = grouped[grouped["member_count"] >= min_members]
+            if not grouped.empty:
+                if bucket is not None:
+                    bucket[cache_key] = grouped
+                return grouped.copy()
+    condition = _market_group_filter(group)
+    date_query = (
+        db.query(DailyQuote.trade_date)
+        .filter(condition)
+        .group_by(DailyQuote.trade_date)
+    )
+    if end_date:
+        date_query = date_query.filter(DailyQuote.trade_date <= end_date)
+    dates = [
+        row[0]
+        for row in date_query.order_by(DailyQuote.trade_date.desc()).limit(limit + 5).all()
+        if row[0]
+    ]
+    if not dates:
+        return pd.DataFrame()
+    rows = (
+        db.query(DailyQuote.trade_date, DailyQuote.ts_code, DailyQuote.close, DailyQuote.pct_chg)
+        .filter(condition, DailyQuote.trade_date.in_(dates), DailyQuote.close.isnot(None))
+        .order_by(DailyQuote.ts_code.asc(), DailyQuote.trade_date.asc())
+        .all()
+    )
+    if not rows:
+        return pd.DataFrame()
+    raw = pd.DataFrame(
+        [
+            {
+                "trade_date": r.trade_date,
+                "ts_code": r.ts_code,
+                "close": r.close,
+                "pct_chg": r.pct_chg,
+            }
+            for r in rows
+        ]
+    )
+    raw["close"] = pd.to_numeric(raw["close"], errors="coerce")
+    raw["pct_chg"] = pd.to_numeric(raw["pct_chg"], errors="coerce")
+    raw["pct_chg"] = raw["pct_chg"].fillna(raw.groupby("ts_code")["close"].pct_change() * 100)
+    raw = raw.dropna(subset=["pct_chg"])
+    if raw.empty:
+        return pd.DataFrame()
+    grouped = (
+        raw.groupby("trade_date", as_index=False)
+        .agg(
+            pct_chg=("pct_chg", "mean"),
+            member_count=("ts_code", "nunique"),
+        )
+        .sort_values("trade_date")
+    )
+    grouped = grouped[grouped["member_count"] >= min_members].tail(limit)
+    if grouped.empty:
+        return pd.DataFrame()
+    closes = []
+    close = 1000.0
+    for pct_chg in grouped["pct_chg"].tolist():
+        close *= 1 + float(pct_chg) / 100
+        closes.append(round(close, 4))
+    grouped["close"] = closes
+    grouped["pct_chg"] = grouped["pct_chg"].round(4)
+    if bucket is not None:
+        bucket[cache_key] = grouped
+    return grouped.copy()
 
 
 def _theme_keyword_score(name: str) -> int:
@@ -234,12 +407,56 @@ def _pct_return(df: pd.DataFrame, days: int) -> float | None:
     return round((latest - base) / base * 100, 2)
 
 
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _date_gap_days(start: Any, end: Any) -> int | None:
+    try:
+        s = datetime.strptime(str(start), "%Y%m%d")
+        e = datetime.strptime(str(end), "%Y%m%d")
+    except (TypeError, ValueError):
+        return None
+    return (e - s).days
+
+
+def _distance_pct(value: float | None, base: float | None) -> float | None:
+    if value is None or base is None or base <= 0:
+        return None
+    return round((value - base) / base * 100, 2)
+
+
 def _max_drawdown_pct(close: pd.Series) -> float:
     if close.empty:
         return 0.0
     peak = close.cummax()
     dd = (close - peak) / peak.replace(0, pd.NA) * 100
     return round(abs(float(dd.min() or 0.0)), 2)
+
+
+def _data_quality(df: pd.DataFrame) -> dict[str, Any]:
+    warnings: list[str] = []
+    pct_missing = int(df["pct_chg"].isna().sum()) if "pct_chg" in df.columns else len(df)
+    if pct_missing:
+        warnings.append(f"{pct_missing}日涨跌幅缺失，已按收盘价补算")
+    if "vol" not in df.columns or df["vol"].isna().tail(20).all():
+        warnings.append("近20日成交量缺失")
+    if "amount" not in df.columns or df["amount"].isna().tail(20).all():
+        warnings.append("近20日成交额缺失，成交额过滤可能失真")
+    latest = df.iloc[-1]
+    if pd.isna(latest.get("pct_chg")):
+        warnings.append("最新日涨跌幅缺失")
+    if pd.isna(latest.get("vol")):
+        warnings.append("最新日成交量缺失")
+    return {
+        "score": max(0, 100 - len(warnings) * 20),
+        "warnings": warnings,
+    }
 
 
 def _ma20_state(df: pd.DataFrame) -> dict[str, Any]:
@@ -358,6 +575,126 @@ def _pullback_score(df: pd.DataFrame, ma20: dict[str, Any]) -> tuple[int, list[s
     return min(score, 20), reasons, {"max_drawdown_10d": drawdown}
 
 
+def _overheat_state(df: pd.DataFrame, ma20: dict[str, Any]) -> dict[str, Any]:
+    latest = df.iloc[-1]
+    ret20 = _pct_return(df, 20)
+    ret60 = _pct_return(df, 60)
+    pct_chg = _safe_float(latest.get("pct_chg"))
+    vol = _safe_float(latest.get("vol"))
+    vol_ma20 = _safe_float(latest.get("vol_ma20"))
+    volume_ratio = round(vol / vol_ma20, 2) if vol is not None and vol_ma20 else None
+    distance = ma20.get("distance_pct")
+    reasons: list[str] = []
+
+    if distance is not None and float(distance) > 25:
+        reasons.append("MA20乖离超过25%")
+    if ret20 is not None and ret20 > 60:
+        reasons.append("20日涨幅超过60%")
+    if ret60 is not None and ret60 > 150:
+        reasons.append("60日涨幅超过150%")
+    if pct_chg is not None and pct_chg >= 9.5:
+        reasons.append("最新日涨幅过大")
+    if volume_ratio is not None and volume_ratio >= 3 and pct_chg is not None and pct_chg >= 0:
+        reasons.append("高位放量过快")
+
+    return {
+        "is_hot": bool(reasons),
+        "reasons": reasons,
+        "volume_ratio_20d": volume_ratio,
+        "return_20d": ret20,
+        "return_60d": ret60,
+        "ma20_distance_pct": distance,
+    }
+
+
+def _entry_profile(df: pd.DataFrame, ma20: dict[str, Any], overheat: dict[str, Any]) -> dict[str, Any]:
+    latest = df.iloc[-1]
+    close = _safe_float(latest.get("close"))
+    ma5 = _safe_float(latest.get("ma5"))
+    ma10 = _safe_float(latest.get("ma10"))
+    ma20_val = _safe_float(latest.get("ma20"))
+    pct_chg = _safe_float(latest.get("pct_chg")) or 0.0
+    d5 = _distance_pct(close, ma5)
+    d10 = _distance_pct(close, ma10)
+    d20 = _distance_pct(close, ma20_val)
+    drawdown_10d = _max_drawdown_pct(df.tail(10)["close"])
+    vol = _safe_float(latest.get("vol"))
+    vol_ma20 = _safe_float(latest.get("vol_ma20"))
+    volume_ratio = round(vol / vol_ma20, 2) if vol is not None and vol_ma20 else None
+
+    score = 0
+    reasons: list[str] = []
+    risks: list[str] = []
+    if ma20["state"] in {"above", "repaired"}:
+        score += 20
+        reasons.append("趋势仍在MA20上方或已快速修复")
+    else:
+        risks.append("MA20状态未修复")
+    if ma5 is not None and ma10 is not None and ma20_val is not None and ma5 > ma10 > ma20_val:
+        score += 15
+        reasons.append("均线保持多头")
+    if d10 is not None and -2.5 <= d10 <= 4:
+        score += 20
+        reasons.append("价格靠近MA10")
+    if d20 is not None and -1.5 <= d20 <= 6.5:
+        score += 18
+        reasons.append("价格靠近MA20")
+    if d5 is not None and -1.5 <= d5 <= 3:
+        score += 8
+        reasons.append("价格贴近MA5")
+    if -5 <= pct_chg <= 3:
+        score += 10
+        reasons.append("最新日不是追高形态")
+    elif pct_chg <= -8:
+        risks.append("最新日大跌，需要先看修复")
+    elif pct_chg >= 8:
+        risks.append("最新日涨幅过大")
+    if volume_ratio is not None:
+        if pct_chg < 0 and volume_ratio <= 1.2:
+            score += 8
+            reasons.append("回调量能可控")
+        elif pct_chg > 0 and volume_ratio <= 2.5:
+            score += 5
+            reasons.append("上涨未明显爆量")
+        elif volume_ratio >= 3:
+            risks.append("放量过猛")
+    if drawdown_10d <= 12:
+        score += 8
+        reasons.append("近10日回撤可控")
+
+    if overheat.get("is_hot"):
+        risks.extend(overheat.get("reasons") or [])
+        stage = "avoid_chase"
+        score = min(score, 55)
+    elif ma20["state"] == "effective_break" or "最新日大跌，需要先看修复" in risks:
+        stage = "risk_observe"
+        score = min(score, 45)
+    elif d20 is not None and -1.5 <= d20 <= 6.5 and pct_chg <= 3:
+        stage = "pullback_entry_watch"
+    elif d10 is not None and -2.5 <= d10 <= 4 and pct_chg <= 3:
+        stage = "pullback_entry_watch"
+    elif d5 is not None and -1.5 <= d5 <= 3 and close is not None and close >= df["close"].tail(20).max() * 0.96:
+        stage = "breakout_wait_pullback"
+    else:
+        stage = "trend_hold" if score >= 60 else "risk_observe"
+
+    support: dict[str, list[float]] = {}
+    if ma10 is not None:
+        support["ma10_band"] = [round(ma10 * 0.98, 2), round(ma10 * 1.02, 2)]
+    if ma20_val is not None:
+        support["ma20_band"] = [round(ma20_val * 0.98, 2), round(ma20_val * 1.03, 2)]
+    return {
+        "stage": stage,
+        "label": ENTRY_STAGE_LABELS.get(stage, stage),
+        "score": int(min(score, 100)),
+        "reasons": reasons[:8],
+        "risks": list(dict.fromkeys(risks))[:8],
+        "distance_pct": {"ma5": d5, "ma10": d10, "ma20": d20},
+        "support": support,
+        "volume_ratio_20d": volume_ratio,
+    }
+
+
 def _sector_resonance_score(
     db: Session,
     ts_code: str,
@@ -428,9 +765,13 @@ def _sector_resonance_score(
     ][:8]
     stock_ret20 = _pct_return(df, 20)
     stock_dd20 = _max_drawdown_pct(df.tail(20)["close"])
+    stock_latest_date = str(df.iloc[-1]["trade_date"])
     best: dict[str, Any] | None = None
     best_score = 0
     best_reasons: list[str] = []
+    fresh_count = 0
+    stale_count = 0
+    missing_count = 0
 
     for m in candidates:
         if best is None:
@@ -446,12 +787,25 @@ def _sector_resonance_score(
                 "sector_drawdown_20d": None,
             }
         if not m.get("sector_code"):
+            missing_count += 1
             continue
-        sdf = _sector_quote_df(db, str(m["sector_code"]), limit=40, cache=cache)
+        sdf = _sector_quote_df(db, str(m["sector_code"]), limit=40, cache=cache, end_date=stock_latest_date)
         if len(sdf) < 21 or stock_ret20 is None:
+            missing_count += 1
             continue
+        sector_latest_date = str(sdf.iloc[-1]["trade_date"])
+        gap_days = _date_gap_days(sector_latest_date, stock_latest_date)
+        if gap_days is not None and gap_days > SECTOR_MAX_STALE_CALENDAR_DAYS:
+            stale_count += 1
+            if best is not None and best.get("sector_data_status") is None:
+                best["sector_data_status"] = "stale"
+                best["sector_latest_trade_date"] = sector_latest_date
+                best["sector_data_lag_days"] = gap_days
+            continue
+        fresh_count += 1
         sector_ret20 = _pct_return(sdf, 20)
         if sector_ret20 is None:
+            missing_count += 1
             continue
         score = 0
         reasons: list[str] = []
@@ -490,14 +844,115 @@ def _sector_resonance_score(
                 "sync_ratio_20d": sync_ratio,
                 "stock_drawdown_20d": stock_dd20,
                 "sector_drawdown_20d": sector_dd20,
+                "sector_data_status": "fresh",
+                "sector_latest_trade_date": sector_latest_date,
+                "sector_data_lag_days": gap_days,
             }
 
-    return min(best_score, 15), best_reasons, {"best_sector": best, "sectors": sectors, "sector_count": len(candidates)}
+    sector_data_status = "fresh" if fresh_count else ("stale" if stale_count else ("missing" if missing_count else "unknown"))
+    if best is not None:
+        best.setdefault("sector_data_status", sector_data_status)
+    metrics = {
+        "best_sector": best,
+        "sectors": sectors,
+        "sector_count": len(candidates),
+        "sector_data_status": sector_data_status,
+        "sector_stale_count": stale_count,
+        "sector_missing_count": missing_count,
+    }
+    if sector_data_status == "stale":
+        metrics["sector_data_warning"] = "板块K线已过期，未计入共振分"
+    elif sector_data_status == "missing" and candidates:
+        metrics["sector_data_warning"] = "板块K线不足，未计入共振分"
+    return min(best_score, 15), best_reasons, metrics
 
 
-def _status(total_score: int, ma20_state: str) -> str:
+def _market_relative_score(
+    db: Session,
+    ts_code: str,
+    df: pd.DataFrame,
+    cache: MainWaveCache | None = None,
+) -> tuple[int, list[str], dict[str, Any]]:
+    group = _market_group(ts_code)
+    stock_latest_date = str(df.iloc[-1]["trade_date"])
+    market = _market_proxy_df(db, group, limit=80, cache=cache, end_date=stock_latest_date)
+    if market.empty or len(market) < 21:
+        return 0, [], {
+            "market_proxy": {
+                "group": group,
+                "label": MARKET_PROXY_LABELS.get(group, group),
+                "status": "missing",
+                "source": "local_equal_weight",
+            }
+        }
+
+    market_latest_date = str(market.iloc[-1]["trade_date"])
+    gap_days = _date_gap_days(market_latest_date, stock_latest_date)
+    if gap_days is not None and gap_days > SECTOR_MAX_STALE_CALENDAR_DAYS:
+        return 0, [], {
+            "market_proxy": {
+                "group": group,
+                "label": MARKET_PROXY_LABELS.get(group, group),
+                "status": "stale",
+                "source": "local_equal_weight",
+                "latest_trade_date": market_latest_date,
+                "lag_days": gap_days,
+            }
+        }
+
+    latest_stock_pct = _safe_float(df.iloc[-1].get("pct_chg"))
+    latest_market_pct = _safe_float(market.iloc[-1].get("pct_chg"))
+    stock_ret20 = _pct_return(df, 20)
+    market_ret20 = _pct_return(market, 20)
+    stock_dd20 = _max_drawdown_pct(df.tail(20)["close"])
+    market_dd20 = _max_drawdown_pct(market.tail(20)["close"])
+    latest_relative = None
+    relative_20d = None
+    score = 0
+    reasons: list[str] = []
+
+    if latest_stock_pct is not None and latest_market_pct is not None:
+        latest_relative = round(latest_stock_pct - latest_market_pct, 2)
+        if latest_market_pct <= -1 and latest_stock_pct > 0:
+            score += 4
+            reasons.append("大盘/风格下跌时个股逆势上涨")
+        if latest_relative >= 2:
+            score += 3
+            reasons.append("最新日明显强于大盘/风格")
+    if stock_ret20 is not None and market_ret20 is not None:
+        relative_20d = round(stock_ret20 - market_ret20, 2)
+        if relative_20d >= 5:
+            score += 3
+            reasons.append("20日表现强于大盘/风格")
+    if stock_dd20 < market_dd20:
+        score += 1
+        reasons.append("20日回撤小于大盘/风格")
+
+    return min(score, 8), reasons[:4], {
+        "market_proxy": {
+            "group": group,
+            "label": MARKET_PROXY_LABELS.get(group, group),
+            "status": "fresh",
+            "source": "local_equal_weight",
+            "latest_trade_date": market_latest_date,
+            "member_count": int(market.iloc[-1].get("member_count") or 0),
+            "latest_pct_chg": latest_market_pct,
+            "stock_latest_pct_chg": latest_stock_pct,
+            "latest_relative_pct_chg": latest_relative,
+            "return_20d": market_ret20,
+            "stock_return_20d": stock_ret20,
+            "relative_strength_20d": relative_20d,
+            "drawdown_20d": market_dd20,
+            "stock_drawdown_20d": stock_dd20,
+        }
+    }
+
+
+def _status(total_score: int, ma20_state: str, overheat: dict[str, Any]) -> str:
     if ma20_state == "effective_break":
         return "exit_signal"
+    if overheat.get("is_hot") and total_score >= 60:
+        return "accelerating_hot"
     if total_score >= 80:
         return "main_wave_confirmed"
     if total_score >= 70:
@@ -515,9 +970,10 @@ def analyze_main_wave_stock(
     preferred_sector_codes: list[str] | None = None,
     allow_external_sector_fetch: bool = True,
     cache: MainWaveCache | None = None,
+    as_of_date: str | None = None,
 ) -> dict[str, Any]:
     code = ts_code.upper()
-    df = _quote_df(db, code, cache=cache)
+    df = _quote_df(db, code, cache=cache, end_date=as_of_date)
     basic_bucket = _cache_bucket(cache, "basics")
     basic = basic_bucket.get(code) if basic_bucket is not None else None
     if basic_bucket is None or code not in basic_bucket:
@@ -534,12 +990,16 @@ def analyze_main_wave_stock(
         }
 
     df = df.copy()
+    data_quality = _data_quality(df)
     df["ma5"] = calc_ma(df, 5)
     df["ma10"] = calc_ma(df, 10)
     df["ma20"] = calc_ma(df, 20)
     df["vol_ma20"] = calc_vol_ma(df, 20)
-    if "pct_chg" not in df.columns or df["pct_chg"].isna().all():
-        df["pct_chg"] = df["close"].pct_change() * 100
+    fallback_pct = df["close"].pct_change() * 100
+    if "pct_chg" not in df.columns:
+        df["pct_chg"] = fallback_pct
+    else:
+        df["pct_chg"] = pd.to_numeric(df["pct_chg"], errors="coerce").fillna(fallback_pct)
 
     ma20 = _ma20_state(df)
     trend_score, trend_reasons = _trend_score(df)
@@ -554,7 +1014,10 @@ def analyze_main_wave_stock(
         allow_external_sector_fetch=allow_external_sector_fetch,
         cache=cache,
     )
-    total = trend_score + structure_score + pullback_score + sector_score
+    market_score, market_reasons, market_metrics = _market_relative_score(db, code, df, cache=cache)
+    total = min(100, trend_score + structure_score + pullback_score + sector_score + market_score)
+    overheat = _overheat_state(df, ma20)
+    entry = _entry_profile(df, ma20, overheat)
 
     latest = df.iloc[-1]
     return {
@@ -562,28 +1025,34 @@ def analyze_main_wave_stock(
         "name": basic.name if basic else code,
         "industry": basic.industry if basic else None,
         "trade_date": str(latest["trade_date"]),
-        "status": _status(total, ma20["state"]),
+        "status": _status(total, ma20["state"], overheat),
         "total_score": int(total),
+        "entry": entry,
         "scores": {
             "trend": trend_score,
             "structure": structure_score,
             "pullback_repair": pullback_score,
             "sector_resonance": sector_score,
+            "market_relative": market_score,
         },
         "ma20_state": ma20,
         "metrics": {
             "latest_close": round(float(latest["close"]), 2),
             "return_20d": _pct_return(df, 20),
             "return_60d": _pct_return(df, 60),
+            "overheat": overheat,
+            "data_quality": data_quality,
             **structure_metrics,
             **pullback_metrics,
             **sector_metrics,
+            **market_metrics,
         },
         "reasons": {
             "trend": trend_reasons,
             "structure": structure_reasons,
             "pullback_repair": pullback_reasons,
             "sector_resonance": sector_reasons,
+            "market_relative": market_reasons,
         },
     }
 
@@ -619,6 +1088,7 @@ def scan_main_wave_pool(
         "items": rows,
         "summary": {
             "main_wave_confirmed": sum(1 for x in rows if x.get("status") == "main_wave_confirmed"),
+            "accelerating_hot": sum(1 for x in rows if x.get("status") == "accelerating_hot"),
             "breakout_tracking": sum(1 for x in rows if x.get("status") == "breakout_tracking"),
             "watching": sum(1 for x in rows if x.get("status") == "watching"),
             "divergence_warning": sum(1 for x in rows if x.get("status") == "divergence_warning"),

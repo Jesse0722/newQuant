@@ -7,7 +7,9 @@ import * as echarts from 'echarts'
 import dayjs from 'dayjs'
 import {
   getScreenTemplates, getLimitUpTemplates, runIndicatorScreen, runAiScreen, runLimitUpBuyPointScreen, runBacktest, getScreenResult, runMainWaveScreen, getStockChartPreview,
+  submitMainWaveBacktest, getMainWaveBacktestResult,
   type ScreenTemplate, type ScreenCondition, type ScreenResult, type BacktestResult, type MainWaveScreenParams, type MainWaveScreenResultItem,
+  type MainWaveBacktestTask, type MainWaveBacktestResult,
 } from '../../api/strategy'
 import { listSectors, type SectorBasicItem } from '../../api/market'
 import { listPools, batchAddStocks, quickCreatePool } from '../../api/pools'
@@ -18,8 +20,8 @@ import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
 const MAX_CONDITIONS = 10
 const AI_DESC_MAX = 200
-const MAIN_WAVE_PARAMS_STORAGE_KEY = 'newQuant.strategy.mainWaveParams.v1'
-const MAIN_WAVE_RESULT_STORAGE_KEY = 'newQuant.strategy.mainWaveLastResult.v1'
+const MAIN_WAVE_PARAMS_STORAGE_KEY = 'newQuant.strategy.mainWaveParams.v3'
+const MAIN_WAVE_RESULT_STORAGE_KEY = 'newQuant.strategy.mainWaveLastResult.v3'
 const MAIN_WAVE_RESULT_CACHE_TTL_MS = 60 * 60 * 1000
 const MAIN_WAVE_PREVIEW_PERIOD = 120
 type StrategyTabKey = 'indicator' | 'main_wave' | 'ai' | 'limit_up' | 'backtest'
@@ -29,6 +31,7 @@ const mainWaveChartPreviewCache = new Map<string, StockChartDataWithMarks>()
 
 const MAIN_WAVE_STATUS_OPTIONS = [
   { value: 'main_wave_confirmed', label: '主升确认' },
+  { value: 'accelerating_hot', label: '加速过热' },
   { value: 'breakout_tracking', label: '突破跟踪' },
   { value: 'watching', label: '观察中' },
   { value: 'divergence_warning', label: '分歧预警' },
@@ -48,6 +51,7 @@ const isStrategyTabKey = (value: string | null): value is StrategyTabKey =>
 
 const MAIN_WAVE_STATUS_LABEL: Record<string, { label: string; color: string }> = {
   main_wave_confirmed: { label: '主升确认', color: 'green' },
+  accelerating_hot: { label: '加速过热', color: 'orange' },
   breakout_tracking: { label: '突破跟踪', color: 'blue' },
   watching: { label: '观察中', color: 'cyan' },
   divergence_warning: { label: '分歧预警', color: 'orange' },
@@ -55,13 +59,26 @@ const MAIN_WAVE_STATUS_LABEL: Record<string, { label: string; color: string }> =
   invalidated: { label: '结构失效', color: 'default' },
 }
 
+const MAIN_WAVE_ENTRY_LABEL: Record<string, { label: string; color: string }> = {
+  pullback_entry_watch: { label: '回踩观察', color: 'green' },
+  breakout_wait_pullback: { label: '等回踩', color: 'blue' },
+  trend_hold: { label: '趋势观察', color: 'cyan' },
+  avoid_chase: { label: '过热不追', color: 'orange' },
+  risk_observe: { label: '风险观察', color: 'red' },
+}
+
+const MAIN_WAVE_ENTRY_OPTIONS = Object.entries(MAIN_WAVE_ENTRY_LABEL).map(([value, meta]) => ({
+  value,
+  label: meta.label,
+}))
+
 const DEFAULT_MAIN_WAVE_PARAMS: MainWaveScreenParams = {
   scope: 'full',
   sector_codes: [],
   sector_logic: 'any',
   min_score: 70,
-  statuses: ['main_wave_confirmed', 'breakout_tracking', 'watching', 'divergence_warning'],
-  require_sector_resonance: true,
+  statuses: ['main_wave_confirmed', 'breakout_tracking', 'watching'],
+  require_sector_resonance: false,
   exclude_effective_break: true,
   exclude_st: true,
   min_data_days: 120,
@@ -71,8 +88,11 @@ const DEFAULT_MAIN_WAVE_PARAMS: MainWaveScreenParams = {
   min_avg_amount_20d_yi: 2,
   max_return_60d: 150,
   max_ma20_distance_pct: 25,
-  min_sector_return_20d: 5,
-  min_relative_strength_20d: 0,
+  min_sector_return_20d: null,
+  min_relative_strength_20d: null,
+  entry_stages: [],
+  min_entry_score: null,
+  exclude_overheat: true,
 }
 
 const RELAXED_MAIN_WAVE_PARAMS: Partial<MainWaveScreenParams> = {
@@ -205,7 +225,7 @@ const getInitialStrategyTab = (): StrategyTabKey => {
   return isStrategyTabKey(tab) ? tab : 'indicator'
 }
 
-const MainWaveStockPreview: React.FC<{
+const MainWaveStockPreviewBase: React.FC<{
   asButton?: boolean
   enabled: boolean
   label: React.ReactNode
@@ -338,6 +358,7 @@ const MainWaveStockPreview: React.FC<{
   }, [open])
 
   useEffect(() => {
+    if (!open) return
     const onResize = () => chartInstance.current?.resize()
     window.addEventListener('resize', onResize)
     return () => {
@@ -345,7 +366,7 @@ const MainWaveStockPreview: React.FC<{
       chartInstance.current?.dispose()
       chartInstance.current = null
     }
-  }, [])
+  }, [open])
 
   const triggerNode = asButton
     ? <Button size="small" type="link">{label}</Button>
@@ -385,6 +406,8 @@ const MainWaveStockPreview: React.FC<{
   )
 }
 
+const MainWaveStockPreview = React.memo(MainWaveStockPreviewBase)
+
 const StrategyPage: React.FC = () => {
   const [templates, setTemplates] = useState<ScreenTemplate[]>([])
   const [limitUpTemplates, setLimitUpTemplates] = useState<ScreenTemplate[]>([])
@@ -394,6 +417,12 @@ const StrategyPage: React.FC = () => {
   const [scope, setScope] = useState<string>('full')
   const [mainWaveParams, setMainWaveParams] = useState<MainWaveScreenParams>(() => loadStoredMainWaveParams())
   const [mainWaveAdvancedOpen, setMainWaveAdvancedOpen] = useState(false)
+  const [mainWaveBacktestDateRange, setMainWaveBacktestDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null)
+  const [mainWaveBacktestTask, setMainWaveBacktestTask] = useState<MainWaveBacktestTask | null>(null)
+  const [mainWaveBacktestResult, setMainWaveBacktestResult] = useState<MainWaveBacktestResult | null>(null)
+  const [mainWaveBacktestLoading, setMainWaveBacktestLoading] = useState(false)
+  const [mainWaveBacktestMaxSignals, setMainWaveBacktestMaxSignals] = useState(20)
+  const [mainWaveBacktestCooldown, setMainWaveBacktestCooldown] = useState(5)
   const [conditions, setConditions] = useState<ScreenCondition[]>([])
   const [logic, setLogic] = useState<string>('and')
   const [limitUpConditions, setLimitUpConditions] = useState<ScreenCondition[]>([])
@@ -579,6 +608,40 @@ const StrategyPage: React.FC = () => {
     }
   }
 
+  const runMainWaveBacktestFn = async () => {
+    if (!mainWaveBacktestDateRange || mainWaveBacktestDateRange.length !== 2) {
+      message.warning('请选择主升浪回测日期范围')
+      return
+    }
+    setMainWaveBacktestLoading(true)
+    setMainWaveBacktestResult(null)
+    setMainWaveBacktestTask(null)
+    try {
+      const payload = {
+        ...mainWaveParams,
+        scope: mainWaveParams.scope || 'full',
+        sector_codes: mainWaveParams.sector_codes || [],
+        trade_date_from: mainWaveBacktestDateRange[0].format('YYYYMMDD'),
+        trade_date_to: mainWaveBacktestDateRange[1].format('YYYYMMDD'),
+        holding_days: [1, 3, 5, 10],
+        max_signals_per_day: mainWaveBacktestMaxSignals,
+        cooldown_days: mainWaveBacktestCooldown,
+      }
+      const res = await submitMainWaveBacktest(payload)
+      setMainWaveBacktestTask({
+        task_id: res.data.task_id,
+        type: 'main_wave_backtest',
+        status: 'running',
+        progress: 0,
+        message: '主升浪规则回测已提交',
+      })
+    } catch (error: unknown) {
+      const apiError = error as ApiErrorLike
+      message.error(apiError.response?.data?.message || '主升浪回测提交失败')
+      setMainWaveBacktestLoading(false)
+    }
+  }
+
   const addBacktestCondition = () => {
     if (backtestConditions.length >= MAX_CONDITIONS) {
       message.warning(`最多 ${MAX_CONDITIONS} 个条件`)
@@ -695,15 +758,48 @@ const StrategyPage: React.FC = () => {
     }
   }, [taskId, taskKind])
 
-  const resultItems = result?.items?.length
-    ? result.items
-    : (result?.ts_codes?.map((c) => ({
-      ts_code: c,
-      stock_name: result.stock_names?.[c] || '',
-    })) || [])
+  useEffect(() => {
+    if (!mainWaveBacktestTask?.task_id || mainWaveBacktestTask.status === 'completed' || mainWaveBacktestTask.status === 'failed') return
+    let stopped = false
+    const poll = setInterval(async () => {
+      try {
+        const res = await getMainWaveBacktestResult(mainWaveBacktestTask.task_id)
+        if (stopped) return
+        setMainWaveBacktestTask(res.data)
+        if (res.data.status === 'completed' || res.data.status === 'failed') {
+          clearInterval(poll)
+          setMainWaveBacktestLoading(false)
+          if (res.data.result) setMainWaveBacktestResult(res.data.result)
+          if (res.data.status === 'failed') message.error(res.data.message || '主升浪回测失败')
+        }
+      } catch {
+        if (stopped) return
+        clearInterval(poll)
+        setMainWaveBacktestLoading(false)
+      }
+    }, 1500)
+    return () => {
+      stopped = true
+      clearInterval(poll)
+    }
+  }, [mainWaveBacktestTask?.task_id, mainWaveBacktestTask?.status])
+
+  const resultItems = useMemo(
+    () => (
+      result?.items?.length
+        ? result.items
+        : (result?.ts_codes?.map((c) => ({
+          ts_code: c,
+          stock_name: result.stock_names?.[c] || '',
+        })) || [])
+    ),
+    [result?.items, result?.stock_names, result?.ts_codes]
+  )
+  const resultCodes = useMemo(() => resultItems.map((x) => x.ts_code), [resultItems])
+  const selectedRowSet = useMemo(() => new Set(selectedRows), [selectedRows])
 
   const handleBatchAdd = async (poolId: string) => {
-    const codes = selectedRows.length > 0 ? selectedRows : resultItems.map((x) => x.ts_code)
+    const codes = selectedRows.length > 0 ? selectedRows : resultCodes
     if (codes.length === 0) {
       message.warning('没有可添加的股票')
       return
@@ -723,7 +819,7 @@ const StrategyPage: React.FC = () => {
 
   const handleQuickCreate = async () => {
     const values = await quickForm.validateFields()
-    const codes = selectedRows.length > 0 ? selectedRows : resultItems.map((x) => x.ts_code)
+    const codes = selectedRows.length > 0 ? selectedRows : resultCodes
     if (codes.length === 0) {
       message.warning('没有可添加的股票')
       return
@@ -750,78 +846,152 @@ const StrategyPage: React.FC = () => {
     setResultPage(1)
   }, [result?.task_id, resultItems.length])
 
-  const openAddSingleStock = (tsCode: string) => {
+  const openAddSingleStock = useCallback((tsCode: string) => {
     setSelectedRows([tsCode])
     setAddModalOpen(true)
-  }
+  }, [])
 
-  const resultColumns = [
+  const toggleAllResultRows = useCallback((checked: boolean) => {
+    setSelectedRows(checked ? resultCodes : [])
+  }, [resultCodes])
+
+  const toggleResultRow = useCallback((tsCode: string, checked: boolean) => {
+    setSelectedRows((prev) => {
+      if (checked) return prev.includes(tsCode) ? prev : [...prev, tsCode]
+      return prev.filter((code) => code !== tsCode)
+    })
+  }, [])
+
+  const shouldUpdateResultCell = useCallback(
+    (record: { ts_code: string }, prevRecord: { ts_code: string }) => record !== prevRecord,
+    []
+  )
+
+  const resultColumns = useMemo(() => [
     {
       title: (
         <Checkbox
           checked={selectedRows.length === resultItems.length && resultItems.length > 0}
           indeterminate={selectedRows.length > 0 && selectedRows.length < resultItems.length}
-          onChange={(e) => setSelectedRows(e.target.checked ? resultItems.map((x) => x.ts_code) : [])}
+          onChange={(e) => toggleAllResultRows(e.target.checked)}
         />
       ),
       width: 40,
       render: (_: unknown, r: { ts_code: string }) => (
         <Checkbox
-          checked={selectedRows.includes(r.ts_code)}
-          onChange={(e) => {
-            if (e.target.checked) setSelectedRows([...selectedRows, r.ts_code])
-            else setSelectedRows(selectedRows.filter((c) => c !== r.ts_code))
-          }}
+          checked={selectedRowSet.has(r.ts_code)}
+          onChange={(e) => toggleResultRow(r.ts_code, e.target.checked)}
         />
       ),
     },
     {
       title: '股票代码',
       dataIndex: 'ts_code',
+      width: 120,
+      shouldCellUpdate: shouldUpdateResultCell,
       render: (v: string) => (
-        <MainWaveStockPreview enabled={activeTab === 'main_wave'} tsCode={v} label={v} />
+        <a href={stockDetailPath(v)} target="_blank" rel="noreferrer">{v}</a>
       ),
     },
     {
       title: '股票名称',
       dataIndex: 'stock_name',
+      width: 130,
+      shouldCellUpdate: shouldUpdateResultCell,
       render: (v: string, r: { ts_code: string }) => (
-        <MainWaveStockPreview enabled={activeTab === 'main_wave'} tsCode={r.ts_code} label={v || '-'} />
+        <a href={stockDetailPath(r.ts_code)} target="_blank" rel="noreferrer">{v || '-'}</a>
       ),
     },
     ...(activeTab === 'main_wave' ? [
       {
         title: '状态',
         dataIndex: 'status',
+        width: 100,
+        shouldCellUpdate: shouldUpdateResultCell,
         render: (v: string) => {
           const meta = MAIN_WAVE_STATUS_LABEL[v] || { label: v || '-', color: 'default' }
           return <Tag color={meta.color}>{meta.label}</Tag>
         },
       },
-      { title: '总分', dataIndex: 'total_score', sorter: (a: MainWaveScreenResultItem, b: MainWaveScreenResultItem) => Number(a.total_score || 0) - Number(b.total_score || 0) },
+      {
+        title: '总分',
+        dataIndex: 'total_score',
+        width: 80,
+        sorter: (a: MainWaveScreenResultItem, b: MainWaveScreenResultItem) => Number(a.total_score || 0) - Number(b.total_score || 0),
+        shouldCellUpdate: shouldUpdateResultCell,
+      },
+      {
+        title: '买点',
+        width: 130,
+        shouldCellUpdate: shouldUpdateResultCell,
+        render: (_: unknown, r: MainWaveScreenResultItem) => {
+          const stage = r.entry_stage || ''
+          const meta = MAIN_WAVE_ENTRY_LABEL[stage] || { label: r.entry_label || stage || '-', color: 'default' }
+          const lines = [...(r.entry_reasons || []), ...(r.entry_risks || []).map((x) => `风险：${x}`)]
+          return (
+            <Popover content={lines.length ? lines.join('；') : '暂无买点画像'}>
+              <Tag color={meta.color}>{meta.label}{r.entry_score != null ? ` ${r.entry_score}` : ''}</Tag>
+            </Popover>
+          )
+        },
+      },
       {
         title: '评分拆解',
+        width: 130,
+        shouldCellUpdate: shouldUpdateResultCell,
         render: (_: unknown, r: MainWaveScreenResultItem) => (
-          <span>{r.trend_score ?? 0}/{r.structure_score ?? 0}/{r.pullback_repair_score ?? 0}/{r.sector_resonance_score ?? 0}</span>
+          <span>{r.trend_score ?? 0}/{r.structure_score ?? 0}/{r.pullback_repair_score ?? 0}/{r.sector_resonance_score ?? 0}/{r.market_relative_score ?? 0}</span>
         ),
       },
       {
         title: '共振板块',
-        render: (_: unknown, r: MainWaveScreenResultItem) => r.best_sector?.sector_name || '-',
+        width: 150,
+        shouldCellUpdate: shouldUpdateResultCell,
+        render: (_: unknown, r: MainWaveScreenResultItem) => (
+          <Space size={4}>
+            <span>{r.best_sector?.sector_name || '-'}</span>
+            {r.sector_data_status && r.sector_data_status !== 'fresh' && (
+              <Popover content={r.sector_data_warning || '板块数据未参与共振评分'}>
+                <Tag color="gold">{r.sector_data_status}</Tag>
+              </Popover>
+            )}
+          </Space>
+        ),
       },
       {
         title: '20日/60日',
+        width: 120,
+        shouldCellUpdate: shouldUpdateResultCell,
         render: (_: unknown, r: MainWaveScreenResultItem) => `${r.return_20d ?? '-'}% / ${r.return_60d ?? '-'}%`,
       },
       {
         title: '相对板块',
         dataIndex: 'relative_strength_20d',
+        width: 110,
+        shouldCellUpdate: shouldUpdateResultCell,
         render: (v: number | null) => v == null ? '-' : `${v}%`,
+      },
+      {
+        title: '相对市场',
+        width: 150,
+        shouldCellUpdate: shouldUpdateResultCell,
+        render: (_: unknown, r: MainWaveScreenResultItem) => {
+          const proxy = r.market_proxy
+          if (!proxy || proxy.status !== 'fresh') return <Tag>{proxy?.status || '-'}</Tag>
+          const latest = proxy.latest_relative_pct_chg == null ? '-' : `${proxy.latest_relative_pct_chg}%`
+          const ret20 = proxy.relative_strength_20d == null ? '-' : `${proxy.relative_strength_20d}%`
+          return (
+            <Popover content={`最新日相对 ${latest}；20日相对 ${ret20}；样本 ${proxy.member_count ?? '-'}`}>
+              <Tag color={(proxy.latest_relative_pct_chg ?? 0) > 0 ? 'green' : 'default'}>{proxy.label || proxy.group} {latest}</Tag>
+            </Popover>
+          )
+        },
       },
     ] : []),
     {
       title: '操作',
       width: activeTab === 'main_wave' ? 190 : 110,
+      shouldCellUpdate: shouldUpdateResultCell,
       render: (_: unknown, r: { ts_code: string }) => (
         <Space size={4}>
           {activeTab === 'main_wave' && (
@@ -844,7 +1014,16 @@ const StrategyPage: React.FC = () => {
         </Space>
       ),
     },
-  ]
+  ], [
+    activeTab,
+    openAddSingleStock,
+    resultItems.length,
+    selectedRows.length,
+    selectedRowSet,
+    shouldUpdateResultCell,
+    toggleAllResultRows,
+    toggleResultRow,
+  ])
 
   return (
     <div>
@@ -1004,13 +1183,15 @@ const StrategyPage: React.FC = () => {
                 />
                 <span>最低数据日</span>
                 <InputNumber value={mainWaveParams.min_data_days} min={60} max={500} onChange={(v) => updateMainWaveParams({ min_data_days: Number(v ?? 120) })} style={{ width: 90 }} />
-                <span>必须板块共振</span>
-                <Switch checked={mainWaveParams.require_sector_resonance} onChange={(v) => updateMainWaveParams({ require_sector_resonance: v })} />
-                <span>排除有效跌破MA20</span>
-                <Switch checked={mainWaveParams.exclude_effective_break} onChange={(v) => updateMainWaveParams({ exclude_effective_break: v })} />
-                <span>剔除ST</span>
-                <Switch checked={mainWaveParams.exclude_st} onChange={(v) => updateMainWaveParams({ exclude_st: v })} />
-              </Space>
+	                <span>必须板块共振</span>
+	                <Switch checked={mainWaveParams.require_sector_resonance} onChange={(v) => updateMainWaveParams({ require_sector_resonance: v })} />
+	                <span>排除有效跌破MA20</span>
+	                <Switch checked={mainWaveParams.exclude_effective_break} onChange={(v) => updateMainWaveParams({ exclude_effective_break: v })} />
+	                <span>排除过热追高</span>
+	                <Switch checked={mainWaveParams.exclude_overheat ?? true} onChange={(v) => updateMainWaveParams({ exclude_overheat: v })} />
+	                <span>剔除ST</span>
+	                <Switch checked={mainWaveParams.exclude_st} onChange={(v) => updateMainWaveParams({ exclude_st: v })} />
+	              </Space>
             </div>
 
             <div style={{ marginBottom: 16 }}>
@@ -1038,26 +1219,39 @@ const StrategyPage: React.FC = () => {
                     <InputNumber value={mainWaveParams.min_avg_amount_20d_yi ?? undefined} min={0} step={0.5} onChange={(v) => updateMainWaveParams({ min_avg_amount_20d_yi: v == null ? null : Number(v) })} style={{ width: 90 }} />
                     <span>60日涨幅上限</span>
                     <InputNumber value={mainWaveParams.max_return_60d ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ max_return_60d: v == null ? null : Number(v) })} style={{ width: 90 }} />
-                    <span>MA20乖离上限</span>
-                    <InputNumber value={mainWaveParams.max_ma20_distance_pct ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ max_ma20_distance_pct: v == null ? null : Number(v) })} style={{ width: 90 }} />
-                  </Space>
-                </div>
+	                    <span>MA20乖离上限</span>
+	                    <InputNumber value={mainWaveParams.max_ma20_distance_pct ?? undefined} min={0} onChange={(v) => updateMainWaveParams({ max_ma20_distance_pct: v == null ? null : Number(v) })} style={{ width: 90 }} />
+	                  </Space>
+	                </div>
 
-                <div style={{ marginBottom: 16 }}>
-                  <Space wrap>
-                    <span>板块20日涨幅</span>
-                    <InputNumber value={mainWaveParams.min_sector_return_20d ?? undefined} onChange={(v) => updateMainWaveParams({ min_sector_return_20d: v == null ? null : Number(v) })} style={{ width: 90 }} />
-                    <span>相对板块强弱</span>
+	                <div style={{ marginBottom: 16 }}>
+	                  <Space wrap>
+	                    <span>买点阶段</span>
+	                    <Select
+	                      mode="multiple"
+	                      allowClear
+	                      value={mainWaveParams.entry_stages || []}
+	                      onChange={(v) => updateMainWaveParams({ entry_stages: v })}
+	                      options={MAIN_WAVE_ENTRY_OPTIONS}
+	                      placeholder="为空则不过滤"
+	                      maxTagCount="responsive"
+	                      style={{ width: 260 }}
+	                    />
+	                    <span>最低买点分</span>
+	                    <InputNumber value={mainWaveParams.min_entry_score ?? undefined} min={0} max={100} onChange={(v) => updateMainWaveParams({ min_entry_score: v == null ? null : Number(v) })} style={{ width: 90 }} />
+	                    <span>板块20日涨幅</span>
+	                    <InputNumber value={mainWaveParams.min_sector_return_20d ?? undefined} onChange={(v) => updateMainWaveParams({ min_sector_return_20d: v == null ? null : Number(v) })} style={{ width: 90 }} />
+	                    <span>相对板块强弱</span>
                     <InputNumber value={mainWaveParams.min_relative_strength_20d ?? undefined} onChange={(v) => updateMainWaveParams({ min_relative_strength_20d: v == null ? null : Number(v) })} style={{ width: 90 }} />
                   </Space>
                 </div>
               </>
             )}
 
-            <Space wrap>
-              <Button type="primary" loading={loading} onClick={runMainWave}>
-                执行主升浪选股
-              </Button>
+	            <Space wrap>
+	              <Button type="primary" loading={loading} onClick={runMainWave}>
+	                执行主升浪选股
+	              </Button>
               {loading && result && taskKind === 'main_wave' && (
                 <>
                   <Tag color="processing">{Math.round(result.progress * 100)}%</Tag>
@@ -1072,11 +1266,97 @@ const StrategyPage: React.FC = () => {
               {resultItems.length > 0 && (
                 <Button onClick={() => setAddModalOpen(true)}>
                   添加结果到股票池
-                </Button>
-              )}
-            </Space>
-          </>
-        )}
+	                </Button>
+	              )}
+	            </Space>
+
+	            <div style={{ marginTop: 16, padding: 12, border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
+	              <Space wrap style={{ marginBottom: 10 }}>
+	                <Tag color="purple">规则回测</Tag>
+	                <DatePicker.RangePicker
+	                  value={mainWaveBacktestDateRange}
+	                  onChange={(v) => {
+	                    if (v?.[0] && v[1]) setMainWaveBacktestDateRange([v[0], v[1]])
+	                    else setMainWaveBacktestDateRange(null)
+	                  }}
+	                  format="YYYY-MM-DD"
+	                  style={{ width: 260 }}
+	                />
+	                <span>每日最多信号</span>
+	                <InputNumber min={1} max={100} value={mainWaveBacktestMaxSignals} onChange={(v) => setMainWaveBacktestMaxSignals(Number(v ?? 20))} style={{ width: 90 }} />
+	                <span>同股冷却日</span>
+	                <InputNumber min={0} max={30} value={mainWaveBacktestCooldown} onChange={(v) => setMainWaveBacktestCooldown(Number(v ?? 5))} style={{ width: 90 }} />
+	                <Button size="small" icon={<ExperimentOutlined />} loading={mainWaveBacktestLoading} onClick={runMainWaveBacktestFn}>
+	                  回测当前规则
+	                </Button>
+	              </Space>
+	              {mainWaveBacktestTask && mainWaveBacktestTask.status !== 'completed' && (
+	                <div style={{ marginBottom: 10 }}>
+	                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{mainWaveBacktestTask.message}</span>
+	                  <Progress percent={Math.round((mainWaveBacktestTask.progress || 0) * 100)} size="small" />
+	                </div>
+	              )}
+	              {mainWaveBacktestResult && (
+	                <div>
+	                  <Space wrap style={{ marginBottom: 8 }}>
+	                    <Tag>股票 {mainWaveBacktestResult.stock_count}</Tag>
+	                    <Tag>交易日 {mainWaveBacktestResult.date_count}</Tag>
+	                    <Tag color="blue">信号 {mainWaveBacktestResult.total_signals}</Tag>
+	                    <Tag color={(mainWaveBacktestResult.avg_return_5d ?? 0) >= 0 ? 'green' : 'red'}>
+	                      5日均值 {mainWaveBacktestResult.avg_return_5d ?? 0}%
+	                    </Tag>
+	                    <Tag>5日胜率 {mainWaveBacktestResult.win_rate_5d ?? 0}%</Tag>
+	                    <Tag>10日均值 {mainWaveBacktestResult.avg_return_10d ?? 0}%</Tag>
+	                    {mainWaveBacktestResult.performance?.quote_preload?.enabled && (
+	                      <Tag color="cyan">
+	                        预载K线 {mainWaveBacktestResult.performance.quote_preload.loaded_codes ?? 0}只/{mainWaveBacktestResult.performance.quote_preload.row_count ?? 0}行
+	                      </Tag>
+	                    )}
+	                    {mainWaveBacktestResult.performance?.market_proxy_preload?.enabled && (
+	                      <Tag color="geekblue">
+	                        市场代理 {mainWaveBacktestResult.performance.market_proxy_preload.groups?.length ?? 0}组/{mainWaveBacktestResult.performance.market_proxy_preload.row_count ?? 0}日
+	                      </Tag>
+	                    )}
+	                  </Space>
+	                  {(mainWaveBacktestResult.quality_notes?.length || mainWaveBacktestResult.recommendations?.length) && (
+	                    <div style={{ marginBottom: 10 }}>
+	                      {mainWaveBacktestResult.quality_notes?.map((note) => (
+	                        <Tag key={note} color="gold" style={{ marginBottom: 6 }}>{note}</Tag>
+	                      ))}
+	                      {mainWaveBacktestResult.recommendations?.map((item) => (
+	                        <Tag
+	                          key={`${item.type}-${item.message}`}
+	                          color={item.level === 'risk' ? 'red' : 'blue'}
+	                          style={{ marginBottom: 6 }}
+	                        >
+	                          {item.message}{item.evidence ? ` ${item.evidence}` : ''}
+	                        </Tag>
+	                      ))}
+	                    </div>
+	                  )}
+	                  <Table
+	                    dataSource={mainWaveBacktestResult.stage_summary}
+	                    columns={[
+	                      {
+	                        title: '买点阶段',
+	                        dataIndex: 'group',
+	                        render: (v: string) => MAIN_WAVE_ENTRY_LABEL[v]?.label || v,
+	                      },
+	                      { title: '信号数', dataIndex: 'total_signals' },
+	                      { title: '1日均值', dataIndex: 'avg_return_1d', render: (v: number) => `${v ?? 0}%` },
+	                      { title: '3日均值', dataIndex: 'avg_return_3d', render: (v: number) => `${v ?? 0}%` },
+	                      { title: '5日均值', dataIndex: 'avg_return_5d', render: (v: number) => `${v ?? 0}%` },
+	                      { title: '5日胜率', dataIndex: 'win_rate_5d', render: (v: number) => `${v ?? 0}%` },
+	                    ]}
+	                    rowKey="group"
+	                    size="small"
+	                    pagination={false}
+	                  />
+	                </div>
+	              )}
+	            </div>
+	          </>
+	        )}
 
         {activeTab === 'limit_up' && (
           <>
@@ -1306,7 +1586,21 @@ const StrategyPage: React.FC = () => {
 
         {result && result.status === 'completed' && (
           <div style={{ marginTop: 24 }}>
-            <h4>选股结果（共 {filteredResultCount} 只）</h4>
+            <Space wrap style={{ marginBottom: 8 }}>
+              <h4 style={{ margin: 0 }}>选股结果（共 {filteredResultCount} 只）</h4>
+              {activeTab === 'main_wave' && result.performance?.total_elapsed_ms != null && (
+                <>
+                  <Tag color="blue">耗时 {(result.performance.total_elapsed_ms / 1000).toFixed(1)}s</Tag>
+                  <Tag>范围 {result.performance.total_codes ?? resultItems.length} 只</Tag>
+                  {result.performance.preload?.total_elapsed_ms != null && (
+                    <Tag color="cyan">预载 {(result.performance.preload.total_elapsed_ms / 1000).toFixed(1)}s</Tag>
+                  )}
+                  {result.performance.analyze_elapsed_ms != null && (
+                    <Tag color="geekblue">评分 {(result.performance.analyze_elapsed_ms / 1000).toFixed(1)}s</Tag>
+                  )}
+                </>
+              )}
+            </Space>
             <div style={{ marginBottom: 8 }}>
               <Button type="primary" size="small" disabled={resultItems.length === 0} onClick={() => setAddModalOpen(true)}>
                 添加到股票池
@@ -1320,6 +1614,8 @@ const StrategyPage: React.FC = () => {
               columns={resultColumns}
               rowKey="ts_code"
               size="small"
+              tableLayout="fixed"
+              scroll={{ x: activeTab === 'main_wave' ? 1180 : 720 }}
               pagination={{
                 current: resultPage,
                 pageSize: resultPageSize,

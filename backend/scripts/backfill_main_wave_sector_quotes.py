@@ -15,9 +15,17 @@ if str(ROOT_DIR) not in sys.path:
 from app.database import SessionLocal
 from app.models.pool import WatchPool, WatchStock
 from app.models.sector import SectorBasic, StockSectorMap
+from app.services.main_wave_sector_backfill_service import (
+    _coverage_status,
+    _freshness_warning,
+    _is_complete,
+    _pool_latest_trade_date,
+)
 from app.services.main_wave_service import get_relevant_concept_candidates
 from app.services.sector_data_service import (
     SOURCE,
+    LOCAL_PROXY_SOURCE,
+    build_local_proxy_sector_daily_quotes,
     fetch_sector_constituents,
     fetch_sector_daily_quotes,
     fetch_sector_list,
@@ -102,10 +110,6 @@ def _next_retry_at(attempts: int) -> datetime:
     return datetime.utcnow() + _RETRY_DELAYS[idx]
 
 
-def _is_complete(coverage: dict, target_days: int) -> bool:
-    return int(coverage.get("quote_count") or 0) >= target_days
-
-
 def _quote_date_range(db, sector: SectorBasic, *, mode: str, days: int) -> tuple[str, str, int]:
     end_date = datetime.now().strftime("%Y%m%d")
     coverage = sector_quote_coverage(db, sector.sector_code)
@@ -156,6 +160,7 @@ def main() -> None:
             .order_by(WatchStock.pinned.desc(), WatchStock.created_at.desc())
             .all()
         )
+        required_trade_date = _pool_latest_trade_date(db, stocks)
         concepts: dict[str, dict] = {}
         for stock in stocks:
             _ensure_stock_f10_sectors(db, stock.ts_code)
@@ -174,6 +179,7 @@ def main() -> None:
 
         print(f"观察池: {pool.name} ({pool.id})")
         print(f"股票数: {len(stocks)}，待补概念数: {len(concepts)}")
+        print(f"参考股票最新K线: {required_trade_date or '-'}")
         for item in concepts.values():
             sector = item["sector"]
             state = get_or_create_quote_sync_state(db, sector, target_days=args.days)
@@ -185,12 +191,14 @@ def main() -> None:
         total_cons = 0
         total_quotes = 0
         skipped = 0
+        stale = 0
+        local_proxy = 0
         for idx, item in enumerate(concepts.values(), start=1):
             sector = item["sector"]
             print(f"[{idx}/{len(concepts)}] {sector.sector_name}({sector.sector_code})")
             state = refresh_quote_sync_state(db, sector, target_days=args.days)
             coverage = sector_quote_coverage(db, sector.sector_code)
-            if args.mode == "backfill" and _is_complete(coverage, args.days) and not args.force:
+            if args.mode == "backfill" and _is_complete(coverage, args.days, required_trade_date) and not args.force:
                 skipped += 1
                 refresh_quote_sync_state(db, sector, status="success", target_days=args.days, reset_attempts=True)
                 print(f"  已有 {coverage['quote_count']} 行，满足 {args.days} 日目标，跳过")
@@ -254,19 +262,33 @@ def main() -> None:
 
             try:
                 start_date, end_date, limit = _quote_date_range(db, sector, mode=args.mode, days=args.days)
-                quote_rows = fetch_sector_daily_quotes(sector, start_date=start_date, end_date=end_date, limit=limit)
+                quote_rows = build_local_proxy_sector_daily_quotes(
+                    db,
+                    sector,
+                    start_date=start_date,
+                    end_date=end_date,
+                    limit=limit,
+                )
+                if not quote_rows:
+                    quote_rows = fetch_sector_daily_quotes(sector, start_date=start_date, end_date=end_date, limit=limit)
                 count = upsert_sector_daily_quotes(db, quote_rows)
                 total_quotes += count
+                if quote_rows and quote_rows[0].get("source") == LOCAL_PROXY_SOURCE:
+                    local_proxy += 1
                 coverage = sector_quote_coverage(db, sector.sector_code)
-                status = "success" if _is_complete(coverage, args.days) else "partial"
+                status = _coverage_status(coverage, args.days, required_trade_date)
+                if status == "stale":
+                    stale += 1
                 refresh_quote_sync_state(
                     db,
                     sector,
                     status=status,
                     target_days=args.days,
+                    last_error=_freshness_warning(coverage.get("last_trade_date"), required_trade_date),
                     reset_attempts=True,
                 )
-                print(f"  K线写入/更新 {count} 行")
+                source_label = "本地代理" if quote_rows and quote_rows[0].get("source") == LOCAL_PROXY_SOURCE else "外部源"
+                print(f"  K线写入/更新 {count} 行，状态 {status}，来源 {source_label}")
             except Exception as e:
                 failed_state = refresh_quote_sync_state(
                     db,
@@ -283,7 +305,10 @@ def main() -> None:
                 )
             time.sleep(0.35)
 
-        print(f"完成，成分映射累计 {total_cons} 条，K线累计 {total_quotes} 行，跳过 {skipped} 个概念")
+        print(
+            f"完成，成分映射累计 {total_cons} 条，K线累计 {total_quotes} 行，"
+            f"跳过 {skipped} 个概念，本地代理 {local_proxy} 个概念，过期 {stale} 个概念"
+        )
     finally:
         db.close()
 

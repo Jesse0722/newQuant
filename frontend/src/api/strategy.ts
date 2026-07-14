@@ -21,6 +21,23 @@ export interface ScreenResult {
   stock_names: Record<string, string>
   items?: MainWaveScreenResultItem[]
   total: number
+  performance?: {
+    total_elapsed_ms?: number
+    total_codes?: number
+    hard_filtered?: number
+    score_filtered?: number
+    matched?: number
+    preload?: {
+      total_elapsed_ms?: number
+      quotes?: { enabled?: boolean; row_count?: number; elapsed_ms?: number; skipped_reason?: string | null }
+      sector_quotes?: { enabled?: boolean; row_count?: number; elapsed_ms?: number; skipped_reason?: string | null }
+      market_proxy?: { enabled?: boolean; row_count?: number; elapsed_ms?: number; skipped_reason?: string | null }
+    }
+    hard_filter_elapsed_ms?: number
+    analyze_elapsed_ms?: number
+    score_filter_elapsed_ms?: number
+    sort_elapsed_ms?: number
+  }
 }
 
 export const getScreenTemplates = () =>
@@ -75,6 +92,9 @@ export interface MainWaveScreenParams {
   max_ma20_distance_pct?: number | null
   min_sector_return_20d?: number | null
   min_relative_strength_20d?: number | null
+  entry_stages?: string[]
+  min_entry_score?: number | null
+  exclude_overheat?: boolean
 }
 
 export interface MainWaveScreenResultItem {
@@ -86,11 +106,26 @@ export interface MainWaveScreenResultItem {
   structure_score?: number
   pullback_repair_score?: number
   sector_resonance_score?: number
+  market_relative_score?: number
   best_sector?: {
     sector_code?: string
     sector_name?: string
     sector_type?: string
     sector_return_20d?: number | null
+    relative_strength_20d?: number | null
+  } | null
+  market_proxy?: {
+    group?: string
+    label?: string
+    status?: string
+    source?: string
+    latest_trade_date?: string
+    member_count?: number
+    latest_pct_chg?: number | null
+    stock_latest_pct_chg?: number | null
+    latest_relative_pct_chg?: number | null
+    return_20d?: number | null
+    stock_return_20d?: number | null
     relative_strength_20d?: number | null
   } | null
   return_20d?: number | null
@@ -101,12 +136,132 @@ export interface MainWaveScreenResultItem {
     distance_pct?: number | null
     break_days?: number
   } | null
+  entry_score?: number | null
+  entry_stage?: string | null
+  entry_label?: string | null
+  entry_reasons?: string[]
+  entry_risks?: string[]
+  sector_data_status?: string | null
+  sector_data_warning?: string | null
+  overheat_reasons?: string[]
+  data_quality?: {
+    score?: number
+    warnings?: string[]
+  } | null
   float_market_cap_yi?: number | null
   avg_amount_20d_yi?: number | null
 }
 
 export const runMainWaveScreen = (data: MainWaveScreenParams) =>
   client.post<{ task_id: string }>('/strategy/main-wave-screen', data)
+
+export interface MainWaveBacktestSignal {
+  ts_code: string
+  stock_name?: string
+  trigger_date: string
+  entry_price: number
+  total_score: number
+  status?: string
+  entry_stage?: string
+  entry_score?: number
+  sector_score?: number
+  market_relative_score?: number
+  return_1d?: number | null
+  return_3d?: number | null
+  return_5d?: number | null
+  return_10d?: number | null
+}
+
+export interface MainWaveBacktestGroupSummary {
+  group: string
+  total_signals: number
+  covered_1d?: number
+  avg_return_1d?: number
+  win_rate_1d?: number
+  covered_3d?: number
+  avg_return_3d?: number
+  win_rate_3d?: number
+  covered_5d?: number
+  avg_return_5d?: number
+  win_rate_5d?: number
+  covered_10d?: number
+  avg_return_10d?: number
+  win_rate_10d?: number
+}
+
+export interface MainWaveBacktestRecommendation {
+  type: string
+  level: 'observe' | 'risk' | string
+  message: string
+  evidence?: string
+}
+
+export interface MainWaveBacktestResult {
+  trade_date_from: string
+  trade_date_to: string
+  scope: string
+  stock_count: number
+  date_count: number
+  holding_days: number[]
+  total_signals: number
+  covered_1d?: number
+  avg_return_1d?: number
+  win_rate_1d?: number
+  covered_3d?: number
+  avg_return_3d?: number
+  win_rate_3d?: number
+  covered_5d?: number
+  avg_return_5d?: number
+  win_rate_5d?: number
+  covered_10d?: number
+  avg_return_10d?: number
+  win_rate_10d?: number
+  quality_notes?: string[]
+  recommendations?: MainWaveBacktestRecommendation[]
+  performance?: {
+    quote_preload?: {
+      enabled?: boolean
+      loaded_codes?: number
+      row_count?: number
+      start_date?: string
+      end_date?: string
+      skipped_reason?: string | null
+    }
+    market_proxy_preload?: {
+      enabled?: boolean
+      groups?: string[]
+      row_count?: number
+      start_date?: string
+      end_date?: string
+      skipped_reason?: string | null
+    }
+  }
+  stage_summary: MainWaveBacktestGroupSummary[]
+  status_summary: MainWaveBacktestGroupSummary[]
+  score_summary: MainWaveBacktestGroupSummary[]
+  signals: MainWaveBacktestSignal[]
+}
+
+export interface MainWaveBacktestTask {
+  task_id: string
+  type: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  message: string
+  result?: MainWaveBacktestResult | null
+  created_at?: string
+}
+
+export const submitMainWaveBacktest = (data: MainWaveScreenParams & {
+  trade_date_from: string
+  trade_date_to: string
+  holding_days?: number[]
+  max_signals_per_day?: number
+  cooldown_days?: number
+}) => client.post<{ task_id: string }>('/strategy/main-wave-backtest', data)
+
+export const getMainWaveBacktestResult = (taskId: string) =>
+  client.get<MainWaveBacktestTask>(`/strategy/main-wave-backtest/${taskId}`)
 
 export interface BacktestSignal {
   ts_code: string

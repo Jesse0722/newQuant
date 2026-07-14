@@ -21,6 +21,7 @@ export const deletePool = (id: string) => client.delete(`/pools/${id}`)
 export interface ListStocksParams {
   keyword?: string
   monitor_status?: string
+  sector_code?: string
   limit_up_date_from?: string
   limit_up_date_to?: string
   /** 最新收盘价区间 */
@@ -104,6 +105,34 @@ export const cleanupLimitUpPool = (
     include_pinned?: boolean
   }
 ) => client.post<LimitUpPoolCleanupResult>(`/pools/${poolId}/cleanup/limit-up`, data)
+
+export interface SectorPoolCleanupPreviewItem {
+  stock_id: string
+  ts_code: string
+  stock_name: string
+  pinned: boolean
+}
+
+export interface SectorPoolCleanupResult {
+  pool_id: string
+  pool_name: string
+  sector_code: string
+  sector_name: string
+  sector_type: string
+  dry_run: boolean
+  candidate_count: number
+  deleted_count: number
+  pinned_count: number
+  preview: SectorPoolCleanupPreviewItem[]
+}
+
+export const cleanupPoolSector = (
+  poolId: string,
+  data: {
+    sector_code: string
+    dry_run?: boolean
+  }
+) => client.post<SectorPoolCleanupResult>(`/pools/${poolId}/cleanup/sector`, data)
 
 export const importCSV = (poolId: string, file: File) => {
   const form = new FormData()

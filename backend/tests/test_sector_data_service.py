@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
+import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models.sector import SectorBasic, SectorDailyQuote, SectorQuoteSyncState, StockSectorMap
+from app.models.stock import DailyQuote
 from app.services import sector_data_service as svc
 
 
@@ -174,3 +179,104 @@ def test_refresh_quote_sync_state_tracks_coverage():
     assert state.quote_count == 2
     assert state.first_trade_date == "20260521"
     assert state.last_trade_date == "20260522"
+
+
+def test_fetch_sector_daily_quotes_falls_back_to_akshare(monkeypatch):
+    sector = SectorBasic(
+        sector_code="BK0714",
+        sector_name="5G概念",
+        sector_type="concept",
+        source=svc.SOURCE,
+        raw_code="BK0714",
+    )
+
+    def fail_primary(*args, **kwargs):
+        raise svc.EastMoneyRequestError("primary closed")
+
+    def fake_concept_hist_em(**kwargs):
+        assert kwargs["symbol"] == "5G概念"
+        return pd.DataFrame(
+            [
+                {
+                    "日期": "2026-07-06",
+                    "开盘": 100.0,
+                    "收盘": 101.0,
+                    "最高": 102.0,
+                    "最低": 99.0,
+                    "涨跌幅": 1.0,
+                    "成交量": 100000,
+                    "成交额": 200000000,
+                },
+                {
+                    "日期": "2026-07-07",
+                    "开盘": 101.0,
+                    "收盘": 103.0,
+                    "最高": 104.0,
+                    "最低": 100.5,
+                    "涨跌幅": 1.98,
+                    "成交量": 120000,
+                    "成交额": 240000000,
+                },
+            ]
+        )
+
+    fake_akshare = SimpleNamespace(stock_board_concept_hist_em=fake_concept_hist_em)
+    monkeypatch.setattr(svc, "_em_get_json", fail_primary)
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare)
+
+    rows = svc.fetch_sector_daily_quotes(sector, start_date="20260701", end_date="20260707", limit=1)
+
+    assert len(rows) == 1
+    assert rows[0]["trade_date"] == "20260707"
+    assert rows[0]["sector_code"] == "BK0714"
+    assert rows[0]["close"] == 103.0
+
+
+def test_build_local_proxy_sector_daily_quotes_from_member_returns():
+    db = _session()
+    sector = SectorBasic(
+        sector_code="BKAI",
+        sector_name="AI算力",
+        sector_type="concept",
+        source=svc.SOURCE,
+        raw_code="BKAI",
+    )
+    db.add(sector)
+    for code in ["000001.SZ", "000002.SZ", "000003.SZ"]:
+        db.add(
+            StockSectorMap(
+                ts_code=code,
+                sector_code="BKAI",
+                sector_name="AI算力",
+                sector_type="concept",
+                source=svc.SOURCE,
+            )
+        )
+        close = 10.0
+        for idx, date in enumerate(["20260701", "20260702", "20260703"], start=1):
+            pct = 1.0 * idx
+            close *= 1 + pct / 100
+            db.add(
+                DailyQuote(
+                    ts_code=code,
+                    trade_date=date,
+                    close=close,
+                    pct_chg=pct,
+                    vol=1000.0,
+                    amount=100000.0,
+                )
+            )
+    db.commit()
+
+    rows = svc.build_local_proxy_sector_daily_quotes(
+        db,
+        sector,
+        start_date="20260701",
+        end_date="20260703",
+        min_members=3,
+    )
+
+    assert [row["trade_date"] for row in rows] == ["20260701", "20260702", "20260703"]
+    assert rows[0]["source"] == svc.LOCAL_PROXY_SOURCE
+    assert rows[-1]["pct_chg"] == 3.0
+    assert rows[-1]["amount"] == 300000.0

@@ -108,6 +108,7 @@ const PoolList: React.FC = () => {
   const [limitUpCountMin, setLimitUpCountMin] = useState<number | null>(null)
   const [limitUpCountMax, setLimitUpCountMax] = useState<number | null>(null)
   const [risingTrendOnly, setRisingTrendOnly] = useState(false)
+  const [sectorFilter, setSectorFilter] = useState<{ code: string; name: string } | null>(null)
 
   const limitUpStatsFromStr = limitUpStatsFrom ? limitUpStatsFrom.format('YYYYMMDD') : ''
   const limitUpStatsToStr = limitUpStatsTo ? limitUpStatsTo.format('YYYYMMDD') : ''
@@ -125,6 +126,7 @@ const PoolList: React.FC = () => {
     limitUpCountMin,
     limitUpCountMax,
     risingTrendOnly,
+    sectorCode: sectorFilter?.code || '',
   })
   filtersRef.current = {
     sortBy,
@@ -140,6 +142,7 @@ const PoolList: React.FC = () => {
     limitUpCountMin,
     limitUpCountMax,
     risingTrendOnly,
+    sectorCode: sectorFilter?.code || '',
   }
   const anyModalOpenRef = useRef(false)
   anyModalOpenRef.current = addModalOpen || importModalOpen || editPoolModalOpen || noteModalOpen || addRuleModalOpen
@@ -212,6 +215,7 @@ const PoolList: React.FC = () => {
       if (f.limitUpCountMax != null) params.limit_up_count_max = f.limitUpCountMax
     }
     if (f.risingTrendOnly) params.rising_trend = 1
+    if (f.sectorCode) params.sector_code = f.sectorCode
     return listStocks(poolId, params)
   }
 
@@ -267,6 +271,7 @@ const PoolList: React.FC = () => {
   }, [activePoolId, pools, routePoolId])
 
   const selectPool = useCallback((poolId: string) => {
+    setSectorFilter(null)
     setActivePoolId(poolId)
     navigate(`/pools/${poolId}`)
   }, [navigate])
@@ -322,6 +327,7 @@ const PoolList: React.FC = () => {
     limitUpCountMin,
     limitUpCountMax,
     risingTrendOnly,
+    sectorFilter?.code,
   ])
 
   useEffect(() => {
@@ -691,6 +697,24 @@ const PoolList: React.FC = () => {
     fetchPools()
   }
 
+  const refreshActivePoolStocks = useCallback((removedStockIds?: string[]) => {
+    if (removedStockIds?.length) {
+      const removedSet = new Set(removedStockIds)
+      const nextStocks = stocks.filter(stock => !removedSet.has(stock.id))
+      const selectedRemoved = stocks.some(stock => stock.ts_code === selectedCode && removedSet.has(stock.id))
+      setStocks(nextStocks)
+      setTotal(prev => Math.max(nextStocks.length, prev - (stocks.length - nextStocks.length)))
+      if (selectedRemoved) {
+        const selectedIndex = stocks.findIndex(stock => stock.ts_code === selectedCode)
+        const nextSelected = nextStocks[selectedIndex] || nextStocks[selectedIndex - 1] || nextStocks[0]
+        setSelectedCode(nextSelected?.ts_code || '')
+      }
+    }
+    if (!activePoolId) return
+    loadInitial(activePoolId)
+    fetchPools().catch(() => {})
+  }, [activePoolId, fetchPools, loadInitial, selectedCode, stocks])
+
   const handleImport = async (file: File) => {
     const res = await importCSV(activePoolId, file)
     const r = res.data as CsvImportResult
@@ -721,6 +745,7 @@ const PoolList: React.FC = () => {
       if (f.limitUpCountMax != null) params.limit_up_count_max = f.limitUpCountMax
     }
     if (f.risingTrendOnly) params.rising_trend = 1
+    if (f.sectorCode) params.sector_code = f.sectorCode
     const res = await exportStocksCSV(activePoolId, params)
     const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' })
     const url = window.URL.createObjectURL(blob)
@@ -968,6 +993,8 @@ const PoolList: React.FC = () => {
         }}>
           {isMainWavePool ? (
             <MainWaveResearchPanel
+              activeSectorCode={sectorFilter?.code || ''}
+              activeSectorName={sectorFilter?.name || ''}
               chartData={chartData}
               chartLoading={chartLoading}
               onAddStock={() => setAddModalOpen(true)}
@@ -975,6 +1002,10 @@ const PoolList: React.FC = () => {
               onEditNote={openNoteModal}
               onExport={handleExport}
               onImport={() => setImportModalOpen(true)}
+              onRefreshStocks={refreshActivePoolStocks}
+              onSelectSector={(sector) => {
+                setSectorFilter(prev => prev?.code === sector.code ? null : sector)
+              }}
               onSelectStock={setSelectedCode}
               onTogglePin={handleTogglePin}
               poolId={activePoolId}
