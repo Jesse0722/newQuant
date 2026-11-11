@@ -1,18 +1,19 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { ConfigProvider, theme as antdTheme } from 'antd'
+import { ConfigProvider, Spin, theme as antdTheme } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import MainLayout from './layouts/MainLayout'
-import Dashboard from './pages/Dashboard'
-import PoolList from './pages/Pools/PoolList'
-import Alerts from './pages/Alerts'
-import PlanList from './pages/Plans/PlanList'
-import PlanRedirect from './pages/Plans/PlanRedirect'
-import StockDetail from './pages/Stocks/StockDetail'
-import StrategyPage from './pages/Strategy/StrategyPage'
-import BuyRadarPage from './pages/BuyRadar/BuyRadarPage'
-import DataPage from './pages/Data/DataPage'
-import MessageCenterPage from './pages/Messages/MessageCenterPage'
-import LoginPage from './pages/Login/LoginPage'
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const PoolList = lazy(() => import('./pages/Pools/PoolList'))
+const Alerts = lazy(() => import('./pages/Alerts'))
+const PlanList = lazy(() => import('./pages/Plans/PlanList'))
+const PlanRedirect = lazy(() => import('./pages/Plans/PlanRedirect'))
+const StockDetail = lazy(() => import('./pages/Stocks/StockDetail'))
+const StrategyPage = lazy(() => import('./pages/Strategy/StrategyPage'))
+const BuyRadarPage = lazy(() => import('./pages/BuyRadar/BuyRadarPage'))
+const DataPage = lazy(() => import('./pages/Data/DataPage'))
+const MessageCenterPage = lazy(() => import('./pages/Messages/MessageCenterPage'))
+const LoginPage = lazy(() => import('./pages/Login/LoginPage'))
 import ProtectedRoute from './auth/ProtectedRoute'
 import './index.css'
 
@@ -139,6 +140,7 @@ function App() {
       }}
     >
       <BrowserRouter>
+        <Suspense fallback={<div role="status" style={{ padding: 32 }}><Spin /> 页面加载中</div>}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route element={<ProtectedRoute />}>
@@ -157,6 +159,7 @@ function App() {
           </Route>
           </Route>
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </ConfigProvider>
   )

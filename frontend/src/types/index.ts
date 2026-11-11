@@ -165,6 +165,8 @@ export interface StockPlanItem {
   status: string
   risk_level: number
   actual_pnl?: number
+  pnl_scope?: 'stock_lifetime'
+  review_pnl_snapshot?: number | null
   created_at: string
 }
 
@@ -255,6 +257,8 @@ export interface TradePlan {
   status: string
   alert_id?: string
   actual_pnl?: number
+  pnl_scope?: 'stock_lifetime'
+  review_pnl_snapshot?: number | null
   review_summary?: string
   lessons_learned?: string
   note?: string
@@ -597,6 +601,7 @@ export interface MessageAgentRunResult {
 }
 
 export interface MessageAgentDailyCandidate {
+  opportunity_id?: string
   theme: string
   ts_code?: string | null
   stock_name?: string | null
@@ -919,7 +924,10 @@ export interface StrategyBacktestResult {
   avg_return_1d: number
   avg_return_3d: number
   avg_return_5d: number
-  max_drawdown: number
+  max_drawdown: number | null
+  worst_return_5d?: number | null
+  evaluation_basis?: string
+  disclaimer?: string
   profit_factor: number
   signals: StrategyBacktestSignal[]
 }

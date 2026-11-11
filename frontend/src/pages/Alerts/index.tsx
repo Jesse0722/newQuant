@@ -267,7 +267,7 @@ const Alerts: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 150,
+      width: 230,
       fixed: 'right' as const,
       render: (_: unknown, r: Alert) => {
         const starred = coreWatchCodes.has(r.ts_code)
@@ -283,6 +283,7 @@ const Alerts: React.FC = () => {
                 onClick={() => handleToggleCoreWatch(r)}
               />
             </Tooltip>
+            {r.status === 'pending' && <Button size="small" type="link" onClick={() => navigate(`/plans?alert=${encodeURIComponent(r.id)}&stock=${encodeURIComponent(r.ts_code)}`)}>创建计划</Button>}
             {r.status === 'pending' && (
             <Popconfirm title="确定忽略？" onConfirm={() => handleDismiss(r.id)}>
               <Button size="small">忽略</Button>

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react'
-import { Card, Tag, Descriptions, Segmented, Space, Row, Col, Statistic, Empty, Button, Tooltip } from 'antd'
+import { Card, Tag, Descriptions, Segmented, Space, Row, Col, Statistic, Empty, Button, Tooltip, Spin, Alert } from 'antd'
 import { CheckCircleFilled, CloseCircleFilled, ArrowRightOutlined, StarFilled, StarOutlined } from '@ant-design/icons'
-import * as echarts from 'echarts'
+import * as echarts from '../../lib/echarts'
 import { getStockChartWithMarks } from '../../api/strategy'
 import type { BuySignal, StockChartDataWithMarks } from '../../types'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
@@ -34,16 +34,26 @@ const SignalDetail: React.FC<Props> = ({
 }) => {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
-  const [chartData, setChartData] = useState<StockChartDataWithMarks | null>(null)
+  const [chartResult, setChartResult] = useState<{ key: string; data: StockChartDataWithMarks | null; error?: boolean } | null>(null)
   const [period, setPeriod] = useState(120)
   const [subIndicator, setSubIndicator] = useState<string>('macd')
 
+  const signalCode = signal?.ts_code
+  const signalDate = signal?.life_line_date || undefined
+  const chartKey = `${signalCode}|${signalDate}|${period}`
+  const chartData = chartResult?.key === chartKey ? chartResult.data : null
+  const chartLoading = !!signalCode && chartResult?.key !== chartKey
+  const chartError = chartResult?.key === chartKey && chartResult.error
+
   useEffect(() => {
-    if (!signal) return
-    getStockChartWithMarks(signal.ts_code, period, signal.life_line_date || undefined).then((res) =>
-      setChartData(res.data)
-    )
-  }, [signal, period])
+    let cancelled = false
+    chartInstance.current?.clear()
+    if (!signalCode) return
+    getStockChartWithMarks(signalCode, period, signalDate)
+      .then((res) => { if (!cancelled) setChartResult({ key: chartKey, data: res.data }) })
+      .catch(() => { if (!cancelled) setChartResult({ key: chartKey, data: null, error: true }) })
+    return () => { cancelled = true }
+  }, [signalCode, signalDate, chartKey, period])
 
   const renderChart = useCallback(() => {
     if (!chartRef.current || !chartData || chartData.quotes.length === 0) return
@@ -295,7 +305,10 @@ const SignalDetail: React.FC<Props> = ({
           </Space>
         }
       >
-        <div ref={chartRef} style={{ width: '100%', height: 440 }} />
+        {chartError && <Alert type="error" title="K 线加载失败，请切换股票或周期重试" />}
+        <Spin spinning={chartLoading}>
+          <div ref={chartRef} data-testid="signal-chart" data-stock-code={chartData?.basic.ts_code || ''} style={{ width: '100%', height: 440 }} />
+        </Spin>
       </Card>
 
       {/* 信号条件明细 */}

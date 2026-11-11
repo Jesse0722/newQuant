@@ -38,7 +38,7 @@ const SignalList: React.FC<Props> = ({
   }
 
   return (
-    <div style={{ overflowY: 'auto', height: '100%' }}>
+    <div role="listbox" aria-label="买点研究候选" style={{ overflowY: 'auto', height: '100%' }}>
       {signals.map((s) => {
         const cfg = STATUS_CONFIG[s.signal_status] || STATUS_CONFIG.tracking
         const isActive = s.ts_code === selectedCode
@@ -47,6 +47,10 @@ const SignalList: React.FC<Props> = ({
         return (
           <div
             key={s.ts_code}
+            role="option"
+            aria-label={`${s.name} ${s.ts_code}`}
+            aria-selected={isActive}
+            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(s) } }}
             onClick={() => onSelect(s)}
             tabIndex={0}
             style={{

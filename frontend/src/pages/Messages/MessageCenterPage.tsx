@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import {
   Button,
   Card,
@@ -57,6 +57,7 @@ import { toggleCoreWatch } from '../../api/pools'
 import type {
   MessageDaily,
   MessageAgentDaily,
+  MessageAgentDailyCandidate,
   MessageAgentRun,
   MessageEvidence,
   IndustryDailyReport,
@@ -68,6 +69,9 @@ import type {
   MessageSeedKeywordInput,
   MessageSentiment,
 } from '../../types'
+import CandidateEvidenceModal, { type CandidateEvidenceRow } from '../../components/CandidateEvidenceModal'
+import { safeEvidenceUrl } from '../../utils/safeEvidenceUrl'
+import { beginOperationNotification, finishOperationNotification } from '../../services/notificationCenter'
 import { openStockDetail } from '../../utils/openStockDetail'
 
 const stageMap: Record<string, { label: string; color: string }> = {
@@ -207,6 +211,12 @@ const MessageCenterPage: React.FC = () => {
   const [agentRunning, setAgentRunning] = useState(false)
   const [evidenceModalOpen, setEvidenceModalOpen] = useState(false)
   const [evidenceLoading, setEvidenceLoading] = useState(false)
+  const evidenceRequestRef = useRef(0)
+  const candidateRequestRef = useRef(0)
+  const [candidateEvidence, setCandidateEvidence] = useState<{ title: string; rows: CandidateEvidenceRow[]; path?: string } | null>(null)
+  const [candidateLoading, setCandidateLoading] = useState(false)
+  const [dismissOpen, setDismissOpen] = useState(false)
+  const [dismissReason, setDismissReason] = useState('')
   const [reviewBusy, setReviewBusy] = useState(false)
   const [selectedOpportunity, setSelectedOpportunity] = useState<MessageOpportunity | null>(null)
   const [opportunityEvidence, setOpportunityEvidence] = useState<MessageOpportunityEvidence[]>([])
@@ -266,6 +276,7 @@ const MessageCenterPage: React.FC = () => {
 
   const handleGenerateAgentDaily = async (useLlm = false) => {
     setAgentDailyGenerating(true)
+    const notice = beginOperationNotification('证据日报生成', '/messages')
     try {
       const res = await generateMessageAgentDaily({
         trade_date: daily?.trade_date,
@@ -274,9 +285,11 @@ const MessageCenterPage: React.FC = () => {
         model: useLlm ? 'deepseek-v4-flash' : undefined,
         limit: 5,
       })
+      finishOperationNotification(notice, 'success', '证据日报生成完成，点击查看结果', res.data)
       setAgentDaily(res.data)
       message.success(useLlm ? 'DeepSeek证据日报已生成' : '证据日报已刷新')
     } catch (error) {
+      finishOperationNotification(notice, 'error', errorText(error, '证据日报生成失败'))
       message.error(errorText(error, '生成证据日报失败'))
     } finally {
       setAgentDailyGenerating(false)
@@ -285,6 +298,7 @@ const MessageCenterPage: React.FC = () => {
 
   const handleRunDeepSeekCleaner = async () => {
     setAgentRunning(true)
+    const notice = beginOperationNotification('消息证据清洗', '/messages')
     try {
       const res = await runMessageAgent({
         agent_name: 'llm_evidence_cleaner',
@@ -293,12 +307,14 @@ const MessageCenterPage: React.FC = () => {
         model: 'deepseek-v4-flash',
         limit: 20,
       })
+      finishOperationNotification(notice, 'success', '消息证据清洗完成，点击查看结果', res.data)
       message.success(
         `DeepSeek清洗完成：证据${res.data.evidence_count}条，回退${res.data.fallback_count}条`
       )
       await fetchAgentRuns()
       await fetchAgentDaily(daily?.trade_date)
     } catch (error) {
+      finishOperationNotification(notice, 'error', errorText(error, '消息证据清洗失败'))
       message.error(errorText(error, 'DeepSeek清洗失败'))
     } finally {
       setAgentRunning(false)
@@ -345,18 +361,53 @@ const MessageCenterPage: React.FC = () => {
   }
 
   const openOpportunityEvidence = async (row: MessageOpportunity) => {
+    const request = ++evidenceRequestRef.current
+    setOpportunityEvidence([])
     setSelectedOpportunity(row)
     setEvidenceModalOpen(true)
     setEvidenceLoading(true)
     try {
       const res = await getMessageOpportunityEvidence(row.id)
-      setOpportunityEvidence(res.data)
+      if (request === evidenceRequestRef.current) setOpportunityEvidence(res.data)
     } catch (error) {
+      if (request !== evidenceRequestRef.current) return
       setOpportunityEvidence([])
       message.error(errorText(error, '加载机会证据失败'))
     } finally {
-      setEvidenceLoading(false)
+      if (request === evidenceRequestRef.current) setEvidenceLoading(false)
     }
+  }
+
+  const openAgentCandidateEvidence = async (row: MessageAgentDailyCandidate) => {
+    const request = ++candidateRequestRef.current
+    setCandidateEvidence({ title: `${row.stock_name || row.ts_code || row.theme} · 日报证据`, rows: [] })
+    if (!row.opportunity_id) { setCandidateLoading(false); return }
+    setCandidateLoading(true)
+    try {
+      const res = await getMessageOpportunityEvidence(row.opportunity_id)
+      if (request !== candidateRequestRef.current) return
+      setCandidateEvidence({ title: `${row.stock_name || row.ts_code || row.theme} · 日报证据`, rows: res.data.map(link => ({
+        id: link.id, text: link.evidence?.evidence_text || '', kind: 'quote',
+        source: link.evidence?.source_item?.source_name || undefined, channel: link.evidence?.channel,
+        stance: link.evidence?.stance, confidence: link.evidence?.confidence,
+        url: link.evidence ? evidenceUrl(link.evidence) : undefined,
+      })) })
+    } catch (error) { if (request === candidateRequestRef.current) message.error(errorText(error, '加载候选证据失败')) }
+    finally { if (request === candidateRequestRef.current) setCandidateLoading(false) }
+  }
+
+  const openIndustryCandidateEvidence = (row: IndustryReportCandidate) => {
+    candidateRequestRef.current += 1
+    setCandidateLoading(false)
+    setCandidateEvidence({ title: `${row.stock_name || row.ts_code} · 产业链证据`,
+      path: row.path_json.map(step => `${step.source}→${step.target}`).join(' / '),
+      rows: row.evidence_json.map((item, index) => ({
+        id: String(item.evidence_id || item.relation_id || index), text: String(item.evidence_text || item.evidence || item.description || ''),
+        kind: String(item.evidence_kind || (item.source === 'seed' ? 'seed' : 'summary')),
+        source: String(item.source_name || item.source || ''), channel: String(item.channel || ''),
+        stance: String(item.stance || ''), confidence: typeof item.confidence === 'number' ? item.confidence : undefined,
+        url: typeof item.url === 'string' ? item.url : undefined,
+      })) })
   }
 
   const replaceOpportunity = (next: MessageOpportunity | null) => {
@@ -411,12 +462,14 @@ const MessageCenterPage: React.FC = () => {
   }
 
   const handleDismissOpportunity = async () => {
-    if (!selectedOpportunity) return
+    if (!selectedOpportunity || !dismissReason.trim()) return
     setReviewBusy(true)
     try {
-      const res = await dismissMessageOpportunity(selectedOpportunity.id, { review_reason: '人工驳回' })
+      const res = await dismissMessageOpportunity(selectedOpportunity.id, { review_reason: dismissReason.trim() })
       replaceOpportunity(res.data)
       setEvidenceModalOpen(false)
+      setDismissOpen(false)
+      setDismissReason('')
       message.success('已驳回候选')
     } catch (error) {
       message.error(errorText(error, '驳回机会失败'))
@@ -439,11 +492,14 @@ const MessageCenterPage: React.FC = () => {
 
   const handleGenerateIndustryReport = async () => {
     setIndustryGenerating(true)
+    const notice = beginOperationNotification('产业链日报生成', '/messages')
     try {
       const res = await generateIndustryReport({ refresh_seeds: true })
+      finishOperationNotification(notice, 'success', '产业链日报生成完成，点击查看结果', res.data)
       setIndustryReport(res.data)
       message.success(`产业链日报已生成：${res.data.candidates.length} 个候选`)
     } catch (error) {
+      finishOperationNotification(notice, 'error', errorText(error, '产业链日报生成失败'))
       message.error(errorText(error, '生成产业链日报失败'))
     } finally {
       setIndustryGenerating(false)
@@ -452,6 +508,7 @@ const MessageCenterPage: React.FC = () => {
 
   const handleCollectX = async () => {
     setXCollecting(true)
+    const notice = beginOperationNotification('X 舆情采集', '/messages')
     try {
       const res = await collectMessageXPosts({
         min_priority: 5,
@@ -459,12 +516,14 @@ const MessageCenterPage: React.FC = () => {
         max_results: 20,
         aggregate: true,
       })
+      finishOperationNotification(notice, 'success', 'X 舆情采集完成，点击查看结果', res.data)
       const aggregation = res.data.imported.aggregation
       message.success(
         `X采集完成：新增${res.data.imported.created_count}条，跳过${res.data.imported.skipped_count}条，机会${aggregation?.opportunity_count ?? 0}个`
       )
       await fetchDaily()
     } catch (error) {
+      finishOperationNotification(notice, 'error', errorText(error, 'X 舆情采集失败'))
       message.error(errorText(error, 'X采集失败'))
     } finally {
       setXCollecting(false)
@@ -691,6 +750,7 @@ const MessageCenterPage: React.FC = () => {
               <Button
                 size="small"
                 icon={<FileSearchOutlined />}
+                aria-label="查看机会证据"
                 onClick={() => openOpportunityEvidence(row)}
               />
             </Tooltip>
@@ -767,6 +827,7 @@ const MessageCenterPage: React.FC = () => {
             <Space size={8} wrap>
               <Tag>路径 {row.path_score}</Tag>
               <Tag>证据 {row.evidence_score}</Tag>
+              <Button size="small" aria-label="查看产业链证据" onClick={() => openIndustryCandidateEvidence(row)}>查看证据</Button>
               <span style={{ color: 'var(--text-secondary)' }}>{row.reason}</span>
             </Space>
           </Tooltip>
@@ -1032,11 +1093,12 @@ const MessageCenterPage: React.FC = () => {
                     {
                       title: '证据',
                       key: 'evidence',
-                      width: 140,
+                      width: 210,
                       render: (_: unknown, row) => (
-                        <Space>
+                        <Space wrap>
                           <Tag>条数 {row.evidence_count}</Tag>
                           <Tag>分 {row.evidence_score}</Tag>
+                          <Button size="small" aria-label="查看日报证据" onClick={() => openAgentCandidateEvidence(row)}>查看证据</Button>
                         </Space>
                       ),
                     },
@@ -1202,11 +1264,11 @@ const MessageCenterPage: React.FC = () => {
       <Modal
         title={`${selectedOpportunity?.stock_name || selectedOpportunity?.ts_code || '主题机会'} · 证据`}
         open={evidenceModalOpen}
-        onCancel={() => setEvidenceModalOpen(false)}
+        onCancel={() => { evidenceRequestRef.current += 1; setEvidenceModalOpen(false) }}
         footer={
           <Space>
             <Button onClick={() => setEvidenceModalOpen(false)}>关闭</Button>
-            <Button onClick={handleDismissOpportunity} loading={reviewBusy} danger>
+            <Button onClick={() => { setDismissReason(''); setDismissOpen(true) }} loading={reviewBusy} danger>
               驳回
             </Button>
             <Button onClick={handleReviewOpportunity} loading={reviewBusy}>
@@ -1269,7 +1331,7 @@ const MessageCenterPage: React.FC = () => {
                   key: 'source',
                   width: 100,
                   render: (_: unknown, row: MessageOpportunityEvidence) => {
-                    const url = row.evidence ? evidenceUrl(row.evidence) : undefined
+                    const url = row.evidence ? safeEvidenceUrl(evidenceUrl(row.evidence)) : undefined
                     return url ? (
                       <Typography.Link href={url} target="_blank" rel="noreferrer">
                         原文
@@ -1283,6 +1345,15 @@ const MessageCenterPage: React.FC = () => {
             <Empty description="暂无关联证据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
           )}
         </Spin>
+      </Modal>
+
+      <CandidateEvidenceModal title={candidateEvidence?.title || '候选证据'} open={!!candidateEvidence}
+        rows={candidateEvidence?.rows || []} path={candidateEvidence?.path} loading={candidateLoading}
+        onClose={() => { candidateRequestRef.current += 1; setCandidateEvidence(null) }} />
+      <Modal title="填写驳回原因" open={dismissOpen} onCancel={() => setDismissOpen(false)}
+        onOk={handleDismissOpportunity} confirmLoading={reviewBusy} okButtonProps={{ disabled: !dismissReason.trim() }}>
+        <Input.TextArea aria-label="驳回原因" value={dismissReason} onChange={event => setDismissReason(event.target.value)}
+          maxLength={1000} showCount rows={4} placeholder="例如：缺少官方来源，无法验证该公司关联" />
       </Modal>
 
       <Modal

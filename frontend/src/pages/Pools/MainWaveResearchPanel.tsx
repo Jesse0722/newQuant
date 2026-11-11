@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons'
 import { Button, Checkbox, Empty, InputNumber, Modal, Progress, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import * as echarts from 'echarts'
+import * as echarts from '../../lib/echarts'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   analyzeMainWaveBatch,
@@ -25,6 +25,8 @@ import {
 } from '../../api/market'
 import { cleanupPoolSector } from '../../api/pools'
 import type { StockChartDataWithMarks, WatchStock } from '../../types'
+import { pollTask } from '../../services/taskPolling'
+import { beginTaskNotification } from '../../services/notificationCenter'
 import { openStockDetail } from '../../utils/openStockDetail'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
@@ -221,20 +223,17 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
 
   useEffect(() => {
     if (!sectorTask?.task_id || !['running', 'pending'].includes(sectorTask.status)) return
-    const timer = window.setInterval(async () => {
-      try {
-        const res = await getMainWaveSectorBackfillTask(sectorTask.task_id)
-        setSectorTask(res.data)
-        if (res.data.status !== 'running') {
-          window.clearInterval(timer)
-          loadSectorStatus()
-          loadAnalyses(true)
+    return pollTask({
+      query: async () => (await getMainWaveSectorBackfillTask(sectorTask.task_id)).data,
+      onUpdate: data => {
+        setSectorTask(data)
+        if (['completed', 'failed', 'cancelled', 'interrupted'].includes(data.status)) {
+          void loadSectorStatus()
+          void loadAnalyses(true)
         }
-      } catch {
-        window.clearInterval(timer)
-      }
-    }, 1800)
-    return () => window.clearInterval(timer)
+      },
+      onRetry: () => setSectorTask(current => current ? { ...current, message: '状态暂时不可用，正在重试' } : current),
+    })
   }, [loadAnalyses, loadSectorStatus, sectorTask?.status, sectorTask?.task_id])
 
   const handleBackfillSectors = async (mode: 'backfill' | 'incremental', force = false) => {
@@ -242,8 +241,8 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
     try {
       const res = await startMainWaveSectorBackfill({ pool_id: poolId || undefined, days: 250, mode, force })
       message.success(mode === 'incremental' ? '已开始同步增量K线' : force ? '已开始重试失败项' : '已开始补齐板块K线')
-      const taskRes = await getMainWaveSectorBackfillTask(res.data.task_id)
-      setSectorTask(taskRes.data)
+      beginTaskNotification('sector_sync', '板块K线补齐', res.data.task_id, `/pools/${poolId}?sectorTask=${res.data.task_id}`)
+      setSectorTask({ task_id: res.data.task_id, type: 'sector_sync', status: 'running', progress: 0, message: '板块K线任务已提交', created_at: new Date().toISOString() })
     } catch (error: unknown) {
       const err = error as { response?: { status?: number; data?: { message?: string; detail?: unknown } } }
       if (err.response?.status === 404) {
@@ -716,6 +715,8 @@ const MainWaveResearchPanel: React.FC<MainWaveResearchPanelProps> = ({
                 <div style={{ position: 'relative', height: 420, minHeight: 360 }}>
                   <div
                     ref={chartRef}
+                    data-testid="main-wave-chart"
+                    data-stock-code={chartData?.basic.ts_code || ''}
                     style={{
                       width: '100%',
                       height: '100%',

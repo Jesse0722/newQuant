@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react'
 import { Card, Descriptions, Button, Progress, message, Spin, InputNumber, Space, Row, Col, Statistic, Table, Tag, Select } from 'antd'
 import { SyncOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
+import { useSearchParams } from 'react-router-dom'
+import { pollTask } from '../../services/taskPolling'
+import { beginTaskNotification, beginOperationNotification, finishOperationNotification } from '../../services/notificationCenter'
 import { getDataSummary, getSyncHistory, checkTushare, getSyncOverview, getDataProvider, setDataProvider } from '../../api/data'
 import { syncFullMarket, getTaskStatus } from '../../api/sync'
 import { collectLimitUp } from '../../api/strategy'
@@ -16,6 +19,9 @@ interface ApiErrorLike {
 }
 
 const DataPage: React.FC = () => {
+  const [searchParams] = useSearchParams()
+  const linkedTask = searchParams.get('task')
+  const linkedHistory = searchParams.get('history')
   const [summary, setSummary] = useState<DataSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -46,12 +52,16 @@ const DataPage: React.FC = () => {
   const [switchingProvider, setSwitchingProvider] = useState(false)
 
   const handleCheckTushare = async () => {
+    const notice = beginOperationNotification('数据源连接检查', '/data', 'data_source')
     try {
       const res = await checkTushare()
       setTushareCheck(res.data)
+      finishOperationNotification(notice, res.data.api_test === 'ok' ? 'success' : 'error', res.data.api_test || '未返回连接检查结果', res.data)
     } catch (error: unknown) {
       const apiError = error as ApiErrorLike
-      message.error(apiError.response?.data?.message || '检查失败')
+      const text = apiError.response?.data?.message || '检查失败'
+      message.error(text)
+      finishOperationNotification(notice, 'error', text)
     }
   }
 
@@ -113,38 +123,31 @@ const DataPage: React.FC = () => {
   }
 
   useEffect(() => {
+    if (linkedTask) { setTaskId(linkedTask); setSyncing(true) }
+  }, [linkedTask])
+
+  useEffect(() => {
     if (!taskId) return
-    const poll = setInterval(async () => {
-      try {
-        const res = await getTaskStatus(taskId)
-        setTaskProgress(res.data.progress)
-        setTaskMessage(res.data.message || '')
-        if (res.data.result) {
-          setTaskResult(res.data.result)
-        }
-        if (res.data.status === 'completed' || res.data.status === 'failed') {
-          clearInterval(poll)
+    return pollTask({
+      query: async () => (await getTaskStatus(taskId)).data,
+      onUpdate: data => {
+        setTaskProgress(data.progress)
+        setTaskMessage(data.message || '')
+        if (data.result) setTaskResult(data.result)
+        if (['completed', 'failed', 'cancelled', 'interrupted'].includes(data.status)) {
           setSyncing(false)
           setTaskId(null)
-          if (res.data.status === 'completed') {
-            if (res.data.result?.has_source_warnings || (res.data.result?.outcome && res.data.result.outcome !== 'complete')) {
-              message.warning(res.data.message || '历史回补部分完成，请查看结果')
-            } else {
-              message.success('历史回补处理完成，请核对覆盖情况')
-            }
-          } else {
-            message.error(res.data.message || '同步失败')
-          }
-          fetchSummary()
-          fetchSyncHistory()
+          if (data.status === 'completed') {
+            if (data.result?.has_source_warnings || (data.result?.outcome && data.result.outcome !== 'complete')) {
+              message.warning(data.message || '历史回补部分完成，请查看结果')
+            } else message.success('历史回补处理完成，请核对覆盖情况')
+          } else message.error(data.message || '同步失败或中断')
+          void fetchSummary()
+          void fetchSyncHistory()
         }
-      } catch {
-        clearInterval(poll)
-        setSyncing(false)
-        setTaskId(null)
-      }
-    }, 1500)
-    return () => clearInterval(poll)
+      },
+      onRetry: () => setTaskMessage('状态查询暂时失败，正在重试；后台同步可能仍在执行'),
+    })
   }, [taskId])
 
   const handleFullMarketSync = async () => {
@@ -153,6 +156,7 @@ const DataPage: React.FC = () => {
     try {
       const res = await syncFullMarket(fullMarketDays)
       setTaskId(res.data.task_id)
+      beginTaskNotification('sync_task', '全市场历史回补', res.data.task_id, `/data?task=${res.data.task_id}`, { taskType: 'full_market' })
     } catch (error: unknown) {
       const apiError = error as ApiErrorLike
       setSyncing(false)
@@ -163,6 +167,7 @@ const DataPage: React.FC = () => {
   const handleLimitUpCollect = async () => {
     setLimitUpCollecting(true)
     setLimitUpResult(null)
+    const notice = beginOperationNotification('涨停池采集', '/data')
     try {
       const res = await collectLimitUp({ window_days: limitUpWindowDays })
       setLimitUpResult({
@@ -171,10 +176,14 @@ const DataPage: React.FC = () => {
         skipped: res.data.skipped,
         dates_processed: res.data.dates_processed || [],
       })
-      message.success(`涨停筛选完成：新增 ${res.data.added} 只，更新 ${res.data.updated} 只`)
+      const text = `涨停筛选完成：新增 ${res.data.added} 只，更新 ${res.data.updated} 只`
+      message.success(text)
+      finishOperationNotification(notice, 'success', text, res.data)
     } catch (error: unknown) {
       const apiError = error as ApiErrorLike
-      message.error(apiError.response?.data?.message || '涨停筛选失败')
+      const text = apiError.response?.data?.message || '涨停筛选失败'
+      message.error(text)
+      finishOperationNotification(notice, 'error', text)
     } finally {
       setLimitUpCollecting(false)
     }
@@ -185,6 +194,7 @@ const DataPage: React.FC = () => {
 
   return (
     <div>
+      {linkedHistory && <p role="status">执行记录：{linkedHistory}（见下方同步历史）</p>}
       <Card
         title="数据管理"
         extra={

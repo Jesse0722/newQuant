@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, AutoComplete, Tag, Space, Popconfirm, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
-import { listPlans, createPlan, deletePlan } from '../../api/plans'
+import { listPlans, createPlan, deletePlan, getPlan } from '../../api/plans'
 import PlanDetailRow from './PlanDetailRow'
 import { getAllStocks } from '../../api/pools'
 import type { TradePlan } from '../../types'
@@ -34,21 +34,33 @@ interface CreatePlanFormValues {
 }
 
 const PlanList: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const sourceAlertId = searchParams.get('alert')
+  const sourceStock = searchParams.get('stock')
   const [plans, setPlans] = useState<TradePlan[]>([])
   const [total, setTotal] = useState(0)
+  const [linkedPlan, setLinkedPlan] = useState<TradePlan | null>(null)
+  const [linkFailure, setLinkFailure] = useState<{ id: string; message: string } | null>(null)
+  const listRequestRef = useRef(0)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<string>('')
   const [page, setPage] = useState(1)
-  const [modalOpen, setModalOpen] = useState(false)
+  const [modalOpen, setModalOpen] = useState(() => !!sourceAlertId)
+  const [submitting, setSubmitting] = useState(false)
   const [allStocks, setAllStocks] = useState<Array<{ ts_code: string; stock_name?: string }>>([])
   const [form] = Form.useForm()
-  const [searchParams] = useSearchParams()
   const expandId = searchParams.get('expand')
-  const [manualExpandedRowKeys, setManualExpandedRowKeys] = useState<string[] | null>(null)
+  const [manualExpansion, setManualExpansion] = useState<{ link: string | null; keys: string[] | null } | null>(null)
+  const manualExpandedRowKeys = manualExpansion?.link === expandId ? manualExpansion.keys : null
+  const setManualExpandedRowKeys = (value: React.SetStateAction<string[] | null>) => {
+    setManualExpansion(previous => ({ link: expandId,
+      keys: typeof value === 'function' ? value(previous?.link === expandId ? previous.keys : null) : value }))
+  }
+  const linkError = linkFailure?.id === expandId ? linkFailure.message : ''
 
   const toggleExpand = (id: string) => {
     setManualExpandedRowKeys((prev) => {
-      const current = prev ?? []
+      const current = prev ?? fallbackExpandedRowKeys ?? []
       return (
         current.includes(id) ? current.filter((k) => k !== id) : [...current, id]
       )
@@ -56,29 +68,40 @@ const PlanList: React.FC = () => {
   }
 
   const requestPlans = useCallback((status: string, currentPage: number) => {
+    const request = ++listRequestRef.current
     listPlans({ status: status || undefined, page: currentPage, size: 20 })
       .then((res) => {
+        if (request !== listRequestRef.current) return
         setPlans(res.data.items)
         setTotal(res.data.total)
       })
-      .finally(() => setLoading(false))
+      .catch(() => { if (request === listRequestRef.current) message.error('交易计划加载失败，请重试') })
+      .finally(() => { if (request === listRequestRef.current) setLoading(false) })
   }, [])
 
   useEffect(() => {
     requestPlans(tab, page)
   }, [page, requestPlans, tab])
 
-  const fallbackExpandedRowKeys = useMemo(() => {
-    if (plans.length === 0) return
-    const targetId = expandId && plans.some((p) => p.id === expandId) ? expandId : plans[0].id
-    return [targetId]
-  }, [expandId, plans])
+  useEffect(() => {
+    let cancelled = false
+    if (!expandId) return
+    getPlan(expandId)
+      .then(res => { if (!cancelled) { setLinkedPlan(res.data); setLinkFailure(null) } })
+      .catch(() => { if (!cancelled) setLinkFailure({ id: expandId, message: '链接中的交易计划不存在或暂时无法加载' }) })
+    return () => { cancelled = true }
+  }, [expandId])
 
-  const expandedRowKeys = useMemo(() => {
-    if (!manualExpandedRowKeys?.length) return fallbackExpandedRowKeys ?? []
-    const validKeys = manualExpandedRowKeys.filter((key) => plans.some((plan) => plan.id === key))
-    return validKeys.length > 0 ? validKeys : (fallbackExpandedRowKeys ?? [])
-  }, [fallbackExpandedRowKeys, manualExpandedRowKeys, plans])
+  const visiblePlans = useMemo(() => (
+    linkedPlan?.id === expandId && !plans.some(plan => plan.id === linkedPlan.id) ? [linkedPlan, ...plans] : plans
+  ), [linkedPlan, plans, expandId])
+
+  const fallbackExpandedRowKeys = expandId
+    ? (visiblePlans.some(plan => plan.id === expandId) ? [expandId] : [])
+    : (plans.length ? [plans[0].id] : [])
+  const expandedRowKeys = manualExpandedRowKeys === null
+    ? fallbackExpandedRowKeys
+    : manualExpandedRowKeys.filter(key => visiblePlans.some(plan => plan.id === key))
 
   useEffect(() => {
     if (modalOpen) {
@@ -89,7 +112,8 @@ const PlanList: React.FC = () => {
   const refreshPlans = useCallback((status = tab, currentPage = page) => {
     setLoading(true)
     requestPlans(status, currentPage)
-  }, [page, requestPlans, tab])
+    if (expandId) getPlan(expandId).then(res => setLinkedPlan(res.data)).catch(() => message.error('链接计划刷新失败，请重试'))
+  }, [expandId, page, requestPlans, tab])
 
   const handleTabChange = (nextTab: string) => {
     setLoading(true)
@@ -105,26 +129,22 @@ const PlanList: React.FC = () => {
   }
 
   const handleCreate = async () => {
-    const values = await form.validateFields() as CreatePlanFormValues
-    const stocks = values.stocks.map((stock) => ({
-      ts_code: stock.ts_code,
-      risk_level: stock.risk_level ?? 2,
-      trigger_strategy: stock.trigger_strategy,
-      planned_buy_price: stock.planned_buy_price,
-      target_price: stock.target_price,
-      stop_loss_price: stock.stop_loss_price,
-      position_plan: stock.position_plan,
-      note: stock.note,
-    }))
-    await createPlan({
-      title: values.title,
-      stocks,
-      note: values.note,
-    })
-    message.success('创建成功')
-    setModalOpen(false)
-    form.resetFields()
-    refreshPlans()
+    if (submitting) return
+    try {
+      const values = await form.validateFields() as CreatePlanFormValues
+      setSubmitting(true)
+      const stocks = values.stocks.map(stock => ({ ...stock, risk_level: stock.risk_level ?? 2 }))
+      const res = await createPlan({ title: values.title, stocks, note: values.note, alert_id: sourceAlertId || undefined })
+      message.success('创建成功')
+      setModalOpen(false)
+      form.resetFields()
+      setSearchParams({ expand: res.data.id })
+      refreshPlans()
+      window.dispatchEvent(new Event('buy-alerts:changed'))
+    } catch (error) {
+      const apiError = error as { response?: { data?: { message?: string } } }
+      if (apiError.response) message.error(apiError.response.data?.message || '创建计划失败，请重试')
+    } finally { setSubmitting(false) }
   }
 
   const handleDelete = async (id: string) => {
@@ -185,8 +205,10 @@ const PlanList: React.FC = () => {
           { key: 'cancelled', label: '已取消' },
         ]}
       />
+      {linkError && <p role="alert">{linkError}</p>}
+      {linkedPlan && !plans.some(plan => plan.id === linkedPlan.id) && <p>已定位链接中的计划（不在当前分页）。</p>}
       <Table
-        dataSource={plans}
+        dataSource={visiblePlans}
         columns={columns}
         rowKey="id"
         loading={loading}
@@ -198,8 +220,8 @@ const PlanList: React.FC = () => {
         }}
       />
 
-      <Modal title="新建交易计划" open={modalOpen} onOk={handleCreate} onCancel={() => setModalOpen(false)} width={900}>
-        <Form form={form} layout="vertical" initialValues={{ stocks: [{ risk_level: 2 }] }}>
+      <Modal title="新建交易计划" open={modalOpen} onOk={handleCreate} confirmLoading={submitting} onCancel={() => setModalOpen(false)} width={900}>
+        <Form form={form} layout="vertical" initialValues={{ stocks: [{ risk_level: 2, ts_code: sourceStock || undefined }] }}>
           <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
             <Input placeholder="计划标题" />
           </Form.Item>

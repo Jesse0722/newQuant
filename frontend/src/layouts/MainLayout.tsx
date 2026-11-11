@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Badge, Button, Empty, Popover, Space, Tag, Typography, notification as toast } from 'antd'
+import { Badge, Button, Empty, Modal, Popover, Space, Tag, Typography, notification as toast } from 'antd'
 import {
   BellOutlined,
   CheckCircleOutlined,
@@ -16,18 +16,16 @@ import {
   RiseOutlined,
   LogoutOutlined,
 } from '@ant-design/icons'
+import TaskResultSummary from '../components/TaskResultSummary'
 import { logout } from '../auth/session'
 import { getAlertsPendingCount } from '../api/alerts'
-import { getTaskStatus as getSyncTaskStatus } from '../api/sync'
-import { getScreenResult } from '../api/strategy'
-import { getStockAiAnalysisTask } from '../api/stocks'
+import { startTaskNotifications, startSyncHistoryNotifications } from '../services/taskNotifications'
 import {
   clearReadNotifications,
   getNotifications,
   markAllNotificationsRead,
   markNotificationRead,
   subscribeNotifications,
-  upsertNotification,
   type AppNotification,
 } from '../services/notificationCenter'
 
@@ -46,6 +44,7 @@ const navItems: NavItem[] = [
   { key: '/pools',     icon: <EyeOutlined />,        label: '观察池' },
   { key: '/buy-radar', icon: <RadarChartOutlined />, label: '买点雷达' },
   { key: '/messages',  icon: <MessageOutlined />,    label: '题材挖掘' },
+  { key: '/plans',    icon: <RiseOutlined />,       label: '交易计划' },
   { key: '/strategy',  icon: <FilterOutlined />,     label: '策略选股' },
   { key: '/data',      icon: <DatabaseOutlined />,   label: '数据管理' },
 ]
@@ -119,155 +118,23 @@ const formatNotificationTime = (value: string) => {
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
-const buildCompletedNotification = (
-  item: AppNotification,
-  status: 'completed' | 'failed',
-  message: string,
-  result?: NonNullable<AppNotification['meta']>['result'],
-): AppNotification => {
-  const isSuccess = status === 'completed'
-  const stockName = item.meta?.stockName || item.meta?.tsCode || '任务'
-  const titleByKind: Record<string, string> = {
-    stock_ai_analysis: isSuccess ? `${stockName} 深度分析完成` : `${stockName} 深度分析失败`,
-    ai_screen: isSuccess ? 'AI 智能选股完成' : 'AI 智能选股失败',
-    sync_task: isSuccess ? `${item.meta?.stockName || '股票池'} 同步完成` : `${item.meta?.stockName || '股票池'} 同步失败`,
-  }
-  return {
-    ...item,
-    status: isSuccess ? 'success' : 'error',
-    title: titleByKind[item.kind] || (isSuccess ? '任务完成' : '任务失败'),
-    description: message || (isSuccess ? '点击查看结果' : '任务执行失败'),
-    updatedAt: new Date().toISOString(),
-    read: false,
-    meta: {
-      ...item.meta,
-      result: result || item.meta?.result || null,
-    },
-  }
-}
-
 const NotificationBell: React.FC = () => {
   const navigate = useNavigate()
   const [items, setItems] = useState<AppNotification[]>(() => getNotifications())
   const [open, setOpen] = useState(false)
+  const [selectedResult, setSelectedResult] = useState<AppNotification | null>(null)
 
   useEffect(() => subscribeNotifications(setItems), [])
 
   useEffect(() => {
-    const poll = async () => {
-      const running = getNotifications().filter((item) => item.status === 'running' && item.taskId)
-      await Promise.all(running.map(async (item) => {
-        if (!item.taskId) return
-        try {
-          if (item.kind === 'stock_ai_analysis') {
-            const res = await getStockAiAnalysisTask(item.taskId)
-            const status = res.data.status
-            if (status === 'running') {
-              upsertNotification({
-                ...item,
-                description: res.data.message || item.description,
-                updatedAt: new Date().toISOString(),
-              })
-              return
-            }
-            const next = upsertNotification(buildCompletedNotification(
-              item,
-              status,
-              res.data.message,
-              res.data.result || null,
-            ))
-            toast[status === 'completed' ? 'success' : 'error']({
-              message: next.title,
-              description: next.description,
-              placement: 'topRight',
-              onClick: () => {
-                markNotificationRead(next.id)
-                if (next.link) navigate(next.link)
-              },
-            })
-            return
-          }
-
-          if (item.kind === 'ai_screen') {
-            const res = await getScreenResult(item.taskId)
-            const status = res.data.status
-            if (status === 'running') {
-              upsertNotification({
-                ...item,
-                description: res.data.message || item.description,
-                updatedAt: new Date().toISOString(),
-              })
-              return
-            }
-            const total = res.data.total || res.data.ts_codes?.length || 0
-            const next = upsertNotification(buildCompletedNotification(
-              item,
-              status as 'completed' | 'failed',
-              status === 'completed' ? `筛选完成，共 ${total} 只` : (res.data.message || 'AI 智能选股失败'),
-            ))
-            toast[status === 'completed' ? 'success' : 'error']({
-              message: next.title,
-              description: next.description,
-              placement: 'topRight',
-              onClick: () => {
-                markNotificationRead(next.id)
-                if (next.link) navigate(next.link)
-              },
-            })
-            return
-          }
-
-          if (item.kind === 'sync_task') {
-            const res = await getSyncTaskStatus(item.taskId)
-            const status = res.data.status
-            if (status === 'running') {
-              upsertNotification({
-                ...item,
-                description: res.data.message || item.description,
-                updatedAt: new Date().toISOString(),
-              })
-              return
-            }
-            const resultMessage = res.data.result?.message || res.data.message || ''
-            const next = upsertNotification(buildCompletedNotification(
-              item,
-              status as 'completed' | 'failed',
-              resultMessage || (status === 'completed' ? '同步完成' : '同步失败'),
-            ))
-            toast[status === 'completed' ? 'success' : 'error']({
-              message: next.title,
-              description: next.description,
-              placement: 'topRight',
-              onClick: () => {
-                markNotificationRead(next.id)
-                if (next.link) navigate(next.link)
-              },
-            })
-            return
-          }
-
-          upsertNotification({
-            ...item,
-            status: 'error',
-            description: '暂不支持该任务类型的状态查询',
-            updatedAt: new Date().toISOString(),
-            read: false,
-          })
-        } catch {
-          upsertNotification({
-            ...item,
-            status: 'error',
-            description: '任务状态查询失败',
-            updatedAt: new Date().toISOString(),
-            read: false,
-          })
-        }
-      }))
-    }
-
-    poll()
-    const timer = window.setInterval(poll, 3000)
-    return () => window.clearInterval(timer)
+    const stop = startTaskNotifications((next) => {
+      toast[next.status === 'success' ? 'success' : 'error']({
+        message: next.title, description: next.description, placement: 'topRight',
+        onClick: () => { markNotificationRead(next.id); if (next.link) navigate(next.link) },
+      })
+    })
+    const stopHistory = startSyncHistoryNotifications()
+    return () => { stop(); stopHistory() }
   }, [navigate])
 
   const unreadCount = useMemo(() => items.filter((item) => !item.read).length, [items])
@@ -276,6 +143,7 @@ const NotificationBell: React.FC = () => {
   const handleOpenNotification = (item: AppNotification) => {
     markNotificationRead(item.id)
     setOpen(false)
+    if (item.status !== 'running') setSelectedResult(item)
     if (item.link) navigate(item.link)
   }
 
@@ -291,8 +159,8 @@ const NotificationBell: React.FC = () => {
       {visibleItems.length ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 420, overflowY: 'auto' }}>
           {visibleItems.map((item) => {
-            const statusColor = item.status === 'success' ? 'green' : item.status === 'error' ? 'red' : 'blue'
-            const icon = item.status === 'error'
+            const statusColor = item.status === 'success' ? 'green' : item.status === 'error' ? 'red' : item.status === 'unknown' ? 'orange' : 'blue'
+            const icon = item.status === 'error' || item.status === 'unknown'
               ? <ExclamationCircleOutlined style={{ color: 'var(--color-down)' }} />
               : <CheckCircleOutlined style={{ color: item.status === 'success' ? 'var(--color-up)' : 'var(--accent)' }} />
             return (
@@ -324,7 +192,7 @@ const NotificationBell: React.FC = () => {
                       {item.description}
                     </div>
                     <Tag color={statusColor} style={{ marginTop: 6 }}>
-                      {item.status === 'running' ? '进行中' : item.status === 'success' ? '已完成' : '失败'}
+                      {item.status === 'running' ? '进行中' : item.status === 'success' ? '已完成' : item.status === 'unknown' ? '待确认' : '失败'}
                     </Tag>
                   </div>
                 </div>
@@ -339,6 +207,7 @@ const NotificationBell: React.FC = () => {
   )
 
   return (
+    <>
     <Popover
       open={open}
       onOpenChange={setOpen}
@@ -350,11 +219,18 @@ const NotificationBell: React.FC = () => {
         <Button
           type="text"
           shape="circle"
+          aria-label="任务消息中心"
           icon={<BellOutlined />}
           style={{ color: 'var(--text-secondary)' }}
         />
       </Badge>
     </Popover>
+    <Modal title={selectedResult?.title || '任务结果'} open={!!selectedResult} onCancel={() => setSelectedResult(null)}
+      onOk={() => setSelectedResult(null)} cancelButtonProps={{ style: { display: 'none' } }}>
+      <Typography.Paragraph>{selectedResult?.description}</Typography.Paragraph>
+      <TaskResultSummary result={selectedResult?.meta?.taskResult} />
+    </Modal>
+    </>
   )
 }
 

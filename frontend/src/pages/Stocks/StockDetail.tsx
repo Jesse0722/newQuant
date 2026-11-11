@@ -16,7 +16,7 @@ import {
   RobotOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
-import * as echarts from 'echarts'
+import * as echarts from '../../lib/echarts'
 import {
   getStockChart,
   getStockAlerts,

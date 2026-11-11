@@ -281,7 +281,7 @@ const PlanDetail: React.FC = () => {
           </Card>
 
           <Card
-            title="交易明细汇总"
+            title="股票累计现金流，非本计划归因盈亏"
             style={{ marginTop: 16 }}
             extra={<Button type="primary" icon={<PlusOutlined />} onClick={openAddDetailModal}>添加明细</Button>}
           >
@@ -293,7 +293,7 @@ const PlanDetail: React.FC = () => {
                 <Col span={4}><Statistic title="印花税" value={pnl.total_stamp_tax} precision={2} /></Col>
                 <Col span={4}>
                   <Statistic
-                    title="净盈亏"
+                    title="净现金流"
                     value={pnl.net_pnl}
                     precision={2}
                     valueStyle={{ color: pnl.net_pnl >= 0 ? '#3f8600' : '#cf1322' }}
@@ -309,7 +309,8 @@ const PlanDetail: React.FC = () => {
               <Descriptions column={1} bordered size="small">
                 <Descriptions.Item label="复盘总结">{plan.review_summary || '-'}</Descriptions.Item>
                 <Descriptions.Item label="经验教训">{plan.lessons_learned || '-'}</Descriptions.Item>
-                <Descriptions.Item label="实际盈亏">
+            <Descriptions.Item label="复盘时快照">{plan.review_pnl_snapshot?.toFixed(2) ?? '未保存'}</Descriptions.Item>
+                <Descriptions.Item label="当前股票累计现金流">
                   <span style={{ color: (plan.actual_pnl ?? 0) >= 0 ? '#3f8600' : '#cf1322', fontWeight: 'bold' }}>
                     {plan.actual_pnl?.toFixed(2) ?? '-'}
                   </span>

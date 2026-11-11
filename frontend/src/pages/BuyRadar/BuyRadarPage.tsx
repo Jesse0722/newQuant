@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Button, Segmented, Spin, message, Badge, Space, Select, Tooltip, Modal, DatePicker, Progress, Table, Row, Col, Statistic, Tag } from 'antd'
 import { ScanOutlined, BarChartOutlined, BellOutlined, ClearOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
+import { useSearchParams } from 'react-router-dom'
+import { pollTask } from '../../services/taskPolling'
+import { beginTaskNotification } from '../../services/notificationCenter'
 import {
   getBuyStrategies,
   getBuySignalScanTask,
@@ -77,6 +80,11 @@ const saveStoredBuyRadarResult = (payload: Omit<StoredBuyRadarResult, 'savedAt'>
 }
 
 const BuyRadarPage: React.FC = () => {
+  const [searchParams] = useSearchParams()
+  const linkedTask = searchParams.get('task')
+  const linkedKind = searchParams.get('kind')
+  const linkedPool = searchParams.get('pool')
+  const linkedStrategy = searchParams.get('strategy') || ALL_STRATEGY_ID
   const cachedScanRef = useRef<StoredBuyRadarResult | null>(loadStoredBuyRadarResult())
   const restoredCacheRef = useRef(false)
   const cachedScan = cachedScanRef.current
@@ -117,8 +125,8 @@ const BuyRadarPage: React.FC = () => {
       : null
   ))
   const containerRef = useRef<HTMLDivElement>(null)
-  const scanPollingRef = useRef<number | null>(null)
-  const backtestPollingRef = useRef<number | null>(null)
+  const scanPollingRef = useRef<(() => void) | null>(null)
+  const backtestPollingRef = useRef<(() => void) | null>(null)
   const activePool = useMemo(() => pools.find((pool) => pool.id === activePoolId), [activePoolId, pools])
   const isLimitUpPool = !!activePool && activePool.name.includes('涨停')
 
@@ -357,7 +365,7 @@ const BuyRadarPage: React.FC = () => {
 
   const stopScanPolling = () => {
     if (scanPollingRef.current != null) {
-      window.clearTimeout(scanPollingRef.current)
+      scanPollingRef.current()
       scanPollingRef.current = null
     }
   }
@@ -395,37 +403,23 @@ const BuyRadarPage: React.FC = () => {
   }, [activePoolId, activeStrategyId, limitUpRange, refreshPendingAlerts])
 
   const pollScanTask = useCallback((taskId: string, strategyId: string) => {
-    const tick = async () => {
-      try {
-        const res = await getBuySignalScanTask(taskId)
-        const data = res.data
+    scanPollingRef.current?.()
+    scanPollingRef.current = pollTask({
+      query: async () => (await getBuySignalScanTask(taskId)).data,
+      onUpdate: data => {
         setScanProgress(Math.max(3, Math.round((data.progress || 0) * 100)))
         setScanMessage(data.message || '买点雷达扫描中...')
         if (data.status === 'completed') {
-          if (data.result) {
-            applyScanResult(data.result, strategyId)
-          } else {
-            message.warning('扫描任务已完成，但未返回结果')
-          }
+          if (data.result) applyScanResult(data.result, strategyId)
+          else message.warning('扫描任务已完成，但未返回结果')
           setLoading(false)
-          stopScanPolling()
-          return
-        }
-        if (data.status === 'failed') {
+        } else if (['failed', 'cancelled', 'interrupted'].includes(data.status)) {
           setLoading(false)
-          message.error(data.message || '扫描失败，请确保已同步K线')
-          stopScanPolling()
-          return
+          message.error(data.message || '扫描失败或中断，请确保已同步K线')
         }
-      } catch {
-        setLoading(false)
-        message.error('扫描任务状态查询失败')
-        stopScanPolling()
-        return
-      }
-      scanPollingRef.current = window.setTimeout(tick, 1500)
-    }
-    tick()
+      },
+      onRetry: () => setScanMessage('状态查询暂时失败，正在重试；后台扫描可能仍在执行'),
+    })
   }, [applyScanResult])
 
   const handleScan = async () => {
@@ -454,6 +448,7 @@ const BuyRadarPage: React.FC = () => {
       )
       const taskId = res.data.task_id
       setScanTaskId(taskId)
+      beginTaskNotification('buy_scan', '买点雷达扫描', taskId, `/buy-radar?task=${taskId}&kind=scan&pool=${activePoolId}&strategy=${activeStrategyId}`, { poolId: activePoolId, strategyId: activeStrategyId })
       setScanProgress(3)
       setScanMessage(activeStrategyId === ALL_STRATEGY_ID ? '全部策略扫描任务已提交，等待后台执行' : '扫描任务已提交，等待后台执行')
       pollScanTask(taskId, activeStrategyId)
@@ -466,41 +461,47 @@ const BuyRadarPage: React.FC = () => {
 
   const stopBacktestPolling = () => {
     if (backtestPollingRef.current != null) {
-      window.clearTimeout(backtestPollingRef.current)
+      backtestPollingRef.current()
       backtestPollingRef.current = null
     }
   }
 
   const pollBacktest = useCallback((taskId: string) => {
-    const tick = async () => {
-      try {
-        const res = await getStrategyBacktestResult(taskId)
-        const data = res.data
+    backtestPollingRef.current?.()
+    backtestPollingRef.current = pollTask({
+      query: async () => (await getStrategyBacktestResult(taskId)).data,
+      onUpdate: data => {
         setBacktestProgress(Math.round((data.progress || 0) * 100))
         setBacktestMessage(data.message || '')
         if (data.status === 'completed') {
           setBacktestRunning(false)
           setBacktestResult(data.result || null)
           message.success('回测完成')
-          stopBacktestPolling()
-          return
-        }
-        if (data.status === 'failed') {
+        } else if (['failed', 'cancelled', 'interrupted'].includes(data.status)) {
           setBacktestRunning(false)
-          message.error(data.message || '回测失败')
-          stopBacktestPolling()
-          return
+          message.error(data.message || '回测失败或中断')
         }
-      } catch {
-        setBacktestRunning(false)
-        message.error('回测结果查询失败')
-        stopBacktestPolling()
-        return
-      }
-      backtestPollingRef.current = window.setTimeout(tick, 1500)
-    }
-    tick()
+      },
+      onRetry: () => setBacktestMessage('状态查询暂时失败，正在重试；后台回测可能仍在执行'),
+    })
   }, [])
+
+  useEffect(() => {
+    if (!linkedTask) return
+    if (linkedPool && linkedPool !== activePoolId) { setActivePoolId(linkedPool); return }
+    if (linkedStrategy !== activeStrategyId) { setActiveStrategyId(linkedStrategy); return }
+    if (linkedKind === 'backtest') {
+      setBacktestVisible(true)
+      setBacktestRunning(true)
+      setBacktestTaskId(linkedTask)
+      pollBacktest(linkedTask)
+    } else if (linkedKind === 'scan') {
+      setLoading(true)
+      setScanTaskId(linkedTask)
+      pollScanTask(linkedTask, linkedStrategy)
+    }
+    return () => { scanPollingRef.current?.(); backtestPollingRef.current?.() }
+  }, [activePoolId, activeStrategyId, linkedTask, linkedKind, linkedPool, linkedStrategy, pollBacktest, pollScanTask])
 
   const handleRunBacktest = async () => {
     if (!activePoolId) {
@@ -522,6 +523,7 @@ const BuyRadarPage: React.FC = () => {
       })
       const taskId = res.data.task_id
       setBacktestTaskId(taskId)
+      beginTaskNotification('strategy_backtest', '策略回测', taskId, `/buy-radar?task=${taskId}&kind=backtest&pool=${activePoolId}&strategy=${activeStrategyId}`)
       pollBacktest(taskId)
     } catch {
       setBacktestRunning(false)
@@ -673,12 +675,13 @@ const BuyRadarPage: React.FC = () => {
             value={activePoolId || undefined}
             options={pools.map((p) => ({ value: p.id, label: `${p.name} (${p.stock_count})` }))}
             onChange={handlePoolChange}
-            disabled={pools.length === 0}
+            disabled={pools.length === 0 || loading}
           />
           <span style={{ fontSize: 13, color: '#595959' }}>策略</span>
           <Select
             style={{ minWidth: 160 }}
             value={activeStrategyId}
+            disabled={loading}
             options={[
               { value: ALL_STRATEGY_ID, label: '所有策略' },
               ...strategies.map((s) => ({ value: s.id, label: s.name })),
@@ -714,6 +717,7 @@ const BuyRadarPage: React.FC = () => {
           <DatePicker.RangePicker
             size="small"
             value={limitUpRange}
+            disabled={loading}
             onChange={(v) => {
               if (!v || !v[0] || !v[1]) {
                 setLimitUpRange(null)
@@ -879,11 +883,12 @@ const BuyRadarPage: React.FC = () => {
 
           {backtestResult && (
             <>
+              <p>{backtestResult.disclaimer || '信号日收盘后验收益，不含成本；不是可执行的账户净值。'}</p>
               <Row gutter={12}>
                 <Col span={6}><Statistic title="总信号数" value={backtestResult.total_signals} /></Col>
                 <Col span={6}><Statistic title="次日胜率" value={backtestResult.win_rate_1d} suffix="%" precision={1} /></Col>
                 <Col span={6}><Statistic title="次日均收益" value={backtestResult.avg_return_1d} suffix="%" precision={2} /></Col>
-                <Col span={6}><Statistic title="最大回撤(5日)" value={backtestResult.max_drawdown} suffix="%" precision={2} valueStyle={{ color: backtestResult.max_drawdown < 0 ? '#cf1322' : undefined }} /></Col>
+                <Col span={6}><Statistic title="最差单笔5日收益" value={backtestResult.worst_return_5d ?? '-'} suffix="%" precision={2} valueStyle={{ color: (backtestResult.worst_return_5d ?? 0) < 0 ? '#cf1322' : undefined }} /></Col>
               </Row>
               <Row gutter={12}>
                 <Col span={6}><Statistic title="3日胜率" value={backtestResult.win_rate_3d} suffix="%" precision={1} /></Col>

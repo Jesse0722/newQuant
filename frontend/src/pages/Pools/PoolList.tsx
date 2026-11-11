@@ -5,7 +5,7 @@ import {
   Upload, message, Popconfirm, Select, AutoComplete,
 } from 'antd'
 import dayjs from 'dayjs'
-import * as echarts from 'echarts'
+import * as echarts from '../../lib/echarts'
 import {
   listPools, createPool, updatePool, deletePool, reorderPools,
   listStocks, addStock, deleteStock, updateStock, importCSV, exportStocksCSV,
@@ -51,6 +51,11 @@ const PoolList: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const pageRef = useRef(1)
+  const listGenerationRef = useRef(0)
+  const loadingMoreRef = useRef(false)
+  const listContextRef = useRef('')
+  const activePoolRef = useRef(activePoolId)
+  activePoolRef.current = activePoolId
 
   const [selectedCode, setSelectedCode] = useState('')
   const [chartPeriod, setChartPeriod] = useState(120)
@@ -144,6 +149,7 @@ const PoolList: React.FC = () => {
     risingTrendOnly,
     sectorCode: sectorFilter?.code || '',
   }
+  listContextRef.current = JSON.stringify([activePoolId, filtersRef.current])
   const anyModalOpenRef = useRef(false)
   anyModalOpenRef.current = addModalOpen || importModalOpen || editPoolModalOpen || noteModalOpen || addRuleModalOpen
 
@@ -220,31 +226,54 @@ const PoolList: React.FC = () => {
   }
 
   const loadInitial = useCallback(async (poolId: string) => {
-    if (!poolId) { setStocks([]); setTotal(0); return }
+    if (poolId !== activePoolRef.current) return
+    const generation = ++listGenerationRef.current
+    const context = listContextRef.current
+    const isCurrent = () => generation === listGenerationRef.current && context === listContextRef.current
     pageRef.current = 1
+    loadingMoreRef.current = false
+    setLoadingMore(false)
+    setStocks([])
+    setSelectedCode('')
+    setTotal(0)
+    if (!poolId) { setLoading(false); return }
     setLoading(true)
     try {
       const res = await fetchPage(poolId, 1)
+      if (!isCurrent()) return
       setStocks(res.data.items)
       setTotal(res.data.total)
       setSelectedCode(res.data.items[0]?.ts_code || '')
+    } catch {
+      if (isCurrent()) message.error('观察池加载失败，请重试')
     } finally {
-      setLoading(false)
+      if (isCurrent()) setLoading(false)
     }
   }, [])
 
   const loadMore = useCallback(async () => {
-    if (loadingMore || loading || stocks.length >= total || !activePoolId) return
-    pageRef.current += 1
+    if (loadingMoreRef.current || loading || stocks.length >= total || !activePoolId) return
+    const generation = listGenerationRef.current
+    const context = listContextRef.current
+    const isCurrent = () => generation === listGenerationRef.current && context === listContextRef.current
+    const nextPage = pageRef.current + 1
+    loadingMoreRef.current = true
     setLoadingMore(true)
     try {
-      const res = await fetchPage(activePoolId, pageRef.current)
-      setStocks(prev => [...prev, ...res.data.items])
+      const res = await fetchPage(activePoolId, nextPage)
+      if (!isCurrent()) return
+      pageRef.current = nextPage
+      setStocks(prev => [...prev, ...res.data.items.filter(item => !prev.some(stock => stock.id === item.id))])
       setTotal(res.data.total)
+    } catch {
+      if (isCurrent()) message.error('加载更多失败，请重试')
     } finally {
-      setLoadingMore(false)
+      if (isCurrent()) {
+        loadingMoreRef.current = false
+        setLoadingMore(false)
+      }
     }
-  }, [loadingMore, loading, stocks.length, total, activePoolId])
+  }, [loading, stocks.length, total, activePoolId])
 
   /* ===== Effects ===== */
 
@@ -336,15 +365,16 @@ const PoolList: React.FC = () => {
   }, [stocks, selectedCode])
 
   useEffect(() => {
-    if (!selectedCode) return
-    const cacheKey = `${selectedCode}|${chartPeriod}|${selectedLimitUpDate || ''}`
+    const reqSeq = ++chartReqSeqRef.current
+    if (!selectedCode) { setChartData(null); setChartLoading(false); return }
+    const cacheKey = `${isMainWavePool ? 'preview' : 'marks'}|${selectedCode}|${chartPeriod}|${selectedLimitUpDate || ''}`
     const cached = chartCacheRef.current.get(cacheKey)
     if (cached) {
       setChartData(cached)
       setChartLoading(false)
       return
     }
-    const reqSeq = ++chartReqSeqRef.current
+    setChartData(null)
     setChartLoading(true)
     const chartRequest = isMainWavePool
       ? getStockChartPreview(selectedCode, chartPeriod)
@@ -548,6 +578,11 @@ const PoolList: React.FC = () => {
   useEffect(() => {
     if (selectedIndex >= stocks.length - 5 && hasMore && !loadingMore) loadMore()
   }, [selectedIndex, stocks.length, hasMore, loadingMore, loadMore])
+
+  useEffect(() => () => {
+    listGenerationRef.current += 1
+    chartReqSeqRef.current += 1
+  }, [])
 
   /* ===== Handlers ===== */
 

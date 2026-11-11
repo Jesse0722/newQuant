@@ -3,8 +3,10 @@ import {
   Card, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Space, Checkbox, message, Progress, DatePicker, Tag, Switch, Popover, Spin, Empty,
 } from 'antd'
 import { FilterOutlined, RobotOutlined, PlusOutlined, ThunderboltOutlined, ExperimentOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
-import * as echarts from 'echarts'
+import * as echarts from '../../lib/echarts'
 import dayjs from 'dayjs'
+import { useSearchParams } from 'react-router-dom'
+import { pollTask } from '../../services/taskPolling'
 import {
   getScreenTemplates, getLimitUpTemplates, runIndicatorScreen, runAiScreen, runLimitUpBuyPointScreen, runBacktest, getScreenResult, runMainWaveScreen, getStockChartPreview,
   submitMainWaveBacktest, getMainWaveBacktestResult,
@@ -14,7 +16,7 @@ import {
 import { listSectors, type SectorBasicItem } from '../../api/market'
 import { listPools, batchAddStocks, quickCreatePool } from '../../api/pools'
 import type { JsonObject, JsonValue, Pool, StockChartDataWithMarks } from '../../types'
-import { upsertNotification } from '../../services/notificationCenter'
+import { upsertNotification, beginTaskNotification, beginOperationNotification, finishOperationNotification, getNotifications } from '../../services/notificationCenter'
 import { openStockDetail, stockDetailPath } from '../../utils/openStockDetail'
 import { makeKlineAxisTooltipFormatter } from '../../utils/klineChartTooltip'
 
@@ -409,6 +411,11 @@ const MainWaveStockPreviewBase: React.FC<{
 const MainWaveStockPreview = React.memo(MainWaveStockPreviewBase)
 
 const StrategyPage: React.FC = () => {
+  const [searchParams] = useSearchParams()
+  const linkedTask = searchParams.get('task')
+  const linkedKind = searchParams.get('kind')
+  const linkedTab = searchParams.get('tab')
+  const linkedNotice = searchParams.get('notice')
   const [templates, setTemplates] = useState<ScreenTemplate[]>([])
   const [limitUpTemplates, setLimitUpTemplates] = useState<ScreenTemplate[]>([])
   const [pools, setPools] = useState<Pool[]>([])
@@ -536,6 +543,7 @@ const StrategyPage: React.FC = () => {
     setResult(null)
     try {
       const res = await runIndicatorScreen({ scope, conditions, logic })
+      beginTaskNotification('screen', '指标组合选股', res.data.task_id, `/strategy?tab=indicator&task=${res.data.task_id}&kind=screen`)
       setTaskKind('indicator')
       setTaskId(res.data.task_id)
       setResult(createRunningResult(res.data.task_id, '指标组合选股任务已提交，等待后台执行'))
@@ -579,6 +587,7 @@ const StrategyPage: React.FC = () => {
         conditions: limitUpConditions,
         logic: limitUpLogic,
       })
+      beginTaskNotification('screen', '涨停回调买点选股', res.data.task_id, `/strategy?tab=limit_up&task=${res.data.task_id}&kind=screen`)
       setTaskKind('limit_up')
       setTaskId(res.data.task_id)
       setResult(createRunningResult(res.data.task_id, '涨停回调买点选股任务已提交，等待后台执行'))
@@ -598,6 +607,7 @@ const StrategyPage: React.FC = () => {
         sector_codes: mainWaveParams.sector_codes || [],
       }
       const res = await runMainWaveScreen(payload)
+      beginTaskNotification('screen', '主升浪选股', res.data.task_id, `/strategy?tab=main_wave&task=${res.data.task_id}&kind=screen`)
       setTaskKind('main_wave')
       setTaskId(res.data.task_id)
       setResult(createRunningResult(res.data.task_id, '主升浪选股任务已提交，等待后台执行'))
@@ -628,6 +638,7 @@ const StrategyPage: React.FC = () => {
         cooldown_days: mainWaveBacktestCooldown,
       }
       const res = await submitMainWaveBacktest(payload)
+      beginTaskNotification('main_wave_backtest', '主升浪规则回测', res.data.task_id, `/strategy?tab=main_wave&task=${res.data.task_id}&kind=main_wave_backtest`)
       setMainWaveBacktestTask({
         task_id: res.data.task_id,
         type: 'main_wave_backtest',
@@ -670,6 +681,7 @@ const StrategyPage: React.FC = () => {
     }
     setBacktestLoading(true)
     setBacktestResult(null)
+    const notice = beginOperationNotification('策略回溯', '/strategy?tab=backtest', 'strategy_backtest')
     try {
       const res = await runBacktest({
         trade_date_from: backtestDateRange[0].format('YYYYMMDD'),
@@ -678,9 +690,12 @@ const StrategyPage: React.FC = () => {
         logic: backtestLogic,
       })
       setBacktestResult(res.data)
+      finishOperationNotification(notice, 'success', '策略回溯完成，点击查看结果', res.data)
     } catch (error: unknown) {
       const apiError = error as ApiErrorLike
-      message.error(apiError.response?.data?.message || '回测失败')
+      const text = apiError.response?.data?.message || '回测失败'
+      message.error(text)
+      finishOperationNotification(notice, 'error', text)
     } finally {
       setBacktestLoading(false)
     }
@@ -714,7 +729,7 @@ const StrategyPage: React.FC = () => {
         updatedAt: now,
         read: false,
         taskId: res.data.task_id,
-        link: '/strategy',
+        link: `/strategy?tab=ai&task=${res.data.task_id}&kind=screen`,
         meta: {
           mode: 'deep',
         },
@@ -725,63 +740,55 @@ const StrategyPage: React.FC = () => {
   }
 
   useEffect(() => {
+    if (linkedNotice) {
+      const notice = getNotifications().find(item => item.id === linkedNotice)
+      const saved = notice?.meta?.taskResult as BacktestResult | undefined
+      if (notice?.kind === 'strategy_backtest' && saved && Array.isArray(saved.signals)) { setActiveTab('backtest'); setBacktestResult(saved) }
+    }
+    if (!linkedTask) return
+    if (isStrategyTabKey(linkedTab)) setActiveTab(linkedTab)
+    if (linkedKind === 'main_wave_backtest') {
+      setMainWaveBacktestLoading(true)
+      setMainWaveBacktestTask({ task_id: linkedTask, type: 'main_wave_backtest', status: 'running', progress: 0, message: '恢复回测状态' })
+    } else if (linkedKind === 'screen') {
+      setLoading(true)
+      setTaskId(linkedTask)
+      setTaskKind(isStrategyTabKey(linkedTab) ? linkedTab : 'indicator')
+    }
+  }, [linkedTask, linkedKind, linkedTab, linkedNotice])
+
+  useEffect(() => {
     if (!taskId) return
-    let stopped = false
-    let poll: ReturnType<typeof setInterval> | null = null
-    const fetchStatus = async () => {
-      try {
-        const r = await getScreenResult(taskId)
-        if (stopped) return
-        setResult(r.data)
-        if (r.data.status === 'completed' || r.data.status === 'failed') {
-          if (poll) clearInterval(poll)
+    return pollTask({
+      query: async () => (await getScreenResult(taskId)).data,
+      onUpdate: data => {
+        setResult(data)
+        if (['completed', 'failed', 'cancelled', 'interrupted'].includes(data.status)) {
           setLoading(false)
           setTaskId(null)
           setTaskKind(null)
-          if (taskKind === 'main_wave' && r.data.status === 'completed') {
-            saveStoredMainWaveResult(r.data)
-          }
-          if (r.data.status === 'failed') message.error(r.data.message)
+          if (taskKind === 'main_wave' && data.status === 'completed') saveStoredMainWaveResult(data)
+          if (data.status !== 'completed') message.error(data.message || '任务失败或中断')
         }
-      } catch {
-        if (stopped) return
-        if (poll) clearInterval(poll)
-        setLoading(false)
-        setTaskKind(null)
-      }
-    }
-    fetchStatus()
-    poll = setInterval(fetchStatus, 1500)
-    return () => {
-      stopped = true
-      if (poll) clearInterval(poll)
-    }
+      },
+      onRetry: () => setResult(current => current ? { ...current, message: '状态暂时不可用，正在重试；后台任务可能仍在执行' } : current),
+    })
   }, [taskId, taskKind])
 
   useEffect(() => {
-    if (!mainWaveBacktestTask?.task_id || mainWaveBacktestTask.status === 'completed' || mainWaveBacktestTask.status === 'failed') return
-    let stopped = false
-    const poll = setInterval(async () => {
-      try {
-        const res = await getMainWaveBacktestResult(mainWaveBacktestTask.task_id)
-        if (stopped) return
-        setMainWaveBacktestTask(res.data)
-        if (res.data.status === 'completed' || res.data.status === 'failed') {
-          clearInterval(poll)
+    if (!mainWaveBacktestTask?.task_id || !['running', 'pending'].includes(mainWaveBacktestTask.status)) return
+    return pollTask({
+      query: async () => (await getMainWaveBacktestResult(mainWaveBacktestTask.task_id)).data,
+      onUpdate: data => {
+        setMainWaveBacktestTask(data)
+        if (['completed', 'failed', 'cancelled', 'interrupted'].includes(data.status)) {
           setMainWaveBacktestLoading(false)
-          if (res.data.result) setMainWaveBacktestResult(res.data.result)
-          if (res.data.status === 'failed') message.error(res.data.message || '主升浪回测失败')
+          if (data.result) setMainWaveBacktestResult(data.result)
+          if (data.status !== 'completed') message.error(data.message || '主升浪回测失败或中断')
         }
-      } catch {
-        if (stopped) return
-        clearInterval(poll)
-        setMainWaveBacktestLoading(false)
-      }
-    }, 1500)
-    return () => {
-      stopped = true
-      clearInterval(poll)
-    }
+      },
+      onRetry: () => setMainWaveBacktestTask(current => current ? { ...current, message: '状态暂时不可用，正在重试' } : current),
+    })
   }, [mainWaveBacktestTask?.task_id, mainWaveBacktestTask?.status])
 
   const resultItems = useMemo(
