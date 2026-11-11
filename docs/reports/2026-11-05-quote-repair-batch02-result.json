@@ -1,0 +1,162 @@
+{
+  "batch": {
+    "applied_at": "2026-11-05T10:11:04.143162",
+    "backup_manifest": {
+      "created_at": "2026-11-05T10:10:34.657284Z",
+      "daily_quote_row_count": 1924045,
+      "daily_quote_sha256": "5fc8f196a0a2957a700326e0e3bf4443c05a1adb60f8a8aa6e951572230495de",
+      "database_identity": {
+        "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+        "dialect": "sqlite"
+      },
+      "format": "sqlite",
+      "id": "52190da7-2ebe-426a-9f9a-4ba7078fd1b0",
+      "integrity_check": "ok",
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-05/batch02/pre-apply/52190da7-2ebe-426a-9f9a-4ba7078fd1b0.db",
+      "sha256": "b554d294838bf3596a824413745d135ec7d1a01e79254429eed23552621d9621"
+    },
+    "created_at": "2026-11-05T10:11:04.143162",
+    "database_identity": {
+      "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+      "dialect": "sqlite"
+    },
+    "id": "38763387-e27e-46e0-9334-db692505c3a5",
+    "plan_hash": "782c0f0bf265af2a041d21c66e504d1cf97c354031d151d5ef40ae323b1f1241",
+    "policy": {
+      "allow_clear_optional": false,
+      "selection": "single_authoritative_row"
+    },
+    "rolled_back_at": null,
+    "status": "applied",
+    "summary": {
+      "affected_hash": "d778e744e29b3f70ad2e178782de3b5b5d9cb617277c444bc3f7ea08711a436d",
+      "approved_file_sha256": "7675d8c7a0cf9f55e6d8a750c3cc3845eafb826c2584f8b508f58518fab67059",
+      "audit_hash": "bdf3181af8f2aa0819d274090b7a76ad40f881ca398ab8c5a311ee0951fa8110",
+      "inserts": 0,
+      "plan_hash": "782c0f0bf265af2a041d21c66e504d1cf97c354031d151d5ef40ae323b1f1241",
+      "plan_id": "de244d40-2687-41b7-bdde-7dff6f287e08",
+      "plan_version": "daily-quote-repair-v1",
+      "requested_cells": 5,
+      "row_count_after": 1924045,
+      "row_count_before": 1924045,
+      "skipped": 0,
+      "snapshot_hash": "97cd22499044621fb6b9b0cdeeb906b1fb7226f425865d13463d1554c65c089c",
+      "snapshot_id": "4d7a7052-bb6a-45c8-bf31-5226d7bc65ee",
+      "source": {
+        "adjustment": "none",
+        "amount_unit": "cny",
+        "captured_at": "2026-11-05T10:08:13.932757+00:00",
+        "data_stage": "final",
+        "name": "baostock",
+        "volume_unit": "share"
+      },
+      "unchanged": 0,
+      "updates": 5
+    }
+  },
+  "batch_verifications": [
+    {
+      "approved_file_sha256": "c96d2fb2b691b1ae6f9e693bec4e965936272667c3eed3084fc9ab0a4b5fdefe",
+      "audit_integrity": true,
+      "audit_rows": 7,
+      "batch_id": "50134166-d133-43e7-93f7-100b115dfc1c",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "4bfe15a09e78c8ee05fa0bfb070f1801a4d04f2191cdd8aecfb9f9bf6874bb6e",
+      "status": "applied"
+    },
+    {
+      "approved_file_sha256": "7675d8c7a0cf9f55e6d8a750c3cc3845eafb826c2584f8b508f58518fab67059",
+      "audit_integrity": true,
+      "audit_rows": 5,
+      "batch_id": "38763387-e27e-46e0-9334-db692505c3a5",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "782c0f0bf265af2a041d21c66e504d1cf97c354031d151d5ef40ae323b1f1241",
+      "status": "applied"
+    }
+  ],
+  "database": {
+    "app_cwd": "/Users/lijiajun/ai-coding/newQuant/backend",
+    "backend": "sqlite",
+    "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db"
+  },
+  "gap_backfill_executed": false,
+  "integrity": {
+    "batch_id": "38763387-e27e-46e0-9334-db692505c3a5",
+    "changed_keys": [
+      [
+        "000672.SZ",
+        "20261008"
+      ],
+      [
+        "000810.SZ",
+        "20261008"
+      ],
+      [
+        "000882.SZ",
+        "20261008"
+      ],
+      [
+        "001206.SZ",
+        "20261008"
+      ],
+      [
+        "001311.SZ",
+        "20261008"
+      ]
+    ],
+    "compared_rows": 1924045,
+    "integrity_check": "ok",
+    "only_planned_values_changed": true,
+    "original_business_rows_unchanged": 37073,
+    "original_business_tables_unchanged": 28,
+    "prior_batch_and_audits_unchanged": true,
+    "quote_fingerprint": {
+      "daily_quote_row_count": 1924045,
+      "daily_quote_sha256": "9a94fb396cb3e5589cf8241007657f6c0e1033be94e63313ad7f4e55e09c5a07"
+    },
+    "reference_backup": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-05/batch02/pre-apply/52190da7-2ebe-426a-9f9a-4ba7078fd1b0.db"
+  },
+  "operation_date": "2026-11-05",
+  "plan_sha256": "7675d8c7a0cf9f55e6d8a750c3cc3845eafb826c2584f8b508f58518fab67059",
+  "quality_comparison": {
+    "amount_valid": [
+      3,
+      8
+    ],
+    "invalid_core_count": [
+      1405,
+      1400
+    ],
+    "raw_rows": [
+      1459,
+      1459
+    ],
+    "trade_date": "20261008",
+    "turnover_valid": [
+      1433,
+      1438
+    ],
+    "valid_core_codes": [
+      54,
+      59
+    ]
+  },
+  "quality_summary": {
+    "detail_days": 20,
+    "empty_slots": 14,
+    "requested_days": 120,
+    "scoring_allowed": false,
+    "verified_pass_days": 0
+  },
+  "quality_window": [
+    "20260513",
+    "20261105"
+  ],
+  "source_sha256": "7079e94f5d3bb042600c006d3cc7f11fd45398e600ac2b3e57a78d57f068e848",
+  "total_audit_inventory": {
+    "audits": 12,
+    "batches": 2
+  }
+}

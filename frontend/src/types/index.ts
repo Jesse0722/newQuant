@@ -366,6 +366,17 @@ export interface DashboardData {
   ths_hot?: DashboardThsHotPayload
 }
 
+export interface FullMarketDateResult {
+  trade_date: string
+  status: string
+  inserted: number
+  skipped: number
+  target_count: number
+  valid_core_count: number
+  target_coverage_ratio: number | null
+  market_coverage_ratio: number | null
+}
+
 export interface TaskStatus {
   task_id: string
   status: string
@@ -376,6 +387,16 @@ export interface TaskStatus {
     failed_count?: number
     skipped_count?: number
     days_synced?: number
+    outcome?: 'complete' | 'partial' | 'failed' | 'no_data' | 'unsupported'
+    has_source_warnings?: boolean
+    requested_dates?: string[]
+    data_dates?: string[]
+    completed_dates?: string[]
+    empty_dates?: string[]
+    unsupported_dates?: string[]
+    coverage_status?: string
+    date_results?: FullMarketDateResult[]
+    diagnostic?: string
     failed_dates?: Array<{ date: string; message: string }>
     message?: string
   }
@@ -400,6 +421,15 @@ export interface SyncHistoryItem {
     failed_count?: number
     skipped_count?: number
     days_synced?: number
+    outcome?: 'complete' | 'partial' | 'failed' | 'no_data' | 'unsupported'
+    has_source_warnings?: boolean
+    requested_dates?: string[]
+    data_dates?: string[]
+    completed_dates?: string[]
+    empty_dates?: string[]
+    unsupported_dates?: string[]
+    coverage_status?: string
+    date_results?: FullMarketDateResult[]
     message?: string
     diagnostic?: string
     added?: number

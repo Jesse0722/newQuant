@@ -13,3 +13,5 @@ frontend/node_modules/
 dist/
 build/
 .DS_Store
+# Full generated quality snapshots are versioned as lossless .json.gz archives.
+docs/reports/*-market-data-quality.json

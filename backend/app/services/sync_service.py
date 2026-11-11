@@ -12,6 +12,7 @@ from app.models.stock import StockBasic, DailyQuote
 from app.models.pool import WatchStock
 from app.models.sync_log import SyncLog
 from app.services.tushare_adapter import tushare_adapter
+from app.services.provider_daily_normalization import normalize_provider_daily
 from app.services.trading_session import shanghai_trade_date_str, latest_daily_k_trade_date_str
 from app.tasks.background import task_registry
 
@@ -30,30 +31,9 @@ def _commit_with_retry(db: Session, retries: int = 3, wait_s: float = 0.6):
             time.sleep(wait_s * (i + 1))
 
 
-def _diagnose_empty_daily(trade_date: str, basic_ok: bool) -> str:
-    """当日线接口返回空时，尝试诊断原因"""
-    try:
-        if not basic_ok:
-            return "stock_basic 也为空，请检查 TUSHARE_TOKEN 是否有效及网络/代理"
-        # 尝试单只股票 daily 接口，验证 daily 权限
-        df = tushare_adapter.get_daily(ts_code="000001.SZ", start_date=trade_date, end_date=trade_date)
-        if df.empty:
-            return "daily 接口返回空，可能需 120 积分或接口权限不足，请登录 tushare.pro 查看"
-        return "trade_date 全市场接口返回空，但单股接口正常，可能是代理或限流导致"
-    except Exception as e:
-        return f"诊断异常: {str(e)[:80]}"
-
-
 def _get_trade_dates(days: int = 60) -> list[str]:
-    """获取最近 N 个交易日日期（YYYYMMDD），从昨天开始（今日数据可能未就绪）"""
-    dates = []
-    d = datetime.now() - timedelta(days=1)
-    while len(dates) < days:
-        s = d.strftime("%Y%m%d")
-        if d.weekday() < 5:
-            dates.append(s)
-        d -= timedelta(days=1)
-    return dates
+    from app.services.full_market_history_service import resolve_history_dates
+    return resolve_history_dates(tushare_adapter, days)[0]
 
 
 def _sync_stock_basic_full(db: Session) -> tuple[int, bool]:
@@ -156,7 +136,10 @@ def sync_daily(db: Session, ts_code: str, days: int = 250):
     if start_date > end_date:
         return 0
 
-    df = tushare_adapter.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+    df = normalize_provider_daily(
+        tushare_adapter.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date),
+        tushare_adapter,
+    )
     if df.empty:
         return 0
     if "ts_code" in df.columns:
@@ -233,7 +216,10 @@ def sync_daily_backward(db: Session, ts_code: str, target_min_rows: int) -> int:
         if start_date > end_date:
             break
 
-        df = tushare_adapter.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        df = normalize_provider_daily(
+            tushare_adapter.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date),
+            tushare_adapter,
+        )
         if df is None or df.empty:
             break
 
@@ -425,103 +411,57 @@ def sync_single_stock(task_id: str, ts_code: str, days: int = 250):
         db.close()
 
 
-def sync_full_market(task_id: str, days: int = 60):
-    """全市场 60 日 K 线增量同步（后台线程调用）"""
+def sync_full_market(task_id: str, days: int = 60, end_date: str | None = None):
+    """按来源能力回补缺失历史；失败抛出，避免任务包装器误报完成。"""
+    from app.services.full_market_history_service import collect_full_market_history, resolve_history_dates
+    from app.services.market_data_capabilities import capability_report, configured_providers
+    from app.services.tushare_adapter import CompositeAdapter
+
     task = task_registry.get(task_id)
     if not task:
         return
     db = SessionLocal()
-    success_count = 0
-    failed_count = 0
-    skipped_count = 0
-    failed_dates: list[dict] = []
     try:
-        # 持久化：创建同步记录
-        log = SyncLog(
-            id=task_id,
-            task_type="full_market",
-            target=None,
-            status="running",
-        )
+        log = SyncLog(id=task_id, task_type="full_market", target=None, status="running")
         db.add(log)
         db.commit()
+        source = CompositeAdapter(list(configured_providers(tushare_adapter)))
+        task.message = "解析交易日历与历史数据源能力..."
+        dates, calendar = resolve_history_dates(source, days, end_date)
 
-        task.message = "正在同步股票基础信息..."
-        try:
-            _, basic_ok = _sync_stock_basic_full(db)
-        except Exception:
-            basic_ok = False
-        dates = _get_trade_dates(days)
-        total_days = len(dates)
-        first_empty_reason = None
-        for i, trade_date in enumerate(dates):
-            task.progress = (i + 1) / total_days if total_days else 1.0
-            task.message = f"同步 {trade_date} ({i+1}/{total_days})"
-            try:
-                df = tushare_adapter.get_daily_by_date(trade_date)
-                if df.empty:
-                    if first_empty_reason is None:
-                        first_empty_reason = _diagnose_empty_daily(trade_date, basic_ok)
-                    continue
-                day_success, day_skipped = 0, 0
-                for _, row in df.iterrows():
-                    existing = db.query(DailyQuote).filter(
-                        DailyQuote.ts_code == row["ts_code"],
-                        DailyQuote.trade_date == row["trade_date"],
-                    ).first()
-                    if existing:
-                        day_skipped += 1
-                    else:
-                        db.add(DailyQuote(**row.to_dict()))
-                        day_success += 1
-                db.commit()
-                success_count += day_success
-                skipped_count += day_skipped
-            except Exception as e:
-                failed_count += 1
-                failed_dates.append({"date": trade_date, "message": str(e)})
-            time.sleep(0.15)
-        msg = f"同步完成：成功 {success_count} 条，跳过 {skipped_count} 条，失败 {failed_count} 天"
-        result = {
-            "success_count": success_count,
-            "failed_count": failed_count,
-            "skipped_count": skipped_count,
-            "days_synced": total_days,
-            "failed_dates": failed_dates,
-            "message": msg,
-        }
-        if success_count == 0 and failed_count == 0 and first_empty_reason:
-            result["diagnostic"] = first_empty_reason
-            msg += f" | {first_empty_reason}"
+        def progress(value, message):
+            task.progress, task.message = value, message
+
+        result = collect_full_market_history(db, source, dates, progress)
+        result.update(calendar=calendar, provider_capabilities=capability_report(source), requested_days=days)
+        msg = (f"历史回补 {result['outcome']}：新增 {result['success_count']} 条，"
+               f"已有 {result['skipped_count']} 条，有数据 {result['days_synced']}/{len(dates)} 日，"
+               f"目标清单达标 {len(result['completed_dates'])} 日；真实市场覆盖率待验证")
+        result["message"] = msg
         task.result = result
-        task.status = "completed"
+        successful = bool(result["data_dates"])
+        task.status = "completed" if successful else "failed"
         task.progress = 1.0
         task.message = msg
-
-        # 持久化：更新同步记录
-        log = db.query(SyncLog).filter(SyncLog.id == task_id).first()
-        if log:
-            log.status = "completed"
-            log.completed_at = datetime.utcnow()
-            log.result = json.dumps(task.result, ensure_ascii=False)
-            db.commit()
-    except Exception as e:
+        log.status = task.status
+        log.completed_at = datetime.utcnow()
+        log.result = json.dumps(result, ensure_ascii=False, allow_nan=False)
+        db.commit()
+        if not successful:
+            raise RuntimeError(msg)
+    except Exception:
+        db.rollback()
         task.status = "failed"
-        task.message = str(e)
-        task.result = {
-            "success_count": success_count,
-            "failed_count": failed_count,
-            "skipped_count": skipped_count,
-            "days_synced": 0,
-            "failed_dates": failed_dates,
-            "message": str(e),
-        }
-        # 持久化：更新为失败
+        if task.result is None:
+            task.message = "历史回补失败：检查交易日历、数据源能力、目标清单及数据库连接"
+            task.result = {"outcome": "failed", "days_synced": 0, "requested_days": days,
+                           "message": task.message, "market_coverage_ratio": None}
         log = db.query(SyncLog).filter(SyncLog.id == task_id).first()
         if log:
             log.status = "failed"
             log.completed_at = datetime.utcnow()
             log.result = json.dumps(task.result, ensure_ascii=False)
             db.commit()
+        raise RuntimeError(task.message) from None
     finally:
         db.close()

@@ -1,0 +1,654 @@
+{
+  "calendar": {
+    "file": "/Users/lijiajun/ai-coding/newQuant/backend/data_reference/sse_calendar_2026.csv",
+    "sha256": "b3b89746b6f4d56fd4af660a53fcbfc8381f42263da7dab1fbb9e7fcdc267a51"
+  },
+  "codes": [
+    "000099.SZ",
+    "000411.SZ",
+    "000547.SZ",
+    "603014.SH"
+  ],
+  "created_at": "2026-11-05T09:50:10.128155+00:00",
+  "database_identity": {
+    "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+    "dialect": "sqlite"
+  },
+  "dates": [
+    "20261008",
+    "20261009"
+  ],
+  "id": "11caa9af-4f9b-4851-83ab-98e54288cf12",
+  "items": [
+    {
+      "changed_fields": [
+        "pre_close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate"
+      ],
+      "new_hash": "2a1bf8e806c6f214f2525c10fe6f1ee456bd092b46f0fce98aa15b94b85408e4",
+      "new_values": {
+        "amount": 56128.65282,
+        "change": 0.009999999999999787,
+        "close": 12.68,
+        "float_share": null,
+        "high": 12.87,
+        "low": 12.62,
+        "open": 12.67,
+        "pct_chg": 0.0789,
+        "pre_close": 12.67,
+        "trade_date": "20261008",
+        "ts_code": "000099.SZ",
+        "turnover_rate": 0.5675,
+        "vol": 44023.92
+      },
+      "old_hash": "d5463e6f17e0268015428d7b38077868ba2d7231e006567f8fb3921d6d3b3f72",
+      "old_values": {
+        "amount": null,
+        "change": null,
+        "close": 12.68,
+        "float_share": null,
+        "high": 12.87,
+        "low": 12.62,
+        "open": 12.67,
+        "pct_chg": null,
+        "pre_close": null,
+        "trade_date": "20261008",
+        "ts_code": "000099.SZ",
+        "turnover_rate": null,
+        "vol": 44024.0
+      },
+      "operation": "update",
+      "source_json": {
+        "field_source": {
+          "amount": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+          "change": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+          "close": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+          "float_share": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+          "high": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+          "low": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+          "open": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+          "pct_chg": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+          "pre_close": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+          "turnover_rate": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+          "vol": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62"
+        },
+        "normalization_version": "daily-quote-repair-v1",
+        "raw_hash": "fce87f538f18c36684f2f1751686167b78d5cc1e48041370da016eee36977d62",
+        "raw_values": {
+          "amount": 56128652.82,
+          "change": 0.009999999999999787,
+          "close": 12.68,
+          "float_share": null,
+          "high": 12.87,
+          "low": 12.62,
+          "open": 12.67,
+          "pct_chg": 0.0789,
+          "pre_close": 12.67,
+          "trade_date": "20261008",
+          "ts_code": "000099.SZ",
+          "turnover_rate": 0.5675,
+          "vol": 4402392.0
+        },
+        "snapshot_hash": "ca458489265f90baa18349ac8c5075036a1795db5c3b12eab723f63c46ef29ed",
+        "snapshot_id": "64d2246d-9166-45c3-9213-09ea1cd55ce7",
+        "source": {
+          "adjustment": "none",
+          "amount_unit": "cny",
+          "captured_at": "2026-11-05T09:49:50.123073+00:00",
+          "data_stage": "final",
+          "name": "baostock",
+          "volume_unit": "share"
+        }
+      },
+      "trade_date": "20261008",
+      "ts_code": "000099.SZ"
+    },
+    {
+      "changed_fields": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate",
+        "float_share"
+      ],
+      "new_hash": "4e2f8792babec95974bcd86850b5fc525077e948f96e87294e9ea1c00ac915c3",
+      "new_values": {
+        "amount": 85419.8662,
+        "change": 0.16000000000000014,
+        "close": 12.84,
+        "float_share": null,
+        "high": 12.86,
+        "low": 12.64,
+        "open": 12.68,
+        "pct_chg": 1.2618,
+        "pre_close": 12.68,
+        "trade_date": "20261009",
+        "ts_code": "000099.SZ",
+        "turnover_rate": 0.8608,
+        "vol": 66781.1
+      },
+      "old_hash": null,
+      "old_values": null,
+      "operation": "insert",
+      "source_json": {
+        "field_source": {
+          "amount": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+          "change": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+          "close": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+          "float_share": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+          "high": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+          "low": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+          "open": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+          "pct_chg": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+          "pre_close": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+          "turnover_rate": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+          "vol": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba"
+        },
+        "normalization_version": "daily-quote-repair-v1",
+        "raw_hash": "69c31059dc23f234904734e4a5f206bc45c4de6775edadded41b6c1d8ebb4fba",
+        "raw_values": {
+          "amount": 85419866.2,
+          "change": 0.16000000000000014,
+          "close": 12.84,
+          "float_share": null,
+          "high": 12.86,
+          "low": 12.64,
+          "open": 12.68,
+          "pct_chg": 1.2618,
+          "pre_close": 12.68,
+          "trade_date": "20261009",
+          "ts_code": "000099.SZ",
+          "turnover_rate": 0.8608,
+          "vol": 6678110.0
+        },
+        "snapshot_hash": "ca458489265f90baa18349ac8c5075036a1795db5c3b12eab723f63c46ef29ed",
+        "snapshot_id": "64d2246d-9166-45c3-9213-09ea1cd55ce7",
+        "source": {
+          "adjustment": "none",
+          "amount_unit": "cny",
+          "captured_at": "2026-11-05T09:49:50.123073+00:00",
+          "data_stage": "final",
+          "name": "baostock",
+          "volume_unit": "share"
+        }
+      },
+      "trade_date": "20261009",
+      "ts_code": "000099.SZ"
+    },
+    {
+      "changed_fields": [
+        "pre_close",
+        "change",
+        "pct_chg",
+        "amount",
+        "turnover_rate"
+      ],
+      "new_hash": "3eca97f785e9896f6e4a698f0f4a7d9e0831ab776a72b585c02798ed78e3ef52",
+      "new_values": {
+        "amount": 46008.729759999995,
+        "change": 0.08000000000000007,
+        "close": 10.1,
+        "float_share": null,
+        "high": 10.2,
+        "low": 10.01,
+        "open": 10.07,
+        "pct_chg": 0.7984,
+        "pre_close": 10.02,
+        "trade_date": "20261008",
+        "ts_code": "000411.SZ",
+        "turnover_rate": 0.8079,
+        "vol": 45544.0
+      },
+      "old_hash": "081b4649d43b13a628be7e1efc3a68970217cbbfe78f43932327d584ef4cdaf0",
+      "old_values": {
+        "amount": null,
+        "change": null,
+        "close": 10.1,
+        "float_share": null,
+        "high": 10.2,
+        "low": 10.01,
+        "open": 10.07,
+        "pct_chg": null,
+        "pre_close": null,
+        "trade_date": "20261008",
+        "ts_code": "000411.SZ",
+        "turnover_rate": null,
+        "vol": 45544.0
+      },
+      "operation": "update",
+      "source_json": {
+        "field_source": {
+          "amount": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+          "change": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+          "close": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+          "float_share": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+          "high": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+          "low": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+          "open": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+          "pct_chg": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+          "pre_close": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+          "turnover_rate": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+          "vol": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1"
+        },
+        "normalization_version": "daily-quote-repair-v1",
+        "raw_hash": "17612155672d623beed6a9920ecd582c1eb0acce1daefa3393bd02f5663c35d1",
+        "raw_values": {
+          "amount": 46008729.76,
+          "change": 0.08000000000000007,
+          "close": 10.1,
+          "float_share": null,
+          "high": 10.2,
+          "low": 10.01,
+          "open": 10.07,
+          "pct_chg": 0.7984,
+          "pre_close": 10.02,
+          "trade_date": "20261008",
+          "ts_code": "000411.SZ",
+          "turnover_rate": 0.8079,
+          "vol": 4554400.0
+        },
+        "snapshot_hash": "ca458489265f90baa18349ac8c5075036a1795db5c3b12eab723f63c46ef29ed",
+        "snapshot_id": "64d2246d-9166-45c3-9213-09ea1cd55ce7",
+        "source": {
+          "adjustment": "none",
+          "amount_unit": "cny",
+          "captured_at": "2026-11-05T09:49:50.123073+00:00",
+          "data_stage": "final",
+          "name": "baostock",
+          "volume_unit": "share"
+        }
+      },
+      "trade_date": "20261008",
+      "ts_code": "000411.SZ"
+    },
+    {
+      "changed_fields": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate",
+        "float_share"
+      ],
+      "new_hash": "5b439987d0310f9ed7639d75cab4d65bea60e35717c6cad7ca466c23af8acf68",
+      "new_values": {
+        "amount": 42676.7443,
+        "change": 0.0600000000000005,
+        "close": 10.16,
+        "float_share": null,
+        "high": 10.2,
+        "low": 9.89,
+        "open": 10.03,
+        "pct_chg": 0.5941,
+        "pre_close": 10.1,
+        "trade_date": "20261009",
+        "ts_code": "000411.SZ",
+        "turnover_rate": 0.7536,
+        "vol": 42482.1
+      },
+      "old_hash": null,
+      "old_values": null,
+      "operation": "insert",
+      "source_json": {
+        "field_source": {
+          "amount": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+          "change": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+          "close": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+          "float_share": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+          "high": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+          "low": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+          "open": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+          "pct_chg": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+          "pre_close": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+          "turnover_rate": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+          "vol": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160"
+        },
+        "normalization_version": "daily-quote-repair-v1",
+        "raw_hash": "dcc405a0ef276d718b038c0f5a9e24db9b7422d50301b9e9e494379279c3d160",
+        "raw_values": {
+          "amount": 42676744.3,
+          "change": 0.0600000000000005,
+          "close": 10.16,
+          "float_share": null,
+          "high": 10.2,
+          "low": 9.89,
+          "open": 10.03,
+          "pct_chg": 0.5941,
+          "pre_close": 10.1,
+          "trade_date": "20261009",
+          "ts_code": "000411.SZ",
+          "turnover_rate": 0.7536,
+          "vol": 4248210.0
+        },
+        "snapshot_hash": "ca458489265f90baa18349ac8c5075036a1795db5c3b12eab723f63c46ef29ed",
+        "snapshot_id": "64d2246d-9166-45c3-9213-09ea1cd55ce7",
+        "source": {
+          "adjustment": "none",
+          "amount_unit": "cny",
+          "captured_at": "2026-11-05T09:49:50.123073+00:00",
+          "data_stage": "final",
+          "name": "baostock",
+          "volume_unit": "share"
+        }
+      },
+      "trade_date": "20261009",
+      "ts_code": "000411.SZ"
+    },
+    {
+      "changed_fields": [
+        "pre_close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate"
+      ],
+      "new_hash": "463c6c1f9f7c79b6b63881f82e33c0717462b90c795ab6c05d950e8f3a2fd559",
+      "new_values": {
+        "amount": 1165075.75969,
+        "change": 0.15000000000000036,
+        "close": 13.83,
+        "float_share": null,
+        "high": 14.83,
+        "low": 13.68,
+        "open": 13.73,
+        "pct_chg": 1.0965,
+        "pre_close": 13.68,
+        "trade_date": "20261008",
+        "ts_code": "000547.SZ",
+        "turnover_rate": 5.1889,
+        "vol": 824575.49
+      },
+      "old_hash": "4d9f1a1169dbb4932f4fefffdbe29d3e352578bc190b7c85db2931a84ac4806b",
+      "old_values": {
+        "amount": null,
+        "change": null,
+        "close": 13.83,
+        "float_share": null,
+        "high": 14.83,
+        "low": 13.68,
+        "open": 13.73,
+        "pct_chg": null,
+        "pre_close": null,
+        "trade_date": "20261008",
+        "ts_code": "000547.SZ",
+        "turnover_rate": null,
+        "vol": 824575.0
+      },
+      "operation": "update",
+      "source_json": {
+        "field_source": {
+          "amount": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+          "change": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+          "close": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+          "float_share": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+          "high": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+          "low": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+          "open": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+          "pct_chg": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+          "pre_close": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+          "turnover_rate": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+          "vol": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d"
+        },
+        "normalization_version": "daily-quote-repair-v1",
+        "raw_hash": "7b5f105dd3f1f15a367912157d8975b85b741995840f89c0548f9abbd865f01d",
+        "raw_values": {
+          "amount": 1165075759.69,
+          "change": 0.15000000000000036,
+          "close": 13.83,
+          "float_share": null,
+          "high": 14.83,
+          "low": 13.68,
+          "open": 13.73,
+          "pct_chg": 1.0965,
+          "pre_close": 13.68,
+          "trade_date": "20261008",
+          "ts_code": "000547.SZ",
+          "turnover_rate": 5.1889,
+          "vol": 82457549.0
+        },
+        "snapshot_hash": "ca458489265f90baa18349ac8c5075036a1795db5c3b12eab723f63c46ef29ed",
+        "snapshot_id": "64d2246d-9166-45c3-9213-09ea1cd55ce7",
+        "source": {
+          "adjustment": "none",
+          "amount_unit": "cny",
+          "captured_at": "2026-11-05T09:49:50.123073+00:00",
+          "data_stage": "final",
+          "name": "baostock",
+          "volume_unit": "share"
+        }
+      },
+      "trade_date": "20261008",
+      "ts_code": "000547.SZ"
+    },
+    {
+      "changed_fields": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate",
+        "float_share"
+      ],
+      "new_hash": "30173f9b08aff51f3b4112b962a4d23e26653b6be658c74b830834d8f1042830",
+      "new_values": {
+        "amount": 860192.5755700001,
+        "change": -0.41000000000000014,
+        "close": 13.42,
+        "float_share": null,
+        "high": 14.0,
+        "low": 12.93,
+        "open": 13.86,
+        "pct_chg": -2.9646,
+        "pre_close": 13.83,
+        "trade_date": "20261009",
+        "ts_code": "000547.SZ",
+        "turnover_rate": 4.0603,
+        "vol": 645225.57
+      },
+      "old_hash": null,
+      "old_values": null,
+      "operation": "insert",
+      "source_json": {
+        "field_source": {
+          "amount": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+          "change": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+          "close": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+          "float_share": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+          "high": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+          "low": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+          "open": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+          "pct_chg": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+          "pre_close": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+          "turnover_rate": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+          "vol": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd"
+        },
+        "normalization_version": "daily-quote-repair-v1",
+        "raw_hash": "f1b3a01b6a8e60cb20ccb2025eb06c99a35dd41348465180ff8dec1d9cbdcccd",
+        "raw_values": {
+          "amount": 860192575.57,
+          "change": -0.41000000000000014,
+          "close": 13.42,
+          "float_share": null,
+          "high": 14.0,
+          "low": 12.93,
+          "open": 13.86,
+          "pct_chg": -2.9646,
+          "pre_close": 13.83,
+          "trade_date": "20261009",
+          "ts_code": "000547.SZ",
+          "turnover_rate": 4.0603,
+          "vol": 64522557.0
+        },
+        "snapshot_hash": "ca458489265f90baa18349ac8c5075036a1795db5c3b12eab723f63c46ef29ed",
+        "snapshot_id": "64d2246d-9166-45c3-9213-09ea1cd55ce7",
+        "source": {
+          "adjustment": "none",
+          "amount_unit": "cny",
+          "captured_at": "2026-11-05T09:49:50.123073+00:00",
+          "data_stage": "final",
+          "name": "baostock",
+          "volume_unit": "share"
+        }
+      },
+      "trade_date": "20261009",
+      "ts_code": "000547.SZ"
+    },
+    {
+      "changed_fields": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate",
+        "float_share"
+      ],
+      "new_hash": "d7bdac760bc740f439fd79a8e3b9cdb7e448cba475fa1b47ef5412bbcfde3a11",
+      "new_values": {
+        "amount": 38083.76375,
+        "change": 0.4800000000000004,
+        "close": 30.45,
+        "float_share": null,
+        "high": 30.5,
+        "low": 29.85,
+        "open": 30.0,
+        "pct_chg": 1.6016,
+        "pre_close": 29.97,
+        "trade_date": "20261009",
+        "ts_code": "603014.SH",
+        "turnover_rate": 1.2437,
+        "vol": 12622.05
+      },
+      "old_hash": null,
+      "old_values": null,
+      "operation": "insert",
+      "source_json": {
+        "field_source": {
+          "amount": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "change": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "close": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "float_share": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "high": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "low": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "open": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "pct_chg": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "pre_close": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "turnover_rate": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "vol": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4"
+        },
+        "normalization_version": "daily-quote-repair-v1",
+        "raw_hash": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+        "raw_values": {
+          "amount": 38083763.75,
+          "change": 0.4800000000000004,
+          "close": 30.45,
+          "float_share": null,
+          "high": 30.5,
+          "low": 29.85,
+          "open": 30.0,
+          "pct_chg": 1.6016,
+          "pre_close": 29.97,
+          "trade_date": "20261009",
+          "ts_code": "603014.SH",
+          "turnover_rate": 1.2437,
+          "vol": 1262205.0
+        },
+        "snapshot_hash": "ca458489265f90baa18349ac8c5075036a1795db5c3b12eab723f63c46ef29ed",
+        "snapshot_id": "64d2246d-9166-45c3-9213-09ea1cd55ce7",
+        "source": {
+          "adjustment": "none",
+          "amount_unit": "cny",
+          "captured_at": "2026-11-05T09:49:50.123073+00:00",
+          "data_stage": "final",
+          "name": "baostock",
+          "volume_unit": "share"
+        }
+      },
+      "trade_date": "20261009",
+      "ts_code": "603014.SH"
+    }
+  ],
+  "policy": {
+    "allow_clear_optional": false,
+    "selection": "single_authoritative_row"
+  },
+  "skipped": [
+    {
+      "fields": [
+        "float_share"
+      ],
+      "reason": "optional_field_loss",
+      "trade_date": "20261008",
+      "ts_code": "603014.SH"
+    }
+  ],
+  "snapshot_hash": "ca458489265f90baa18349ac8c5075036a1795db5c3b12eab723f63c46ef29ed",
+  "snapshot_id": "64d2246d-9166-45c3-9213-09ea1cd55ce7",
+  "source": {
+    "adjustment": "none",
+    "amount_unit": "cny",
+    "captured_at": "2026-11-05T09:49:50.123073+00:00",
+    "data_stage": "final",
+    "name": "baostock",
+    "volume_unit": "share"
+  },
+  "source_requests": [
+    {
+      "rows": 2,
+      "status": "success",
+      "ts_code": "000099.SZ",
+      "valid_rows": 2
+    },
+    {
+      "rows": 2,
+      "status": "success",
+      "ts_code": "000411.SZ",
+      "valid_rows": 2
+    },
+    {
+      "rows": 2,
+      "status": "success",
+      "ts_code": "000547.SZ",
+      "valid_rows": 2
+    },
+    {
+      "rows": 2,
+      "status": "success",
+      "ts_code": "603014.SH",
+      "valid_rows": 2
+    }
+  ],
+  "summary": {
+    "inserts": 4,
+    "requested_cells": 8,
+    "skipped": 1,
+    "unchanged": 0,
+    "updates": 3
+  },
+  "version": "daily-quote-repair-v1"
+}

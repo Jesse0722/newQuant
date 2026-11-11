@@ -1,0 +1,257 @@
+{
+  "database_identity": {
+    "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+    "dialect": "sqlite"
+  },
+  "groups": {
+    "BJ": {
+      "code_list_sha256": "8b934329c2b9599b382cba2bc47ab8709a6480f186bee8ecc9cb8283bd4b574f",
+      "codes": [
+        "837821.BJ",
+        "920000.BJ",
+        "920001.BJ",
+        "920002.BJ",
+        "920003.BJ"
+      ],
+      "count": 5,
+      "requested_cells": 70,
+      "source": "akshare"
+    },
+    "SH": {
+      "code_list_sha256": "18ba755cb1802a540e2b300053408c8b178da50a0af0d2cb6a9db2fb81851851",
+      "codes": [
+        "600000.SH",
+        "600004.SH",
+        "600006.SH",
+        "600007.SH",
+        "600008.SH",
+        "600009.SH",
+        "600010.SH",
+        "600011.SH",
+        "600012.SH",
+        "600015.SH"
+      ],
+      "count": 10,
+      "requested_cells": 140,
+      "source": "baostock"
+    },
+    "SZ": {
+      "code_list_sha256": "b0fbb6ac96ce353a9485b0ccd7f524b4fe49c82a6f46e134409ac402424186d2",
+      "codes": [
+        "000001.SZ",
+        "000002.SZ",
+        "000004.SZ",
+        "000006.SZ",
+        "000007.SZ",
+        "000008.SZ",
+        "000009.SZ",
+        "000010.SZ",
+        "000011.SZ",
+        "000012.SZ"
+      ],
+      "count": 10,
+      "requested_cells": 140,
+      "source": "baostock"
+    }
+  },
+  "master_evidence": [
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "平安银行",
+      "ts_code": "000001.SZ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "万  科Ａ",
+      "ts_code": "000002.SZ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "国华退",
+      "ts_code": "000004.SZ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "深振业Ａ",
+      "ts_code": "000006.SZ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "全新好",
+      "ts_code": "000007.SZ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "神州高铁",
+      "ts_code": "000008.SZ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "中国宝安",
+      "ts_code": "000009.SZ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "*ST美丽",
+      "ts_code": "000010.SZ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "深物业A",
+      "ts_code": "000011.SZ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "南  玻Ａ",
+      "ts_code": "000012.SZ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "浦发银行",
+      "ts_code": "600000.SH"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "白云机场",
+      "ts_code": "600004.SH"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "东风股份",
+      "ts_code": "600006.SH"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "中国国贸",
+      "ts_code": "600007.SH"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "首创环保",
+      "ts_code": "600008.SH"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "上海机场",
+      "ts_code": "600009.SH"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "包钢股份",
+      "ts_code": "600010.SH"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "华能国际",
+      "ts_code": "600011.SH"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "皖通高速",
+      "ts_code": "600012.SH"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "华夏银行",
+      "ts_code": "600015.SH"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "则成电子",
+      "ts_code": "837821.BJ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "安徽凤凰",
+      "ts_code": "920000.BJ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "纬达光电",
+      "ts_code": "920001.BJ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "万达轴承",
+      "ts_code": "920002.BJ"
+    },
+    {
+      "list_date": null,
+      "list_status": "L",
+      "name": "中诚咨询",
+      "ts_code": "920003.BJ"
+    }
+  ],
+  "operation_date": "2026-11-08",
+  "parent_code_list_sha256": "c1f34c0ebc269c3e95ee0ede90a8bc48dcaed1dc8210cbbe8095341c78dcc3bb",
+  "parent_scope_file_sha256": "3400e61ad4530b3f646abe46ae36195c6ba3543e0c1398e0e2164bf9db055523",
+  "policy": {
+    "allow_clear_optional": false,
+    "no_reselection_after_fetch": true,
+    "no_scoring_override": true,
+    "require_success_and_complete_grid": true,
+    "require_zero_updates": true,
+    "single_source_per_market": true
+  },
+  "preexisting_rows_by_date": {
+    "20261019": 0,
+    "20261020": 0,
+    "20261021": 0,
+    "20261022": 0,
+    "20261023": 0,
+    "20261026": 0,
+    "20261027": 0,
+    "20261028": 0,
+    "20261029": 0,
+    "20261030": 0,
+    "20261102": 0,
+    "20261103": 0,
+    "20261104": 0,
+    "20261105": 0
+  },
+  "requested_dates": [
+    "20261019",
+    "20261020",
+    "20261021",
+    "20261022",
+    "20261023",
+    "20261026",
+    "20261027",
+    "20261028",
+    "20261029",
+    "20261030",
+    "20261102",
+    "20261103",
+    "20261104",
+    "20261105"
+  ],
+  "selection_rule": "lexically first N per market in 2026-11-05 frozen current-master proxy; no replacement based on provider responses",
+  "status": "frozen_before_fetch",
+  "total_codes": 25,
+  "total_requested_cells": 350,
+  "universe_basis": "current_master_proxy_not_point_in_time"
+}

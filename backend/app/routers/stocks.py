@@ -21,6 +21,7 @@ from app.services.sync_service import sync_stock_info, sync_daily, sync_daily_ba
 from app.tasks.background import get_task_status, submit_task, task_registry
 from app.services.trading_session import shanghai_trade_date_str, latest_daily_k_trade_date_str
 from app.services.tushare_adapter import tushare_adapter, TushareAdapter, TencentAdapter, BaoStockAdapter, AkshareAdapter
+from app.services.provider_daily_normalization import normalize_provider_daily
 from app.exceptions import AppError
 from app.utils import normalize_ts_code
 import pandas as pd
@@ -284,8 +285,17 @@ def _backfill_sparse_chart_from_remote(db: Session, ts_code: str, base_df: pd.Da
     remote = pd.DataFrame()
     for p in providers:
         try:
-            r = p.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+            r = normalize_provider_daily(
+                p.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date),
+                p,
+            )
             if r is not None and not r.empty:
+                if "ts_code" in r.columns:
+                    r = r.copy()
+                    normalized_codes = r["ts_code"].astype(str).str.strip().str.upper()
+                    r = r.loc[normalized_codes == ts_code.upper()].copy()
+                if r.empty:
+                    continue
                 remote = r.copy()
                 break
         except Exception:
@@ -295,10 +305,11 @@ def _backfill_sparse_chart_from_remote(db: Session, ts_code: str, base_df: pd.Da
         return base_df
 
     remote = remote.rename(columns={"trade_date": "date"})
-    for col in ("vol", "amount", "pct_chg", "turnover_rate"):
+    for col in ("pre_close", "change", "vol", "amount", "pct_chg", "turnover_rate"):
         if col not in remote.columns:
             remote[col] = None
-    remote = remote[["date", "open", "high", "low", "close", "vol", "amount", "pct_chg", "turnover_rate"]]
+    remote = remote[["date", "open", "high", "low", "close", "pre_close", "change",
+                     "vol", "amount", "pct_chg", "turnover_rate"]]
     remote["date"] = remote["date"].astype(str)
     remote = _filter_valid_ohlc(remote)
     if remote.empty:
@@ -322,8 +333,8 @@ def _backfill_sparse_chart_from_remote(db: Session, ts_code: str, base_df: pd.Da
                 high=float(row["high"]),
                 low=float(row["low"]),
                 close=float(row["close"]),
-                pre_close=None,
-                change=None,
+                pre_close=float(row["pre_close"]) if row.get("pre_close") is not None and pd.notna(row.get("pre_close")) else None,
+                change=float(row["change"]) if row.get("change") is not None and pd.notna(row.get("change")) else None,
                 pct_chg=float(row["pct_chg"]) if row.get("pct_chg") is not None and pd.notna(row.get("pct_chg")) else None,
                 vol=float(row["vol"]) if row.get("vol") is not None and pd.notna(row.get("vol")) else None,
                 amount=float(row["amount"]) if row.get("amount") is not None and pd.notna(row.get("amount")) else None,

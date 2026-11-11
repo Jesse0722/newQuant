@@ -1,0 +1,141 @@
+{
+  "calendar": {
+    "file": "/Users/lijiajun/ai-coding/newQuant/backend/data_reference/sse_calendar_2026.csv",
+    "sha256": "b3b89746b6f4d56fd4af660a53fcbfc8381f42263da7dab1fbb9e7fcdc267a51"
+  },
+  "codes": [
+    "000672.SZ",
+    "000810.SZ",
+    "000882.SZ",
+    "001206.SZ",
+    "001311.SZ"
+  ],
+  "dates": [
+    "20261008"
+  ],
+  "id": "4d7a7052-bb6a-45c8-bf31-5226d7bc65ee",
+  "outcome": "success",
+  "requests": [
+    {
+      "rows": 1,
+      "status": "success",
+      "ts_code": "000672.SZ",
+      "valid_rows": 1
+    },
+    {
+      "rows": 1,
+      "status": "success",
+      "ts_code": "000810.SZ",
+      "valid_rows": 1
+    },
+    {
+      "rows": 1,
+      "status": "success",
+      "ts_code": "000882.SZ",
+      "valid_rows": 1
+    },
+    {
+      "rows": 1,
+      "status": "success",
+      "ts_code": "001206.SZ",
+      "valid_rows": 1
+    },
+    {
+      "rows": 1,
+      "status": "success",
+      "ts_code": "001311.SZ",
+      "valid_rows": 1
+    }
+  ],
+  "rows": [
+    {
+      "amount": 297205621.42,
+      "change": 0.019999999999999574,
+      "close": 14.86,
+      "float_share": null,
+      "high": 15.38,
+      "low": 14.61,
+      "open": 14.9,
+      "pct_chg": 0.1348,
+      "pre_close": 14.84,
+      "trade_date": "20261008",
+      "ts_code": "000672.SZ",
+      "turnover_rate": 2.0449,
+      "vol": 19822811.0
+    },
+    {
+      "amount": 121706050.44,
+      "change": -0.15000000000000036,
+      "close": 8.95,
+      "float_share": null,
+      "high": 9.27,
+      "low": 8.9,
+      "open": 9.12,
+      "pct_chg": -1.6484,
+      "pre_close": 9.1,
+      "trade_date": "20261008",
+      "ts_code": "000810.SZ",
+      "turnover_rate": 1.203,
+      "vol": 13451759.0
+    },
+    {
+      "amount": 87553428.0,
+      "change": -0.050000000000000044,
+      "close": 1.5,
+      "float_share": null,
+      "high": 1.55,
+      "low": 1.49,
+      "open": 1.55,
+      "pct_chg": -3.2258,
+      "pre_close": 1.55,
+      "trade_date": "20261008",
+      "ts_code": "000882.SZ",
+      "turnover_rate": 2.1099,
+      "vol": 57719000.0
+    },
+    {
+      "amount": 347740502.97,
+      "change": 0.509999999999998,
+      "close": 19.13,
+      "float_share": null,
+      "high": 20.3,
+      "low": 18.31,
+      "open": 18.53,
+      "pct_chg": 2.739,
+      "pre_close": 18.62,
+      "trade_date": "20261008",
+      "ts_code": "001206.SZ",
+      "turnover_rate": 16.7891,
+      "vol": 17941577.0
+    },
+    {
+      "amount": 56788330.26,
+      "change": -0.41999999999999815,
+      "close": 16.28,
+      "float_share": null,
+      "high": 16.98,
+      "low": 16.19,
+      "open": 16.71,
+      "pct_chg": -2.515,
+      "pre_close": 16.7,
+      "trade_date": "20261008",
+      "ts_code": "001311.SZ",
+      "turnover_rate": 1.8971,
+      "vol": 3450230.0
+    }
+  ],
+  "source": {
+    "adjustment": "none",
+    "amount_unit": "cny",
+    "captured_at": "2026-11-05T10:08:13.932757+00:00",
+    "data_stage": "final",
+    "name": "baostock",
+    "volume_unit": "share"
+  },
+  "target_at_fetch": {
+    "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+    "dialect": "sqlite"
+  },
+  "valid_row_count": 5,
+  "version": "daily-quote-source-v1"
+}

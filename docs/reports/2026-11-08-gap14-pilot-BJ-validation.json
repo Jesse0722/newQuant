@@ -1,0 +1,306 @@
+{
+  "blocking_codes": [
+    "837821.BJ"
+  ],
+  "codes": [
+    "837821.BJ",
+    "920000.BJ",
+    "920001.BJ",
+    "920002.BJ",
+    "920003.BJ"
+  ],
+  "decision": "pause_bj_apply",
+  "decision_reason": "固定样本837821.BJ上游身份名称标记已切换且14日窗口无K线；禁止自动换码、换样本或用其他来源拼接，因此5只完整网格条件失败。",
+  "eligible_codes": [
+    "920000.BJ",
+    "920001.BJ",
+    "920002.BJ",
+    "920003.BJ"
+  ],
+  "freeze_sha256": "2a035016a127517728ea9a461f0f2998ec78bb72bb6b62c7ff2bd142149a4756",
+  "network_requests_in_this_assessment": 0,
+  "notes": [
+    "920000.BJ至920003.BJ各自14日完整，原始响应代码/market/name匹配，原始手/元均价检查、核心字段、前收和涨跌幅检查通过。",
+    "v2摘要的raw_dates_match=false只是YYYY-MM-DD与YYYYMMDD比较错误；本评估从已保存原始响应离线规范化日期后更正，未再次联网。",
+    "无可供apply的完整SNAPSHOT_VERSION快照；BJ必须暂停。"
+  ],
+  "per_code": [
+    {
+      "adapter_dates": [],
+      "blocking_reason": "upstream_reports_switched_and_no_window_klines",
+      "checks": {
+        "complete_dates": false,
+        "core_fields_valid": false,
+        "identity_code_match": true,
+        "identity_market_match": true,
+        "identity_name_match": false,
+        "pre_close_pct_consistent": false,
+        "raw_dates_match": false,
+        "raw_lot_cny_average_in_range": false,
+        "single_upstream_response": true
+      },
+      "eligible": false,
+      "raw_dates": [],
+      "status": "empty",
+      "ts_code": "837821.BJ",
+      "upstream_identity": {
+        "code": "837821",
+        "decimal": 2,
+        "dktotal": 88,
+        "market": 0,
+        "name": "则成电子(已切换)",
+        "preKPrice": 0.0
+      }
+    },
+    {
+      "adapter_dates": [
+        "20261019",
+        "20261020",
+        "20261021",
+        "20261022",
+        "20261023",
+        "20261026",
+        "20261027",
+        "20261028",
+        "20261029",
+        "20261030",
+        "20261102",
+        "20261103",
+        "20261104",
+        "20261105"
+      ],
+      "blocking_reason": null,
+      "checks": {
+        "complete_dates": true,
+        "core_fields_valid": true,
+        "identity_code_match": true,
+        "identity_market_match": true,
+        "identity_name_match": true,
+        "pre_close_pct_consistent": true,
+        "raw_dates_match": true,
+        "raw_lot_cny_average_in_range": true,
+        "single_upstream_response": true
+      },
+      "eligible": true,
+      "raw_dates": [
+        "20261019",
+        "20261020",
+        "20261021",
+        "20261022",
+        "20261023",
+        "20261026",
+        "20261027",
+        "20261028",
+        "20261029",
+        "20261030",
+        "20261102",
+        "20261103",
+        "20261104",
+        "20261105"
+      ],
+      "status": "success",
+      "ts_code": "920000.BJ",
+      "upstream_identity": {
+        "code": "920000",
+        "decimal": 2,
+        "dktotal": 1422,
+        "market": 0,
+        "name": "安徽凤凰",
+        "preKPrice": 13.1
+      }
+    },
+    {
+      "adapter_dates": [
+        "20261019",
+        "20261020",
+        "20261021",
+        "20261022",
+        "20261023",
+        "20261026",
+        "20261027",
+        "20261028",
+        "20261029",
+        "20261030",
+        "20261102",
+        "20261103",
+        "20261104",
+        "20261105"
+      ],
+      "blocking_reason": null,
+      "checks": {
+        "complete_dates": true,
+        "core_fields_valid": true,
+        "identity_code_match": true,
+        "identity_market_match": true,
+        "identity_name_match": true,
+        "pre_close_pct_consistent": true,
+        "raw_dates_match": true,
+        "raw_lot_cny_average_in_range": true,
+        "single_upstream_response": true
+      },
+      "eligible": true,
+      "raw_dates": [
+        "20261019",
+        "20261020",
+        "20261021",
+        "20261022",
+        "20261023",
+        "20261026",
+        "20261027",
+        "20261028",
+        "20261029",
+        "20261030",
+        "20261102",
+        "20261103",
+        "20261104",
+        "20261105"
+      ],
+      "status": "success",
+      "ts_code": "920001.BJ",
+      "upstream_identity": {
+        "code": "920001",
+        "decimal": 2,
+        "dktotal": 934,
+        "market": 0,
+        "name": "纬达光电",
+        "preKPrice": 10.26
+      }
+    },
+    {
+      "adapter_dates": [
+        "20261019",
+        "20261020",
+        "20261021",
+        "20261022",
+        "20261023",
+        "20261026",
+        "20261027",
+        "20261028",
+        "20261029",
+        "20261030",
+        "20261102",
+        "20261103",
+        "20261104",
+        "20261105"
+      ],
+      "blocking_reason": null,
+      "checks": {
+        "complete_dates": true,
+        "core_fields_valid": true,
+        "identity_code_match": true,
+        "identity_market_match": true,
+        "identity_name_match": true,
+        "pre_close_pct_consistent": true,
+        "raw_dates_match": true,
+        "raw_lot_cny_average_in_range": true,
+        "single_upstream_response": true
+      },
+      "eligible": true,
+      "raw_dates": [
+        "20261019",
+        "20261020",
+        "20261021",
+        "20261022",
+        "20261023",
+        "20261026",
+        "20261027",
+        "20261028",
+        "20261029",
+        "20261030",
+        "20261102",
+        "20261103",
+        "20261104",
+        "20261105"
+      ],
+      "status": "success",
+      "ts_code": "920002.BJ",
+      "upstream_identity": {
+        "code": "920002",
+        "decimal": 2,
+        "dktotal": 592,
+        "market": 0,
+        "name": "万达轴承",
+        "preKPrice": 46.3
+      }
+    },
+    {
+      "adapter_dates": [
+        "20261019",
+        "20261020",
+        "20261021",
+        "20261022",
+        "20261023",
+        "20261026",
+        "20261027",
+        "20261028",
+        "20261029",
+        "20261030",
+        "20261102",
+        "20261103",
+        "20261104",
+        "20261105"
+      ],
+      "blocking_reason": null,
+      "checks": {
+        "complete_dates": true,
+        "core_fields_valid": true,
+        "identity_code_match": true,
+        "identity_market_match": true,
+        "identity_name_match": true,
+        "pre_close_pct_consistent": true,
+        "raw_dates_match": true,
+        "raw_lot_cny_average_in_range": true,
+        "single_upstream_response": true
+      },
+      "eligible": true,
+      "raw_dates": [
+        "20261019",
+        "20261020",
+        "20261021",
+        "20261022",
+        "20261023",
+        "20261026",
+        "20261027",
+        "20261028",
+        "20261029",
+        "20261030",
+        "20261102",
+        "20261103",
+        "20261104",
+        "20261105"
+      ],
+      "status": "success",
+      "ts_code": "920003.BJ",
+      "upstream_identity": {
+        "code": "920003",
+        "decimal": 2,
+        "dktotal": 242,
+        "market": 0,
+        "name": "中诚咨询",
+        "preKPrice": 15.41
+      }
+    }
+  ],
+  "requested_dates": [
+    "20261019",
+    "20261020",
+    "20261021",
+    "20261022",
+    "20261023",
+    "20261026",
+    "20261027",
+    "20261028",
+    "20261029",
+    "20261030",
+    "20261102",
+    "20261103",
+    "20261104",
+    "20261105"
+  ],
+  "snapshot_generated": false,
+  "source_evidence": {
+    "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-08/pilot-bj/raw-identity-evidence-v2.json",
+    "sha256": "375d01e2c4dc586eeb398bd1a76f6145e3126ff434c1b04de372d1c7a53b0ab6"
+  },
+  "version": "akshare-bj-pilot-assessment-v3"
+}

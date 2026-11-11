@@ -38,6 +38,7 @@ class _FakeBaoStock:
                 "volume": "123456",
                 "amount": "987654321",
                 "pctChg": "9.09",
+                "turn": "1.23",
             },
             {
                 "date": "2024-01-03",
@@ -50,6 +51,7 @@ class _FakeBaoStock:
                 "volume": "654321",
                 "amount": "123456789",
                 "pctChg": "-3.70",
+                "turn": "2.34",
             },
         ]))
 
@@ -85,7 +87,12 @@ def test_baostock_daily_and_basic(monkeypatch):
     basic = ad.get_daily_basic("000001.SZ", start_date="20240101", end_date="20240110")
 
     assert list(daily["trade_date"]) == ["20240103", "20240102"]
+    assert daily["ts_code"].tolist() == ["000001.SZ", "000001.SZ"]
     assert float(daily.iloc[0]["close"]) == 10.4
+    assert float(daily.iloc[0]["vol"]) == 654321
+    assert float(daily.iloc[0]["amount"]) == 123456789
+    assert float(daily.iloc[0]["turnover_rate"]) == 2.34
+    assert basic["ts_code"].tolist() == ["000001.SZ", "000001.SZ"]
     assert list(basic["trade_date"]) == ["20240103", "20240102"]
     assert float(basic.iloc[0]["turnover_rate"]) == 2.34
 

@@ -1,0 +1,69 @@
+{
+  "calendar": {
+    "file": "/Users/lijiajun/ai-coding/newQuant/backend/data_reference/sse_calendar_2026.csv",
+    "sha256": "b3b89746b6f4d56fd4af660a53fcbfc8381f42263da7dab1fbb9e7fcdc267a51"
+  },
+  "codes": [
+    "603014.SH"
+  ],
+  "dates": [
+    "20261008",
+    "20261009"
+  ],
+  "id": "820449f4-36c3-4e33-ae6c-8b881aba98d1",
+  "outcome": "success",
+  "requests": [
+    {
+      "rows": 2,
+      "status": "success",
+      "ts_code": "603014.SH",
+      "valid_rows": 2
+    }
+  ],
+  "rows": [
+    {
+      "amount": 38083763.75,
+      "change": 0.4800000000000004,
+      "close": 30.45,
+      "float_share": null,
+      "high": 30.5,
+      "low": 29.85,
+      "open": 30.0,
+      "pct_chg": 1.6016,
+      "pre_close": 29.97,
+      "trade_date": "20261009",
+      "ts_code": "603014.SH",
+      "turnover_rate": 1.2437,
+      "vol": 1262205.0
+    },
+    {
+      "amount": 48985607.2,
+      "change": -0.8200000000000003,
+      "close": 29.97,
+      "float_share": null,
+      "high": 30.92,
+      "low": 29.82,
+      "open": 30.88,
+      "pct_chg": -2.6632,
+      "pre_close": 30.79,
+      "trade_date": "20261008",
+      "ts_code": "603014.SH",
+      "turnover_rate": 1.594,
+      "vol": 1617700.0
+    }
+  ],
+  "source": {
+    "adjustment": "none",
+    "amount_unit": "cny",
+    "captured_at": "2026-11-04T15:28:47.173674+00:00",
+    "data_stage": "final",
+    "name": "baostock",
+    "volume_unit": "share"
+  },
+  "target_at_fetch": {
+    "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+    "dialect": "sqlite"
+  },
+  "valid_row_count": 2,
+  "version": "daily-quote-source-v1"
+}

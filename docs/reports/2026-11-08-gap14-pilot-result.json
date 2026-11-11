@@ -1,0 +1,239 @@
+{
+  "all_batch_verifications": [
+    {
+      "approved_file_sha256": "c96d2fb2b691b1ae6f9e693bec4e965936272667c3eed3084fc9ab0a4b5fdefe",
+      "audit_integrity": true,
+      "audit_rows": 7,
+      "batch_id": "50134166-d133-43e7-93f7-100b115dfc1c",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "4bfe15a09e78c8ee05fa0bfb070f1801a4d04f2191cdd8aecfb9f9bf6874bb6e",
+      "status": "applied"
+    },
+    {
+      "approved_file_sha256": "7675d8c7a0cf9f55e6d8a750c3cc3845eafb826c2584f8b508f58518fab67059",
+      "audit_integrity": true,
+      "audit_rows": 5,
+      "batch_id": "38763387-e27e-46e0-9334-db692505c3a5",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "782c0f0bf265af2a041d21c66e504d1cf97c354031d151d5ef40ae323b1f1241",
+      "status": "applied"
+    },
+    {
+      "approved_file_sha256": "258460073e3db207cc748b9f54cce3d8172b5b501de5c1494bdca5bd578dbedc",
+      "audit_integrity": true,
+      "audit_rows": 140,
+      "batch_id": "f627ecb7-6445-4abb-b037-9ab6b06e833d",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "dd9d6b8dd59f59f4bca2c3a50e5f8e3a5fa43af70986c20e2142b401b25d0e38",
+      "status": "applied"
+    }
+  ],
+  "applied_batch": {
+    "applied_at": "2026-11-08T07:27:19.131653",
+    "backup_manifest": {
+      "created_at": "2026-11-08T07:26:49.409481Z",
+      "daily_quote_row_count": 1924045,
+      "daily_quote_sha256": "9a94fb396cb3e5589cf8241007657f6c0e1033be94e63313ad7f4e55e09c5a07",
+      "database_identity": {
+        "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+        "dialect": "sqlite"
+      },
+      "format": "sqlite",
+      "id": "5d65abfe-6e5e-46b8-8ff1-3f672ada5686",
+      "integrity_check": "ok",
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-08/pilot-SH/pre-apply/5d65abfe-6e5e-46b8-8ff1-3f672ada5686.db",
+      "sha256": "85d0c862e8528efd1f348ce7647697a5f5cbd9652ccc4fed53e9a423b3b72692"
+    },
+    "created_at": "2026-11-08T07:27:19.131653",
+    "database_identity": {
+      "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+      "dialect": "sqlite"
+    },
+    "id": "f627ecb7-6445-4abb-b037-9ab6b06e833d",
+    "plan_hash": "dd9d6b8dd59f59f4bca2c3a50e5f8e3a5fa43af70986c20e2142b401b25d0e38",
+    "policy": {
+      "allow_clear_optional": false,
+      "selection": "single_authoritative_row"
+    },
+    "rolled_back_at": null,
+    "status": "applied",
+    "summary": {
+      "affected_hash": "73150690b97e20f9263d6747093d23a37f84f6ead1cd00ed0e0674b96bbd2b65",
+      "approved_file_sha256": "258460073e3db207cc748b9f54cce3d8172b5b501de5c1494bdca5bd578dbedc",
+      "audit_hash": "abc4e6132a1df7aca876cab28b1ead073355c5d46fa3b5df14ed6d0d51891577",
+      "inserts": 140,
+      "plan_hash": "dd9d6b8dd59f59f4bca2c3a50e5f8e3a5fa43af70986c20e2142b401b25d0e38",
+      "plan_id": "bf0d4daf-98d0-43c8-a849-f9a048866053",
+      "plan_version": "daily-quote-repair-v1",
+      "requested_cells": 140,
+      "row_count_after": 1924185,
+      "row_count_before": 1924045,
+      "skipped": 0,
+      "snapshot_hash": "36e5208ce0853a5400a3bba755379ddf587c51731f0691ed2d13d70ac6c0b789",
+      "snapshot_id": "0c338e97-9096-464f-9085-b09a12c0fdb1",
+      "source": {
+        "adjustment": "none",
+        "amount_unit": "cny",
+        "captured_at": "2026-11-08T07:23:13.909189+00:00",
+        "data_stage": "final",
+        "name": "baostock",
+        "volume_unit": "share"
+      },
+      "unchanged": 0,
+      "updates": 0
+    }
+  },
+  "audit_inventory": {
+    "audits": 152,
+    "batches": 3
+  },
+  "code_and_schema_changes": false,
+  "database": {
+    "app_cwd": "/Users/lijiajun/ai-coding/newQuant/backend",
+    "backend": "sqlite",
+    "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db"
+  },
+  "frozen_codes_by_market": {
+    "BJ": [
+      "837821.BJ",
+      "920000.BJ",
+      "920001.BJ",
+      "920002.BJ",
+      "920003.BJ"
+    ],
+    "SH": [
+      "600000.SH",
+      "600004.SH",
+      "600006.SH",
+      "600007.SH",
+      "600008.SH",
+      "600009.SH",
+      "600010.SH",
+      "600011.SH",
+      "600012.SH",
+      "600015.SH"
+    ],
+    "SZ": [
+      "000001.SZ",
+      "000002.SZ",
+      "000004.SZ",
+      "000006.SZ",
+      "000007.SZ",
+      "000008.SZ",
+      "000009.SZ",
+      "000010.SZ",
+      "000011.SZ",
+      "000012.SZ"
+    ]
+  },
+  "full_market_backfill_started": false,
+  "integrity": {
+    "batch_id": "f627ecb7-6445-4abb-b037-9ab6b06e833d",
+    "existing_rows_compared": 1924045,
+    "existing_rows_unchanged": true,
+    "inserted_count": 140,
+    "inserted_keys_exactly_plan": true,
+    "integrity_check": "ok",
+    "non_quote_rows_unchanged": 37073,
+    "non_quote_tables_unchanged": 28,
+    "post_row_count": 1924185,
+    "prior_batches_and_audits_unchanged": true,
+    "quote_fingerprint": {
+      "daily_quote_row_count": 1924185,
+      "daily_quote_sha256": "64d80ea04fd3af8c5df7f24b1bd7f110cfbe4e76cad92997c46d37aa43a1520e"
+    },
+    "reference_backup": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-08/pilot-SH/pre-apply/5d65abfe-6e5e-46b8-8ff1-3f672ada5686.db",
+    "schema_unchanged": true
+  },
+  "latest_window": {
+    "after_summary": {
+      "detail_days": 20,
+      "empty_slots": 1,
+      "requested_days": 120,
+      "scoring_allowed": false,
+      "verified_pass_days": 0
+    },
+    "before_summary": {
+      "detail_days": 20,
+      "empty_slots": 15,
+      "requested_days": 120,
+      "scoring_allowed": false,
+      "verified_pass_days": 0
+    },
+    "empty_dates": [
+      "20261106"
+    ],
+    "end": "20261106",
+    "start": "20260514"
+  },
+  "market_decisions": {
+    "BJ": {
+      "blocking_code": "837821.BJ",
+      "decision": "paused_not_applied",
+      "no_code_remapping": true,
+      "reason": "upstream switched-name marker and no window klines",
+      "requested_cells": 70,
+      "validated_cells": 56
+    },
+    "SH": {
+      "decision": "applied",
+      "inserted": 140,
+      "requested_cells": 140,
+      "updates": 0,
+      "validated_cells": 140
+    },
+    "SZ": {
+      "blocking_code": "000004.SZ",
+      "decision": "paused_not_applied",
+      "no_reselection": true,
+      "reason": "empty response and conflicting current master status",
+      "requested_cells": 140,
+      "validated_cells": 126
+    }
+  },
+  "operation_date": "2026-11-08",
+  "paused_markets_database_rows": {
+    "BJ": 0,
+    "SZ": 0
+  },
+  "same_window": {
+    "after_summary": {
+      "detail_days": 20,
+      "empty_slots": 0,
+      "requested_days": 120,
+      "scoring_allowed": false,
+      "verified_pass_days": 0
+    },
+    "before_summary": {
+      "detail_days": 20,
+      "empty_slots": 14,
+      "requested_days": 120,
+      "scoring_allowed": false,
+      "verified_pass_days": 0
+    },
+    "changed_dates": [
+      "20261019",
+      "20261020",
+      "20261021",
+      "20261022",
+      "20261023",
+      "20261026",
+      "20261027",
+      "20261028",
+      "20261029",
+      "20261030",
+      "20261102",
+      "20261103",
+      "20261104",
+      "20261105"
+    ],
+    "coverage_is_not_full_market": true,
+    "end": "20261105",
+    "rows_per_changed_date": 10,
+    "start": "20260513"
+  },
+  "scope_sha256": "2a035016a127517728ea9a461f0f2998ec78bb72bb6b62c7ff2bd142149a4756"
+}

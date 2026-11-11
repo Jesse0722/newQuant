@@ -5,7 +5,7 @@ import dayjs from 'dayjs'
 import { getDataSummary, getSyncHistory, checkTushare, getSyncOverview, getDataProvider, setDataProvider } from '../../api/data'
 import { syncFullMarket, getTaskStatus } from '../../api/sync'
 import { collectLimitUp } from '../../api/strategy'
-import type { DataSummary, SyncHistoryItem, SyncOverview } from '../../types'
+import type { DataSummary, FullMarketDateResult, SyncHistoryItem, SyncOverview, TaskStatus } from '../../types'
 
 interface ApiErrorLike {
   response?: {
@@ -22,14 +22,7 @@ const DataPage: React.FC = () => {
   const [taskId, setTaskId] = useState<string | null>(null)
   const [taskProgress, setTaskProgress] = useState(0)
   const [taskMessage, setTaskMessage] = useState('')
-  const [taskResult, setTaskResult] = useState<{
-    success_count?: number
-    failed_count?: number
-    skipped_count?: number
-    days_synced?: number
-    message?: string
-    diagnostic?: string
-  } | null>(null)
+  const [taskResult, setTaskResult] = useState<TaskStatus['result'] | null>(null)
   const [lastSync, setLastSync] = useState<SyncHistoryItem | null>(null)
   const [syncHistory, setSyncHistory] = useState<SyncHistoryItem[]>([])
   const [syncOverview, setSyncOverview] = useState<SyncOverview | null>(null)
@@ -134,7 +127,11 @@ const DataPage: React.FC = () => {
           setSyncing(false)
           setTaskId(null)
           if (res.data.status === 'completed') {
-            message.success('全市场同步完成')
+            if (res.data.result?.has_source_warnings || (res.data.result?.outcome && res.data.result.outcome !== 'complete')) {
+              message.warning(res.data.message || '历史回补部分完成，请查看结果')
+            } else {
+              message.success('历史回补处理完成，请核对覆盖情况')
+            }
           } else {
             message.error(res.data.message || '同步失败')
           }
@@ -309,14 +306,40 @@ const DataPage: React.FC = () => {
             </h4>
             {(taskResult || lastSync?.result) && (
               <>
-                <p>成功：{(taskResult?.success_count ?? lastSync?.result?.success_count ?? 0).toLocaleString()} 条</p>
+                <p>新增：{(taskResult?.success_count ?? lastSync?.result?.success_count ?? 0).toLocaleString()} 条</p>
                 <p>跳过（已存在）：{(taskResult?.skipped_count ?? lastSync?.result?.skipped_count ?? 0).toLocaleString()} 条</p>
                 <p>失败天数：{taskResult?.failed_count ?? lastSync?.result?.failed_count ?? 0} 天</p>
-                <p>同步交易日：{taskResult?.days_synced ?? lastSync?.result?.days_synced ?? 0} 天</p>
+                <p>本地有有效行情的交易日：{taskResult?.days_synced ?? lastSync?.result?.days_synced ?? 0} 天</p>
+                {(taskResult?.requested_dates ?? lastSync?.result?.requested_dates) && (
+                  <>
+                    <p>请求日期：{(taskResult?.requested_dates ?? lastSync?.result?.requested_dates)?.join('、')}</p>
+                    <p>目标清单达标日期：{(taskResult?.completed_dates ?? lastSync?.result?.completed_dates)?.join('、') || '无'}</p>
+                    <p>空数据日期：{(taskResult?.empty_dates ?? lastSync?.result?.empty_dates)?.join('、') || '无'}</p>
+                    <p>不支持日期：{(taskResult?.unsupported_dates ?? lastSync?.result?.unsupported_dates)?.join('、') || '无'}</p>
+                    <p>真实市场覆盖率：待验证（当前目标清单不是历史市场分母）</p>
+                  </>
+                )}
                 {(taskResult?.diagnostic ?? lastSync?.result?.diagnostic) && (
                   <p style={{ color: 'var(--color-down)', marginTop: 8 }}>
                     诊断：{taskResult?.diagnostic ?? lastSync?.result?.diagnostic}
                   </p>
+                )}
+                {(taskResult?.date_results ?? lastSync?.result?.date_results) && (
+                  <Table<FullMarketDateResult>
+                    size="small"
+                    rowKey="trade_date"
+                    dataSource={taskResult?.date_results ?? lastSync?.result?.date_results}
+                    pagination={{ pageSize: 10 }}
+                    scroll={{ x: 640 }}
+                    columns={[
+                      { title: '日期', dataIndex: 'trade_date' },
+                      { title: '日期结果', dataIndex: 'status', render: (value: string) => ({ success: '清单覆盖达标', partial: '部分完成', empty: '空数据', failed: '失败', unsupported: '不支持', requires_repair: '已有行待修复' }[value] || value) },
+                      { title: '新增', dataIndex: 'inserted' },
+                      { title: '目标数', dataIndex: 'target_count' },
+                      { title: '核心字段有效', dataIndex: 'valid_core_count' },
+                      { title: '当前清单覆盖', dataIndex: 'target_coverage_ratio', render: (value: number | null) => value == null ? '—' : `${(value * 100).toFixed(1)}%` },
+                    ]}
+                  />
                 )}
               </>
             )}

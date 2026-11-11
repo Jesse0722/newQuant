@@ -7,6 +7,7 @@ from app.models.monitor import MonitorRule, Alert
 from app.models.trade import TradePlan, TradePlanStock, TradeDetail
 from app.models.sync_log import SyncLog
 from app.models.intraday_scan import IntradayScanConfig
+from app.models.daily_quote_repair import DailyQuoteRepairAudit, DailyQuoteRepairBatch
 from app.models.message import (
     IndustryDailyReport,
     IndustryReportCandidate,
@@ -30,6 +31,7 @@ __all__ = [
     "TradePlan", "TradePlanStock", "TradeDetail",
     "SyncLog",
     "IntradayScanConfig",
+    "DailyQuoteRepairBatch", "DailyQuoteRepairAudit",
     "MessageTopic", "MessageKeywordSeed", "MessageSourceItem", "MessageOpportunity",
     "MessageEvidence", "MessageOpportunityEvidence", "MessageAgentRun",
     "MessageEntity", "MessageRelation", "MessageRelationEvidence",

@@ -1,0 +1,192 @@
+{
+  "applied": false,
+  "blocking_codes": [
+    "000004.SZ"
+  ],
+  "decision": "paused_not_applied",
+  "frozen_codes": [
+    "000001.SZ",
+    "000002.SZ",
+    "000004.SZ",
+    "000006.SZ",
+    "000007.SZ",
+    "000008.SZ",
+    "000009.SZ",
+    "000010.SZ",
+    "000011.SZ",
+    "000012.SZ"
+  ],
+  "identity_verifications": [
+    {
+      "code": "000001.SZ",
+      "identity_match": true,
+      "market": "SZ",
+      "rows": 14,
+      "snapshot_data_exact_match": true,
+      "source_file_sha256": "8874a8afee476aaaefe5e752d5f487a664d8a58728a2c8ce0fb7d11d7854e07b"
+    },
+    {
+      "code": "000002.SZ",
+      "identity_match": true,
+      "market": "SZ",
+      "rows": 14,
+      "snapshot_data_exact_match": true,
+      "source_file_sha256": "8874a8afee476aaaefe5e752d5f487a664d8a58728a2c8ce0fb7d11d7854e07b"
+    },
+    {
+      "code": "000004.SZ",
+      "error_type": "ValueError",
+      "market": "SZ",
+      "status": "failed"
+    },
+    {
+      "code": "000006.SZ",
+      "identity_match": true,
+      "market": "SZ",
+      "rows": 14,
+      "snapshot_data_exact_match": true,
+      "source_file_sha256": "8874a8afee476aaaefe5e752d5f487a664d8a58728a2c8ce0fb7d11d7854e07b"
+    },
+    {
+      "code": "000007.SZ",
+      "identity_match": true,
+      "market": "SZ",
+      "rows": 14,
+      "snapshot_data_exact_match": true,
+      "source_file_sha256": "8874a8afee476aaaefe5e752d5f487a664d8a58728a2c8ce0fb7d11d7854e07b"
+    },
+    {
+      "code": "000008.SZ",
+      "identity_match": true,
+      "market": "SZ",
+      "rows": 14,
+      "snapshot_data_exact_match": true,
+      "source_file_sha256": "8874a8afee476aaaefe5e752d5f487a664d8a58728a2c8ce0fb7d11d7854e07b"
+    },
+    {
+      "code": "000009.SZ",
+      "identity_match": true,
+      "market": "SZ",
+      "rows": 14,
+      "snapshot_data_exact_match": true,
+      "source_file_sha256": "8874a8afee476aaaefe5e752d5f487a664d8a58728a2c8ce0fb7d11d7854e07b"
+    },
+    {
+      "code": "000010.SZ",
+      "identity_match": true,
+      "market": "SZ",
+      "rows": 14,
+      "snapshot_data_exact_match": true,
+      "source_file_sha256": "8874a8afee476aaaefe5e752d5f487a664d8a58728a2c8ce0fb7d11d7854e07b"
+    },
+    {
+      "code": "000011.SZ",
+      "identity_match": true,
+      "market": "SZ",
+      "rows": 14,
+      "snapshot_data_exact_match": true,
+      "source_file_sha256": "8874a8afee476aaaefe5e752d5f487a664d8a58728a2c8ce0fb7d11d7854e07b"
+    },
+    {
+      "code": "000012.SZ",
+      "identity_match": true,
+      "market": "SZ",
+      "rows": 14,
+      "snapshot_data_exact_match": true,
+      "source_file_sha256": "8874a8afee476aaaefe5e752d5f487a664d8a58728a2c8ce0fb7d11d7854e07b"
+    }
+  ],
+  "market": "SZ",
+  "master_conflict": {
+    "code": "000004.SZ",
+    "interpretation": "inconsistent current master; not proof of historical trading status",
+    "list_date": null,
+    "list_status": "L",
+    "name": "国华退"
+  },
+  "no_nine_code_subplan": true,
+  "no_reselection": true,
+  "plan_generated": false,
+  "reason": "fixed_10_code_grid_incomplete",
+  "requested_cells": 140,
+  "requested_dates": [
+    "20261019",
+    "20261020",
+    "20261021",
+    "20261022",
+    "20261023",
+    "20261026",
+    "20261027",
+    "20261028",
+    "20261029",
+    "20261030",
+    "20261102",
+    "20261103",
+    "20261104",
+    "20261105"
+  ],
+  "requests": [
+    {
+      "rows": 14,
+      "status": "success",
+      "ts_code": "000001.SZ",
+      "valid_rows": 14
+    },
+    {
+      "rows": 14,
+      "status": "success",
+      "ts_code": "000002.SZ",
+      "valid_rows": 14
+    },
+    {
+      "status": "empty",
+      "ts_code": "000004.SZ"
+    },
+    {
+      "rows": 14,
+      "status": "success",
+      "ts_code": "000006.SZ",
+      "valid_rows": 14
+    },
+    {
+      "rows": 14,
+      "status": "success",
+      "ts_code": "000007.SZ",
+      "valid_rows": 14
+    },
+    {
+      "rows": 14,
+      "status": "success",
+      "ts_code": "000008.SZ",
+      "valid_rows": 14
+    },
+    {
+      "rows": 14,
+      "status": "success",
+      "ts_code": "000009.SZ",
+      "valid_rows": 14
+    },
+    {
+      "rows": 14,
+      "status": "success",
+      "ts_code": "000010.SZ",
+      "valid_rows": 14
+    },
+    {
+      "rows": 14,
+      "status": "success",
+      "ts_code": "000011.SZ",
+      "valid_rows": 14
+    },
+    {
+      "rows": 14,
+      "status": "success",
+      "ts_code": "000012.SZ",
+      "valid_rows": 14
+    }
+  ],
+  "scope_file_sha256": "2a035016a127517728ea9a461f0f2998ec78bb72bb6b62c7ff2bd142149a4756",
+  "source_file_sha256": "8874a8afee476aaaefe5e752d5f487a664d8a58728a2c8ce0fb7d11d7854e07b",
+  "source_outcome": "partial",
+  "valid_rows": 126
+}

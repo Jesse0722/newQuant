@@ -21,10 +21,19 @@ def sync_stock_route(ts_code: str, days: int = 250):
 
 
 @router.post("/full-market")
-def sync_full_market_route(days: int = Query(60, ge=1, le=250, description="同步最近 N 个交易日")):
+def sync_full_market_route(days: int = Query(60, ge=1, le=250, description="同步最近 N 个交易日"),
+                           end_date: str | None = Query(None, pattern=r"^\d{8}$")):
     """全市场 K 线增量同步"""
-    task_id = submit_task("sync_full_market", sync_full_market, days)
+    task_id = submit_task("sync_full_market", sync_full_market, days, end_date)
     return {"task_id": task_id}
+
+
+@router.get("/full-market/capabilities")
+def full_market_capabilities():
+    from app.services.market_data_capabilities import capability_report
+    from app.services.tushare_adapter import tushare_adapter
+    return {"providers": capability_report(tushare_adapter), "write_policy": "insert_missing_only",
+            "universe_basis": "local_current_master_proxy", "market_coverage_ratio": None}
 
 
 @router.get("/status/{task_id}")

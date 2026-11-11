@@ -27,6 +27,16 @@
 | -- | `plans/2026-05-28-industry-graphrag-report-tasks.md` | 产业链 GraphRAG 舆情日报任务拆解：多 agent 分工、验收标准、测试清单 | MVP 已实现 |
 | -- | `development-postgresql.md` | PostgreSQL 本地开发运行手册：Docker/Colima、Homebrew fallback、迁移、验证、回滚 | 当前推荐 |
 | -- | `plans/2026-05-22-task-notification-center-design.md` | 顶部任务消息中心设计：异步任务完成通知、任务收件箱、分期范围；策略回溯/回测放第二期 | 进行中 |
+| -- | `plans/2026-07-15-market-regime-reversal-technical-design.md` | 市场状态识别与反转证据评分：数据质量闸门、市场宽度、全球因子、资金压力、状态机及主升浪集成边界 | 设计评审稿 |
+| -- | `market-data-quality-audit.md` | T02 全市场日线只读校验命令、日历与点时分母输入、质量快照及退出码 | 工具已实现 |
+| -- | `full-market-history-sync.md` | T06 数据源能力、历史按日/逐股回补、缺口请求、日期覆盖与失败结果 | 代码已实现，真实回补待验收 |
+| -- | `daily-quote-repair.md` | T07/T08 单源快照、只读差异、备份、逐行审计、批次回滚及恢复验证 | 受控修复与沪市 pilot 通过，全市场质量未达标 |
+| -- | `reports/2026-11-04-quote-repair-implementation.md` | T07/T08 验证结果、真实只读样例和操作边界 | 实施记录 |
+| -- | `reports/2026-11-05-quote-repair-batch01-execution.md` | 主库首批 3 条更新/4 条新增、副本回滚、备份链及 T02 前后对照 | 已执行，后续批量修复待推进 |
+| -- | `reports/2026-11-05-quote-repair-batch02-execution.md` | 第二批 5 条受保护更新、全库逐行对照及 T02 复核 | 已执行，累计两批审计通过 |
+| -- | `reports/2026-11-05-gap14-backfill-plan.md` | 14 个整日缺口、冻结代理范围、单源分块与验收闸门 | 历史方案，已进入分市场小样本验证 |
+| -- | `reports/2026-11-08-gap14-pilot-execution.md` | 冻结沪深各 10/北交所 5 只，真实来源验证、沪市 140 条新增及深京暂停原因 | 沪市样本已执行，评分仍不放行 |
+| -- | `reports/2026-11-04-t02-findings.md` | 当前本地主库、120 日覆盖诊断、最近 20 日异常及验证结果 | 已核查 |
 | -- | `plans/2026-03-01-涨停回调买入策略.md` | 涨停回调买入策略实施方案（已实施） | 已归档 |
 | -- | `plans/2026-04-14-五日均线不破策略.md` | 五日均线不破（`ma5_hold_pullback`）量化口径与回测说明 | 已归档 |
 | -- | `PLANNING_WITH_SUPERPOWERS.md` | Superpowers 问答式规划流程说明 | 参考 |

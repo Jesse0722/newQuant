@@ -1,0 +1,139 @@
+{
+  "calendar": {
+    "file": "/Users/lijiajun/ai-coding/newQuant/backend/data_reference/sse_calendar_2026.csv",
+    "sha256": "b3b89746b6f4d56fd4af660a53fcbfc8381f42263da7dab1fbb9e7fcdc267a51"
+  },
+  "codes": [
+    "603014.SH"
+  ],
+  "created_at": "2026-11-04T15:29:24.118876+00:00",
+  "database_identity": {
+    "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+    "dialect": "sqlite"
+  },
+  "dates": [
+    "20261008",
+    "20261009"
+  ],
+  "id": "979c4b28-787e-43b2-930d-bd36efcb984e",
+  "items": [
+    {
+      "changed_fields": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate",
+        "float_share"
+      ],
+      "new_hash": "d7bdac760bc740f439fd79a8e3b9cdb7e448cba475fa1b47ef5412bbcfde3a11",
+      "new_values": {
+        "amount": 38083.76375,
+        "change": 0.4800000000000004,
+        "close": 30.45,
+        "float_share": null,
+        "high": 30.5,
+        "low": 29.85,
+        "open": 30.0,
+        "pct_chg": 1.6016,
+        "pre_close": 29.97,
+        "trade_date": "20261009",
+        "ts_code": "603014.SH",
+        "turnover_rate": 1.2437,
+        "vol": 12622.05
+      },
+      "old_hash": null,
+      "old_values": null,
+      "operation": "insert",
+      "source_json": {
+        "field_source": {
+          "amount": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "change": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "close": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "float_share": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "high": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "low": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "open": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "pct_chg": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "pre_close": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "turnover_rate": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+          "vol": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4"
+        },
+        "normalization_version": "daily-quote-repair-v1",
+        "raw_hash": "62319946bbbb8e23b32799f1d1d910ed3eaacb2d0adb1e8695d9b2591c51b8d4",
+        "raw_values": {
+          "amount": 38083763.75,
+          "change": 0.4800000000000004,
+          "close": 30.45,
+          "float_share": null,
+          "high": 30.5,
+          "low": 29.85,
+          "open": 30.0,
+          "pct_chg": 1.6016,
+          "pre_close": 29.97,
+          "trade_date": "20261009",
+          "ts_code": "603014.SH",
+          "turnover_rate": 1.2437,
+          "vol": 1262205.0
+        },
+        "snapshot_hash": "d15a5fc693a28409dbf1c82be122ece0893e93406a6de88bbafee85bfc20ad59",
+        "snapshot_id": "820449f4-36c3-4e33-ae6c-8b881aba98d1",
+        "source": {
+          "adjustment": "none",
+          "amount_unit": "cny",
+          "captured_at": "2026-11-04T15:28:47.173674+00:00",
+          "data_stage": "final",
+          "name": "baostock",
+          "volume_unit": "share"
+        }
+      },
+      "trade_date": "20261009",
+      "ts_code": "603014.SH"
+    }
+  ],
+  "policy": {
+    "allow_clear_optional": false,
+    "selection": "single_authoritative_row"
+  },
+  "skipped": [
+    {
+      "fields": [
+        "float_share"
+      ],
+      "reason": "optional_field_loss",
+      "trade_date": "20261008",
+      "ts_code": "603014.SH"
+    }
+  ],
+  "snapshot_hash": "d15a5fc693a28409dbf1c82be122ece0893e93406a6de88bbafee85bfc20ad59",
+  "snapshot_id": "820449f4-36c3-4e33-ae6c-8b881aba98d1",
+  "source": {
+    "adjustment": "none",
+    "amount_unit": "cny",
+    "captured_at": "2026-11-04T15:28:47.173674+00:00",
+    "data_stage": "final",
+    "name": "baostock",
+    "volume_unit": "share"
+  },
+  "source_requests": [
+    {
+      "rows": 2,
+      "status": "success",
+      "ts_code": "603014.SH",
+      "valid_rows": 2
+    }
+  ],
+  "summary": {
+    "inserts": 1,
+    "requested_cells": 2,
+    "skipped": 1,
+    "unchanged": 0,
+    "updates": 0
+  },
+  "version": "daily-quote-repair-v1"
+}

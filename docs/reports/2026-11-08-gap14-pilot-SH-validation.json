@@ -1,0 +1,42 @@
+{
+  "BJ_status": "awaiting_validation",
+  "SZ_status": "paused_partial_000004_empty",
+  "all_requested_cells_valid": true,
+  "codes": [
+    "600000.SH",
+    "600004.SH",
+    "600006.SH",
+    "600007.SH",
+    "600008.SH",
+    "600009.SH",
+    "600010.SH",
+    "600011.SH",
+    "600012.SH",
+    "600015.SH"
+  ],
+  "consecutive_preclose_issues": [],
+  "dates": [
+    "20261019",
+    "20261020",
+    "20261021",
+    "20261022",
+    "20261023",
+    "20261026",
+    "20261027",
+    "20261028",
+    "20261029",
+    "20261030",
+    "20261102",
+    "20261103",
+    "20261104",
+    "20261105"
+  ],
+  "decision": "passed_for_140_insert_only",
+  "market": "SH",
+  "no_updates_or_field_clears": true,
+  "plan_sha256": "258460073e3db207cc748b9f54cce3d8172b5b501de5c1494bdca5bd578dbedc",
+  "scope_sha256": "2a035016a127517728ea9a461f0f2998ec78bb72bb6b62c7ff2bd142149a4756",
+  "source_rows": 140,
+  "unit_average_price_issues": [],
+  "upstream_identity_verified_codes": 10
+}

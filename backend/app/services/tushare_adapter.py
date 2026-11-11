@@ -10,6 +10,8 @@ from typing import Protocol
 
 import akshare as ak
 import pandas as pd
+
+from app.services.provider_daily_normalization import normalize_provider_daily
 import tushare as ts
 
 try:
@@ -314,7 +316,7 @@ class BaoStockAdapter:
         bs_code = self._to_bs_code(ts_code)
         if not bs_code:
             return AkshareAdapter._empty_daily()
-        fields = "date,code,open,high,low,close,preclose,volume,amount,pctChg"
+        fields = "date,code,open,high,low,close,preclose,volume,amount,pctChg,turn"
         df = self._query_df(
             f"bs.query_history_k_data_plus({bs_code})",
             lambda: client.query_history_k_data_plus(
@@ -328,7 +330,7 @@ class BaoStockAdapter:
         )
         if df is None or df.empty:
             return AkshareAdapter._empty_daily()
-        out = pd.DataFrame()
+        out = pd.DataFrame(index=df.index)
         out["ts_code"] = ts_code
         out["trade_date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y%m%d")
         out["open"] = pd.to_numeric(df.get("open"), errors="coerce")
@@ -340,6 +342,7 @@ class BaoStockAdapter:
         out["pct_chg"] = pd.to_numeric(df.get("pctChg"), errors="coerce")
         out["vol"] = pd.to_numeric(df.get("volume"), errors="coerce")
         out["amount"] = pd.to_numeric(df.get("amount"), errors="coerce")
+        out["turnover_rate"] = pd.to_numeric(df.get("turn"), errors="coerce")
         return out.dropna(subset=["trade_date"]).sort_values("trade_date", ascending=False).reset_index(drop=True)
 
     def get_daily_basic(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
@@ -362,7 +365,7 @@ class BaoStockAdapter:
         )
         if df is None or df.empty:
             return empty
-        out = pd.DataFrame()
+        out = pd.DataFrame(index=df.index)
         out["ts_code"] = ts_code
         out["trade_date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y%m%d")
         out["turnover_rate"] = pd.to_numeric(df.get("turn"), errors="coerce")
@@ -731,7 +734,7 @@ class AkshareAdapter:
         base["float_share"] = None
         return base[cols].copy()
 
-    def get_daily(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
+    def get_daily(self, ts_code: str, start_date: str | None = None, end_date: str | None = None, *, strict: bool = False) -> pd.DataFrame:
         symbol = (ts_code or "").split(".")[0]
         if not symbol:
             return self._empty_daily()
@@ -758,10 +761,12 @@ class AkshareAdapter:
             df = _call_with_retry(f"stock_zh_a_hist({symbol})", _fetch_hist, retries=2)
         except Exception as e:
             _log_warning_throttled("AkShareDaily", "AkShare get_daily %s: %s", ts_code, str(e)[:120])
+            if strict:
+                raise
             return self._empty_daily()
         if df is None or df.empty:
             return self._empty_daily()
-        out = pd.DataFrame()
+        out = pd.DataFrame(index=df.index)
         out["ts_code"] = ts_code
         out["trade_date"] = pd.to_datetime(df["日期"], errors="coerce").dt.strftime("%Y%m%d")
         out["open"] = pd.to_numeric(df["开盘"], errors="coerce")
@@ -773,6 +778,7 @@ class AkshareAdapter:
         out["pct_chg"] = pd.to_numeric(df.get("涨跌幅"), errors="coerce")
         out["vol"] = pd.to_numeric(df.get("成交量"), errors="coerce")
         out["amount"] = pd.to_numeric(df.get("成交额"), errors="coerce")
+        out["turnover_rate"] = pd.to_numeric(df.get("换手率"), errors="coerce")
         return out.dropna(subset=["trade_date"]).sort_values("trade_date", ascending=False).reset_index(drop=True)
 
     def get_daily_basic(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
@@ -806,7 +812,7 @@ class AkshareAdapter:
             return empty
         if df is None or df.empty:
             return empty
-        out = pd.DataFrame()
+        out = pd.DataFrame(index=df.index)
         out["ts_code"] = ts_code
         out["trade_date"] = pd.to_datetime(df["日期"], errors="coerce").dt.strftime("%Y%m%d")
         out["turnover_rate"] = pd.to_numeric(df.get("换手率"), errors="coerce")
@@ -982,7 +988,23 @@ class CompositeAdapter:
         return self._run("get_stock_basic", ts_code=ts_code)
 
     def get_daily(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
-        return self._run("get_daily", ts_code=ts_code, start_date=start_date, end_date=end_date)
+        last_exc: Exception | None = None
+        for provider in self.providers:
+            try:
+                result = provider.get_daily(
+                    ts_code=ts_code,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                if self._is_empty_result("get_daily", result):
+                    last_exc = None
+                    continue
+                return normalize_provider_daily(result, provider)
+            except Exception as exc:
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
+        return normalize_provider_daily(pd.DataFrame(), self)
 
     def get_daily_basic(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
         return self._run("get_daily_basic", ts_code=ts_code, start_date=start_date, end_date=end_date)
@@ -1051,7 +1073,12 @@ class ProviderRouter:
         return self.provider.get_stock_basic(ts_code=ts_code)
 
     def get_daily(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
-        return self.provider.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        result = self.provider.get_daily(
+            ts_code=ts_code,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return normalize_provider_daily(result, self.provider)
 
     def get_daily_basic(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
         return self.provider.get_daily_basic(ts_code=ts_code, start_date=start_date, end_date=end_date)
