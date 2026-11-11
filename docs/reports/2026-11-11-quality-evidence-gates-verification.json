@@ -1,0 +1,256 @@
+{
+  "artifacts": {
+    "amount-consistency-findings-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/amount-consistency-findings-v1.json",
+      "sha256": "ec804d1fe6dc35e90cc1217abee74557e3c0a75b2529ab3a300299319bd6922f"
+    },
+    "baseline.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/baseline.json",
+      "sha256": "c704fc2e7c4ba0ee3d428642d6222675ddb50df56bd09a3c5864514e27e160f7"
+    },
+    "cli-code-review-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/cli-code-review-v1.json",
+      "sha256": "ec0d2f00d39c07809cc76f279c9242bc1a569f492527cedac37f52d7efdb7924"
+    },
+    "cli-spec-review-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/cli-spec-review-v1.json",
+      "sha256": "78e60c9d1dfbd415df6756468bd2b3ee5b6a9d5d97747cbd120669254691e0d5"
+    },
+    "final-review-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/final-review-v1.json",
+      "sha256": "2f0ea3a6b05bd5804e9e41f67fc0a9f1aa1fdf2c709628c76487352ce01fffbf"
+    },
+    "live-audit-v1/command-result.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/live-audit-v1/command-result.json",
+      "sha256": "51669e43d3610683ffe878d03e3cbc26ec97f281702d0c616126967d79234c25"
+    },
+    "live-audit-v1/market-data-quality.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/live-audit-v1/market-data-quality.json",
+      "sha256": "0f89cedd70430018887605cc649d977196faf2ff90c9739c4d549c9df41e84b4"
+    },
+    "live-audit-v1/market-data-quality.md": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/live-audit-v1/market-data-quality.md",
+      "sha256": "172953261eeb863235c557807a411d6e0cacb5d9f9ae5e497a74c3b16928d902"
+    },
+    "live-audit-v1/refuse-overwrite-command.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/live-audit-v1/refuse-overwrite-command.json",
+      "sha256": "68e7be87ce753be7305e70df79b4c98b5e89103535c61a510fdbc46a7071d5fa"
+    },
+    "live-audit-v1/validation.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/live-audit-v1/validation.json",
+      "sha256": "71830ce3b546a234d0487fc5834d41cc1de1e2649b6c006e2cd702de98c7d865"
+    },
+    "maintenance-restart-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/maintenance-restart-v1.json",
+      "sha256": "e9fce57864ddaa88afb9f68f4be7f404744c6ee18e7f9679ea77d20d74809f93"
+    },
+    "maintenance-stop-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/maintenance-stop-v1.json",
+      "sha256": "95ceae2e95dbd9e65c34f901731505d510cee6b2093d72a175ff76bdaf6ee496"
+    },
+    "post-restart-tests-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/post-restart-tests-v1.json",
+      "sha256": "0e2b2604480e88a39cd924473693fcd126fb9b1d991234878e63e930d29032f4"
+    },
+    "postgresql-quality-smoke-v2.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/postgresql-quality-smoke-v2.json",
+      "sha256": "3a40d8785db48f13a73012809498c1a0a9e3cb7ca6a05b526471085a9b930959"
+    },
+    "service-code-review-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/service-code-review-v1.json",
+      "sha256": "8386dba5bf31dc191c939442bbfef76d96b886187841adc8b471c6d3163cd41f"
+    },
+    "service-spec-review-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/service-spec-review-v1.json",
+      "sha256": "0dc18afd8e09d23f65766643e7106039d7c0e29cf09a28c3e3b2209fb96539eb"
+    },
+    "service-spec-review-v2.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/market-quality/2026-11-11/evidence-gates-v1/service-spec-review-v2.json",
+      "sha256": "480ba78a4acbd249e0bc2f77a1d555b7d19b69fb0cafd4e06de87ab6c8b8b9d5"
+    }
+  },
+  "base_commit": "ea9199b1ed68d2b3e0699cd65c6743c770917f28",
+  "boundaries": {
+    "business_sql_writes": false,
+    "cloud_deployment": false,
+    "external_data_collection": false,
+    "historical_as_of_availability_certified": false,
+    "paid_calls": false,
+    "real_full_market_universe_verified": false,
+    "schema_changes": false,
+    "source_authenticity_automatically_certified": false,
+    "two_file_sigkill_atomicity": false
+  },
+  "branch": "codex/t02-quality-evidence-gates",
+  "code_sha256": {
+    "/Users/lijiajun/ai-coding/newQuant/backend/app/services/market_data_quality_service.py": "587f61d7ab46ad580a15a5a04a9d3b81f92a07c8547aea670093e7b900a549ae",
+    "/Users/lijiajun/ai-coding/newQuant/backend/app/services/market_universe_evidence_service.py": "ddafa9159be62fdfeae41fcb86eb284ea8be7f12fe4840ec3489ca418127156b",
+    "/Users/lijiajun/ai-coding/newQuant/backend/scripts/audit_market_data_quality.py": "59f1eedeaac2396b7e6fba7b584d731467f088235cff1c1fe2e7606decf3f6dd",
+    "/Users/lijiajun/ai-coding/newQuant/backend/tests/test_market_data_quality.py": "f42c34fc8918a3f9379b1679d5072eb48f163bfb645604548849359909b7a519",
+    "/Users/lijiajun/ai-coding/newQuant/backend/tests/test_market_data_quality_cli.py": "1b135ef001d900e5ce2b61699d6f01855144ae3bb02d24fc7df89b019392147b",
+    "/Users/lijiajun/ai-coding/newQuant/backend/tests/test_market_universe_evidence.py": "87e2ecd4e830aebd4df683831b51250ab441b1eda055ec9656dc6abc9d59257f"
+  },
+  "generated_at": "2026-11-11T04:17:13.241670+00:00",
+  "live_audit": {
+    "database_writes": false,
+    "files": {
+      "market-data-quality.json": {
+        "mode": "0o600",
+        "sha256": "0f89cedd70430018887605cc649d977196faf2ff90c9739c4d549c9df41e84b4"
+      },
+      "market-data-quality.md": {
+        "mode": "0o600",
+        "sha256": "172953261eeb863235c557807a411d6e0cacb5d9f9ae5e497a74c3b16928d902"
+      }
+    },
+    "old_batches": [
+      {
+        "approved_file_sha256": "96ed6ee075687b671243f3bc8d2ec11c9c4db826c15c83c87a2f5e7e0819b423",
+        "audit_integrity": true,
+        "audit_rows": 10,
+        "batch_id": "028c6219-7f10-4d69-810a-e4a37fb22f92",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "f142356b47462657a04fb42c0573ee7c3c2ea03d4ecb6759231264f903e765af",
+        "scope_rows": 10,
+        "status": "applied",
+        "verification_scope": "full_input_grid"
+      },
+      {
+        "approved_file_sha256": "ee44c12a72c90b9cd9f04fcd06a03f44893fe527ecf8ccc65d554cb7c12dba2c",
+        "audit_integrity": true,
+        "audit_rows": 2,
+        "batch_id": "31139c6f-b99c-4d3b-b4c3-14110322a6dd",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "04ff84de34dc363035cda561e170aacd92f3a1f29cca6bced77ff0d23a4b6f2c",
+        "scope_rows": 2,
+        "status": "applied",
+        "verification_scope": "full_input_grid"
+      },
+      {
+        "approved_file_sha256": "7675d8c7a0cf9f55e6d8a750c3cc3845eafb826c2584f8b508f58518fab67059",
+        "audit_integrity": true,
+        "audit_rows": 5,
+        "batch_id": "38763387-e27e-46e0-9334-db692505c3a5",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "782c0f0bf265af2a041d21c66e504d1cf97c354031d151d5ef40ae323b1f1241",
+        "scope_rows": 5,
+        "status": "applied",
+        "verification_scope": "written_audit_rows"
+      },
+      {
+        "approved_file_sha256": "c96d2fb2b691b1ae6f9e693bec4e965936272667c3eed3084fc9ab0a4b5fdefe",
+        "audit_integrity": true,
+        "audit_rows": 7,
+        "batch_id": "50134166-d133-43e7-93f7-100b115dfc1c",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "4bfe15a09e78c8ee05fa0bfb070f1801a4d04f2191cdd8aecfb9f9bf6874bb6e",
+        "scope_rows": 7,
+        "status": "applied",
+        "verification_scope": "written_audit_rows"
+      },
+      {
+        "approved_file_sha256": "61d6cd70cbef7a5e131ae28e01ec1095653010431c3a2cfd4827ef4812560a4b",
+        "audit_integrity": true,
+        "audit_rows": 3,
+        "batch_id": "9fd89016-df52-4c81-a92e-e451955c5d00",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "0b7403b89686f9c5f8d9cfe318147127e6276ce1083b9ea50690ea5f23d1a732",
+        "scope_rows": 3,
+        "status": "applied",
+        "verification_scope": "full_input_grid"
+      },
+      {
+        "approved_file_sha256": "258460073e3db207cc748b9f54cce3d8172b5b501de5c1494bdca5bd578dbedc",
+        "audit_integrity": true,
+        "audit_rows": 140,
+        "batch_id": "f627ecb7-6445-4abb-b037-9ab6b06e833d",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "dd9d6b8dd59f59f4bca2c3a50e5f8e3a5fa43af70986c20e2142b401b25d0e38",
+        "scope_rows": 140,
+        "status": "applied",
+        "verification_scope": "written_audit_rows"
+      }
+    ],
+    "prior_audit_unchanged": true,
+    "quote_fingerprint": {
+      "daily_quote_row_count": 1965322,
+      "daily_quote_sha256": "66342e084af5fedc28d01db34ffa36f5c14247083014e24369c5c94dd3f1c1f1"
+    },
+    "quote_fingerprint_matches_prior_repair": true,
+    "quote_inventory": {
+      "first_date": "20231009",
+      "latest_date": "20261110",
+      "total_rows": 1965322
+    },
+    "recent20": {
+      "amount_inconsistent": 1,
+      "amount_missing": 31269,
+      "invalid_core": 2320,
+      "pct_inconsistent": 0,
+      "rows": 31586
+    },
+    "repeat_did_not_modify_reports": true,
+    "repeat_returncode": 1,
+    "status": "passed",
+    "summary": {
+      "amount_metrics_allowed": false,
+      "detail_days": 20,
+      "empty_slots": 0,
+      "requested_days": 120,
+      "scoring_allowed": false,
+      "verified_pass_days": 0
+    },
+    "universe_status": "unavailable"
+  },
+  "notes": [
+    "Source SHA and scope declarations verify byte/reference consistency, not market truth or statistical independence.",
+    "Synthetic full-scope fixtures only exercise structure/gate behavior; they do not validate actual full-market evidence.",
+    "Read-only diagnostics never authorize automatic quote changes."
+  ],
+  "prior_push": {
+    "branch": "codex/t07-market-data-repair",
+    "commit": "ea9199b1ed68d2b3e0699cd65c6743c770917f28",
+    "remote": "origin"
+  },
+  "schema_version": "market-quality-evidence-gates-verification-v1",
+  "verification": {
+    "backend_passed": 516,
+    "cli_new_tests_passed": 27,
+    "health": [
+      {
+        "body_sha256": "a29ee2b15c494311c52521766e44af56a3ad2248e7a8ab465e5206463c13d288",
+        "endpoint": "/api/health",
+        "response": {
+          "status": "ok"
+        },
+        "status": 200
+      },
+      {
+        "body_sha256": "aee3a4ab3d584bad2a02c7070541d37a0edf489caefe45a69fdb307fcda13ed5",
+        "endpoint": "/api/ready",
+        "response": {
+          "database": "ok",
+          "schema": "ok",
+          "status": "ready"
+        },
+        "status": 200
+      },
+      {
+        "body_sha256": "9cf1c06e0978ab18eddbe7f976ab6ad8e41a4c5724a59dc32222fe218053987e",
+        "count": 4,
+        "endpoint": "/api/pools",
+        "status": 200
+      }
+    ],
+    "independent_review_status": "passed",
+    "postgresql_synthetic_scenarios": 4,
+    "real_postgresql_passed": 8,
+    "total_passed": 524
+  }
+}

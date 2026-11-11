@@ -34,6 +34,8 @@
 | -- | `plans/2026-05-22-task-notification-center-design.md` | 顶部任务消息中心设计：异步任务完成通知、任务收件箱、分期范围；策略回溯/回测放第二期 | 进行中 |
 | -- | `plans/2026-07-15-market-regime-reversal-technical-design.md` | 市场状态识别与反转证据评分：数据质量闸门、市场宽度、全球因子、资金压力、状态机及主升浪集成边界 | 设计评审稿 |
 | -- | `market-data-quality-audit.md` | T02 全市场日线只读校验命令、日历与点时分母输入、质量快照及退出码 | 工具已实现 |
+| -- | `plans/2026-11-11-quality-evidence-gates-plan.md` | 严格证券/数值校验、离线证据包及报告工件保护 | T02 后续改造 |
+| -- | `reports/2026-11-11-quality-evidence-gates-verification.md` | T02 新门禁回归、独立审查、真实只读复核及重启记录 | 真实全市场分母仍待补 |
 | -- | `full-market-history-sync.md` | T06 数据源能力、历史按日/逐股回补、缺口请求、日期覆盖与失败结果 | 代码已实现，真实回补待验收 |
 | -- | `daily-quote-repair.md` | T07/T08 单源快照、只读差异、备份、逐行审计、批次回滚及恢复验证 | 受控修复与沪市 pilot 通过，全市场质量未达标 |
 | -- | `reports/2026-11-04-quote-repair-implementation.md` | T07/T08 验证结果、真实只读样例和操作边界 | 实施记录 |
