@@ -155,7 +155,7 @@ def _market_group(ts_code: str) -> str:
     code = str(ts_code or "").upper()
     symbol = code.split(".")[0]
     suffix = code.split(".")[-1] if "." in code else ""
-    if suffix == "SZ" and symbol.startswith(("300", "301")):
+    if suffix == "SZ" and symbol.startswith(("300", "301", "302")):
         return "cyb"
     if suffix == "SH" and symbol.startswith("688"):
         return "kcb"
@@ -170,7 +170,7 @@ def _market_group(ts_code: str) -> str:
 
 def _market_group_filter(group: str):
     if group == "cyb":
-        return or_(DailyQuote.ts_code.like("300%.SZ"), DailyQuote.ts_code.like("301%.SZ"))
+        return or_(DailyQuote.ts_code.like("300%.SZ"), DailyQuote.ts_code.like("301%.SZ"), DailyQuote.ts_code.like("302%.SZ"))
     if group == "kcb":
         return DailyQuote.ts_code.like("688%.SH")
     if group == "sh_main":

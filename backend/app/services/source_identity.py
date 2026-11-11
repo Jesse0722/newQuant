@@ -22,7 +22,7 @@ def identity_code(provider, raw_code, raw_market=None):
         market = str(raw_market)
         if market == "1" and code.startswith(("600", "601", "603", "605", "688", "689")):
             return code + ".SH"
-        if market == "0" and code.startswith(("000", "001", "002", "003", "300", "301")):
+        if market == "0" and code.startswith(("000", "001", "002", "003", "300", "301", "302")):
             return code + ".SZ"
         if market == "0" and code.startswith(("43", "83", "87", "88", "92")):
             return code + ".BJ"

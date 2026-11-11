@@ -25,7 +25,7 @@ from app.services.market_universe_evidence_service import (
 VERSION = "market-data-quality-v1.1.0"
 CORE = ("open", "high", "low", "close", "pre_close", "pct_chg")
 FIELDS = CORE + ("vol", "amount", "turnover_rate")
-CODE = re.compile(r"^(?:(?:600|601|603|605|688|689)\d{3}\.SH|(?:000|001|002|003|300|301)\d{3}\.SZ|(?:43|83|87|88|92)\d{4}\.BJ)$")
+CODE = re.compile(r"^(?:(?:600|601|603|605|688|689)\d{3}\.SH|(?:000|001|002|003|300|301|302)\d{3}\.SZ|(?:43|83|87|88|92)\d{4}\.BJ)$")
 
 
 def parse_date(value: str) -> str:

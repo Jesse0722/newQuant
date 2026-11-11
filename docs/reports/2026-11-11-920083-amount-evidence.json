@@ -1,0 +1,125 @@
+{
+  "arithmetic": {
+    "classification": "strong_support_for_total_volume_amount_vs_auction_price_scope_explanation; conditional arithmetic inference, not direct official daily-total confirmation",
+    "immediate_high_cny": "30.55",
+    "immediate_low_cny": "28.50",
+    "method": "Decimal arithmetic; one lot=100 shares; subtract only independently official-confirmed block price*quantity for a diagnostic remainder, never overwrite original daily row.",
+    "official_block_notional_cny": "4510000.0",
+    "official_block_price_cny": "20.5",
+    "official_block_shares": "220000",
+    "raw_total_cny": "60154361.18",
+    "raw_total_shares": "2112200",
+    "raw_total_vwap_below_low": true,
+    "raw_total_vwap_cny_per_share": "28.4794816684026133888836284442761102",
+    "remainder_vwap_within_price_range": true,
+    "remaining_cny": "55644361.18",
+    "remaining_shares": "1892200",
+    "remaining_vwap_cny_per_share": "29.4072303033505971884578797167318465"
+  },
+  "conclusion": "Strongly supported trading-scope explanation; keep the original quote, no automatic repair or gate exemption.",
+  "limitations": [
+    "Official mapping snapshot absence is not a claim that the issuer never had any earlier NEEQ code; no code conversion or history migration is authorized.",
+    "The official export has price and share volume, not an amount column;4510000CNY is a deterministic multiplication of the two official values.",
+    "The2021 interpretation is historical; the current2026 rule and exact20261030 block event are independently retained.",
+    "The provider raw response matches the current discrepancy, but no direct official same-day total60154361.18CNY/2112200shares or supplier API semantic document was retrieved.",
+    "No third-party news article is used as a factual source; initial media search hits were leads only."
+  ],
+  "not_proven": {
+    "all_exchanges_or_all_rows_same_scope": false,
+    "historical_neeq_code_or_rekey_mapping_for_this_issuer": false,
+    "no_other_off_book_component_exists": false,
+    "official_same_day_total_quote_volume_and_amount": false,
+    "vendor_api_documentation_scope": false
+  },
+  "private_review": {
+    "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/bse-methodology-v1/review.json",
+    "sha256": "03ae0092c68aee9895d3dc1b3693f1e4f08f63a8e7202f8baac29b50e11b4722"
+  },
+  "provider_raw": {
+    "identity_matches": true,
+    "line": "2026-10-30,29.00,29.10,30.55,28.50,21122,60154361.18,7.04,0.00,0.00,5.55",
+    "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/amount-920083-v1/eastmoney-body.bin",
+    "request_metadata_path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/amount-920083-v1/eastmoney-request.json",
+    "request_metadata_sha256": "da7a1038a09b75cb1489f976a9a9b9b96209db22122a53f3ae6379ebcedb9518",
+    "sha256": "3c46157485080164b002366bfc95ab98ccb742827a45291d92f18da87ba104d5",
+    "source": "actual Eastmoney historical unadjusted daily response captured by backend_review; independently re-read, no new provider request",
+    "unit_note": "vol lot and amount CNY according to capture contract; canonical daily_quote uses lot and thousand CNY. Exchange methodology does not itself prove these vendor field semantics."
+  },
+  "recorded_at": "2026-11-11T05:51:41.698043+00:00",
+  "sources": [
+    {
+      "id": "current_rules",
+      "locator": "北证公告〔2026〕17号；发布2026-04-24，实施2026-07-06，网页标示现行有效；3.6.8、3.6.9、4.1.1、4.1.2、5.2.2",
+      "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/bse-methodology-v1/curl-rules.html",
+      "role": "current official rule; big-block volume excluded from immediate market data and added to day total after block session",
+      "sha256": "7b43578d5ab54f0d33d21baa7a8acd80af8c6f3d53fc097dba3c31138afbbb0e",
+      "url": "https://www.bse.cn/jygl_list/200028217.html"
+    },
+    {
+      "id": "current_rules_attachment",
+      "locator": "word/document.xml paragraph 141=3.6.8;142=3.6.9;162=4.1.1;164=4.1.2;211=5.2.2 (one-based w:p index)",
+      "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/bse-methodology-v1/bse-trading-rules-20260424.docx",
+      "sha256": "56145494879dbb8192e9f6e2b5c91cbad102364de83b799c14b263f9a7c50cd2",
+      "url": "https://www.bse.cn/uploads/6/file/public/202604/20260424170528_52kqyhc7p9.docx"
+    },
+    {
+      "id": "official_interpretation",
+      "locator": "PDF page 12, 北交所交易规则解读之大宗交易, fourth bullet; rendered and visually verified",
+      "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/bse-methodology-v1/bse-trading-interpretation-20211119.pdf",
+      "role": "Historical 2021 official interpretation explicitly states both big-block volume and amount enter day totals; not silently promoted to a 2026 provider API contract",
+      "sha256": "faa129e2c007361a854b18fd119a7e0814a891875fdcd843a3a1569fbafc0c9d",
+      "url": "https://www.bse.cn/uploads/6/file/public/202111/20211119182131_imqohh30d0.pdf"
+    },
+    {
+      "id": "official_block_jsonp",
+      "locator": "JSONP first page content[0]; request filter in .meta.json; totalElements=1; event time hqcjsj=150747",
+      "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/bse-methodology-v1/bse-block-920083-20261030-response.json",
+      "sha256": "19d2b8dbe9ef8259a7cf80558ce165270028693d87bbcff3325114d0031f5e08",
+      "url": "https://www.bse.cn/tnqfgkcjxxController/btcjxxList.do"
+    },
+    {
+      "id": "official_block_export",
+      "locator": "Official page Export, exact code920083 and date2026-10-30 range; GB18030 header row1 and single event row2",
+      "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/bse-methodology-v1/bse-block-trades-920083-20261030.csv",
+      "role": "Original download bytes preserved without conversion; price and share quantity are explicit; notional amount is computed, not an exported column",
+      "sha256": "ae6b162d3cc6475e5f4f05c13d0c395f0ae16650529c44a7cdd85170932aa578",
+      "url": "https://www.bse.cn/disclosure/agreement_transfer.html"
+    },
+    {
+      "id": "listing_identity",
+      "locator": "2026-06-11 listing report, first paragraph: company name and 920083",
+      "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/bse-methodology-v1/bse-jinge-official-listing.html",
+      "sha256": "110a79e3fdf7c3604b225a8c6a6171f636f54b712f3f6d8c5b0b9c21f06160fd",
+      "url": "https://www.bse.cn/issue_report_meeting/200028587.html"
+    },
+    {
+      "id": "listing_announcement",
+      "locator": "PDF page1 cover and page52 (printed51), section 三/（二）（三）（四）; page52 rendered and visually verified",
+      "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/bse-methodology-v1/bse-jinge-listing-announcement-20260609.pdf",
+      "sha256": "faa916147c733fe669c2fa2ccf0bbf06a04f825c92da9e0ec4e043fd0ce42b9f",
+      "url": "https://www.bse.cn/disclosure/2026/2026-06-09/1780996811_210293.pdf"
+    },
+    {
+      "id": "official_mapping",
+      "locator": "Entire captured mapping page table/text searched for 920083 and 金戈; absent in this snapshot only",
+      "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/bse-methodology-v1/bse-official-code-mapping.html",
+      "sha256": "2de88a40052ce6c7f149c70d188a4686784dc5f713b350fab6add0e512a90e89",
+      "url": "https://www.bse.cn/service/code_mapping.html"
+    },
+    {
+      "id": "public_trade_disclosure_query",
+      "locator": "result=true; startDate=endDate2026-10-30; data.totalElements=0; request exact zqdm920083 in .meta.json",
+      "path": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/bse-methodology-v1/bse-public-trades-920083-20261030-response.json",
+      "role": "No returned disclosure rows for this specific filter; not proof of no normal trade or no block trade",
+      "sha256": "fff225e0d72ab66b00eff0f8d969cbb5e935a6e1271419141550d6207f93c45b",
+      "url": "https://www.bse.cn/callAuctionController/list.do"
+    }
+  ],
+  "target": {
+    "issuer": "广东金戈新材料股份有限公司",
+    "official_name": "金戈新材",
+    "trade_date": "20261030",
+    "ts_code": "920083.BJ"
+  },
+  "version": "amount-scope-evidence-index-v1"
+}

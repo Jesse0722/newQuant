@@ -1,0 +1,733 @@
+{
+  "acceptance": "Reviewed implementation, real subset derivation and read-only verification passed; not market quality or full-market authorization.",
+  "amount_investigation": {
+    "conclusion": "Strong support for differing auction price and total volume/notional scope; no direct supplier scope contract or official full daily total confirmation.",
+    "derived_remainder_written": false,
+    "generic_bse_exemption_added": false,
+    "original_quote_preserved": true,
+    "report": {
+      "bytes": 3627,
+      "file": "/Users/lijiajun/ai-coding/newQuant/docs/reports/2026-11-11-920083-amount-evidence.md",
+      "sha256": "0ba25120b8aacbb4d0d296cda253e539461c485a0f57a2b7b0c1f60f5e8b7a6e"
+    },
+    "source_index": {
+      "bytes": 8366,
+      "file": "/Users/lijiajun/ai-coding/newQuant/docs/reports/2026-11-11-920083-amount-evidence.json",
+      "sha256": "e60a11322b7886505dbff12af85336ed55553f524bd75341202e11b3ecd9c16d"
+    },
+    "target": "920083.BJ/20261030"
+  },
+  "artifacts": {
+    "backend-restart-v1.json": {
+      "bytes": 577,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/backend-restart-v1.json",
+      "sha256": "c48f12460393eac42133b0af45cbc9ff57c491dccd3f4f89335c2e87d30e61c9"
+    },
+    "baostock-history-v1/provider-docs-retrieval.json": {
+      "bytes": 672,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/baostock-history-v1/provider-docs-retrieval.json",
+      "sha256": "92bb25c6a52c9676fb05d35f644a85944830b8dbfa41bb1ac4c5a85dfb7a204b"
+    },
+    "builder-code-review-v1.json": {
+      "bytes": 9226,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/builder-code-review-v1.json",
+      "sha256": "8daa2a1c9c87ca96f1f32c57efb7ae231a2659d2252261e1ddde8603879616e6"
+    },
+    "builder-spec-review-v1.json": {
+      "bytes": 6454,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/builder-spec-review-v1.json",
+      "sha256": "a77b7df34fe901a1c45fbe45fbba967f2761231b8fda1ccd6631f6558656c5a0"
+    },
+    "official-controls-review-v1.json": {
+      "bytes": 28020,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/official-controls-review-v1.json",
+      "sha256": "2c1db58a973415f15468ee62353285d2fd5c32dfb9e270996eb32d85f36bde11"
+    },
+    "postgres-cleanup-v1.json": {
+      "bytes": 240,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/postgres-cleanup-v1.json",
+      "sha256": "5045c46804e47dd3ce74030724e48bab812f69cac319b1cacd32ca46bd3442bc"
+    },
+    "readonly-audit-review-v1.json": {
+      "bytes": 35500,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/readonly-audit-review-v1.json",
+      "sha256": "9413dd49bb53f90196bfaba42fd552d816789db39757462e28bdfe226c733ee1"
+    },
+    "real-build-command-v1.json": {
+      "bytes": 930,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/real-build-command-v1.json",
+      "sha256": "af06aea39d4ea80ecbb01ed0f5703ec932af45d8c23d24cbd088713e8def001a"
+    },
+    "real-build-repeat-v1.json": {
+      "bytes": 144,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/real-build-repeat-v1.json",
+      "sha256": "6619118edd9261e32bf19ddcbf6fbfc4c19c22abf98499fffb7d57d31705e295"
+    },
+    "real-build-validation-v1.json": {
+      "bytes": 13627,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/real-build-validation-v1.json",
+      "sha256": "527dae716678b7e53121e32810de47ee73217e6bcf2ef9cc30f435271474963f"
+    },
+    "real-product-review-v1.json": {
+      "bytes": 29464,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/real-product-review-v1.json",
+      "sha256": "c41912c2c53d5b4a561453acf8ef8627a66cbe48e646848866eaba41081489ef"
+    },
+    "source-input-review-v1.json": {
+      "bytes": 14341,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/source-input-review-v1.json",
+      "sha256": "acdc9728b707e0a844c7aeeeb6546bd38e7cf0c0a9847291ea733019328604a9"
+    },
+    "sse-main-board-audit-v1/20261030-command.json": {
+      "bytes": 1502,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-audit-v1/20261030-command.json",
+      "sha256": "0cd2563bc8f758252c1dd46cb4f644b4af94580b981d13ce4cbd9b9647c02f6d"
+    },
+    "sse-main-board-audit-v1/20261030.json": {
+      "bytes": 132876,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-audit-v1/20261030.json",
+      "sha256": "1b2ef8052aa49803af27be08cf4335dcad17c2f0f08bc3daf1fb497a1728622e"
+    },
+    "sse-main-board-audit-v1/20261030.md": {
+      "bytes": 2335,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-audit-v1/20261030.md",
+      "sha256": "117966d7d157916ee02b97545e691269756843a21553920514543ee8cd120586"
+    },
+    "sse-main-board-audit-v1/20261110-command.json": {
+      "bytes": 1502,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-audit-v1/20261110-command.json",
+      "sha256": "cb4bbea6c93fb5fa6b5b19e7ec580775218839add390e1f0d3b99c5fa069d49c"
+    },
+    "sse-main-board-audit-v1/20261110.json": {
+      "bytes": 244640,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-audit-v1/20261110.json",
+      "sha256": "7393f12bffa7274312018e1b38db90f4f53ec50d9c49720eefecade1c214de76"
+    },
+    "sse-main-board-audit-v1/20261110.md": {
+      "bytes": 2335,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-audit-v1/20261110.md",
+      "sha256": "0271563ebf41a27d4b9c1e37aa594f2b165d21a3e35d4633a44ad74c204f9db8"
+    },
+    "sse-main-board-build-v1/build-report.json": {
+      "bytes": 3533,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-build-v1/build-report.json",
+      "sha256": "abb8e18d2493650a75c84689cc482665fc043ffeb0e21490717680384a4dc677"
+    },
+    "sse-main-board-build-v1/complete-index.json": {
+      "bytes": 866,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-build-v1/complete-index.json",
+      "sha256": "2d59f302fa2f801b839035b06968bf84e3fe249b0b7ec1b7f30bf888bd6ce4ce"
+    },
+    "sse-main-board-build-v1/row-lineage.jsonl": {
+      "bytes": 3052492,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-build-v1/row-lineage.jsonl",
+      "sha256": "fe27eb6e2d931d74c37893b513bd32da39efe54f12c802276aca4950158a5ef4"
+    },
+    "sse-main-board-build-v1/universe.csv": {
+      "bytes": 148157,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-build-v1/universe.csv",
+      "sha256": "7405405a01d0d9ebcf74fe61354a248480c3b1959f831a0ca48d0e78d4b6710a"
+    },
+    "sse-main-board-evidence-v1/control-derivation.json": {
+      "bytes": 1448,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/control-derivation.json",
+      "sha256": "9068667f108771c6d30b3cf364e772f0d92559e6a9ebb1d02c5df3b3786b73f3"
+    },
+    "sse-main-board-evidence-v1/counts.csv": {
+      "bytes": 353,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/counts.csv",
+      "sha256": "b0e8c6db3d36016b7c112e6dd72db1c0c4f21c4383dbd263aa7b4894e1e61679"
+    },
+    "sse-main-board-evidence-v1/evidence.json": {
+      "bytes": 7686,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/evidence.json",
+      "sha256": "fb9179823b42c9819faf61d008a52e49069e4df9c124245c80a79016d1a90a6b"
+    },
+    "sse-main-board-evidence-v1/universe.csv": {
+      "bytes": 148157,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/universe.csv",
+      "sha256": "7405405a01d0d9ebcf74fe61354a248480c3b1959f831a0ca48d0e78d4b6710a"
+    },
+    "sse-main-board-input-v1/input-package.json": {
+      "bytes": 1547,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-input-v1/input-package.json",
+      "sha256": "d1d61d8c00cfae59b8075005ef2e31c1105e042f2e1dc2040f772017be7320d9"
+    },
+    "sse-main-board-scope-v1.json": {
+      "bytes": 1633,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-scope-v1.json",
+      "sha256": "f57cdfc69a2f9f3b6134f4514aa860672a51243e0577dc113f4718fdc772b5a1"
+    },
+    "universe-official-v1/artifact-index-v2.json": {
+      "bytes": 33984,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/universe-official-v1/artifact-index-v2.json",
+      "sha256": "e66d3035e81f5e11aedc56df8178c65ccdbec6320bce3f5d9ac2c047560c7b0d"
+    },
+    "universe-official-v1/classification-evidence-v1.json": {
+      "bytes": 3852,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/universe-official-v1/classification-evidence-v1.json",
+      "sha256": "b83b3882aa70ebed8e510e57e127966b52635ebbe88333426954f5cbe0c0916c"
+    },
+    "universe-official-v1/main-board-controls-v1.json": {
+      "bytes": 17764,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/universe-official-v1/main-board-controls-v1.json",
+      "sha256": "11e7fabee8d20d79d03d46548a27501673f19324436c4956a69e768470aa41c6"
+    },
+    "universe-official-v2/trade-num-field-review-v2.json": {
+      "bytes": 4791,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/universe-official-v2/trade-num-field-review-v2.json",
+      "sha256": "4a8c8e5bbce8e9dd8ef80303506e3b61f94977f5dcfcf4e9645db18d58af3ee7"
+    },
+    "verification-scripts-v1/index.json": {
+      "bytes": 2126,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/verification-scripts-v1/index.json",
+      "sha256": "afe0f4c0a220dcb6dffba41d4a2a6fa0dfb78b2d105bfe3e6d781b3136a8b077"
+    },
+    "verification-v1/all-results.json": {
+      "bytes": 2222,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/verification-v1/all-results.json",
+      "sha256": "8fd475fc3ad405a50cf27f938973a3929699a8a603f33cd7e07770794189f480"
+    },
+    "verification-v1/backend-default.log": {
+      "bytes": 1449,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/verification-v1/backend-default.log",
+      "sha256": "eab50105ddd5606b794dd5ce617945a5cdae4e1e829542264689acebb908fe36"
+    },
+    "verification-v1/postgres-real.log": {
+      "bytes": 98,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/verification-v1/postgres-real.log",
+      "sha256": "647b3cf4ff05934e78d667e6381cc3cec9ab7662ccad1d28200460eba4e2637c"
+    }
+  },
+  "base_commit": "724a66c297be43f324ecbf75a89726dd6feeeba7",
+  "branch": "codex/real-market-evidence",
+  "code_sha256": {
+    "backend/app/services/historical_universe_service.py": "5501839968e787a6aae9fe56aa6e8efaa9fa05c5e24867dd7c1313a2db7e8e0b",
+    "backend/app/services/main_wave_service.py": "5cd891f10639d97457773b73b8f790a740e868ffa96197748f09baf3b5bdd212",
+    "backend/app/services/market_data_quality_service.py": "ff0b332f9779fb937d1c4c68f1e4e404d461169a23e11a81a24b29df26ed6f93",
+    "backend/app/services/source_identity.py": "bb77f46daf44210768c86d548f97d6028e853291920fb95af02ae40cdc91f7fc",
+    "backend/app/services/tushare_adapter.py": "734ca5b2cbee62cbe39ddd9c07d88666e13ea98c5f7ee595b03c8a73a9aaa99f",
+    "backend/scripts/build_historical_universe.py": "38f5936c4145c4ce30239db6eac89ee4e24eb56310d2eed371b09c1cbb9f73c3",
+    "backend/tests/test_historical_universe.py": "237c92e452059d7f4fb1991732330b78debdc11d381231cb17b7eaf34695a78d"
+  },
+  "database_preservation": {
+    "batch_verifications": [
+      {
+        "approved_file_sha256": "96ed6ee075687b671243f3bc8d2ec11c9c4db826c15c83c87a2f5e7e0819b423",
+        "audit_integrity": true,
+        "audit_rows": 10,
+        "batch_id": "028c6219-7f10-4d69-810a-e4a37fb22f92",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "f142356b47462657a04fb42c0573ee7c3c2ea03d4ecb6759231264f903e765af",
+        "scope_rows": 10,
+        "status": "applied",
+        "verification_scope": "full_input_grid"
+      },
+      {
+        "approved_file_sha256": "ee44c12a72c90b9cd9f04fcd06a03f44893fe527ecf8ccc65d554cb7c12dba2c",
+        "audit_integrity": true,
+        "audit_rows": 2,
+        "batch_id": "31139c6f-b99c-4d3b-b4c3-14110322a6dd",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "04ff84de34dc363035cda561e170aacd92f3a1f29cca6bced77ff0d23a4b6f2c",
+        "scope_rows": 2,
+        "status": "applied",
+        "verification_scope": "full_input_grid"
+      },
+      {
+        "approved_file_sha256": "7675d8c7a0cf9f55e6d8a750c3cc3845eafb826c2584f8b508f58518fab67059",
+        "audit_integrity": true,
+        "audit_rows": 5,
+        "batch_id": "38763387-e27e-46e0-9334-db692505c3a5",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "782c0f0bf265af2a041d21c66e504d1cf97c354031d151d5ef40ae323b1f1241",
+        "scope_rows": 5,
+        "status": "applied",
+        "verification_scope": "written_audit_rows"
+      },
+      {
+        "approved_file_sha256": "c96d2fb2b691b1ae6f9e693bec4e965936272667c3eed3084fc9ab0a4b5fdefe",
+        "audit_integrity": true,
+        "audit_rows": 7,
+        "batch_id": "50134166-d133-43e7-93f7-100b115dfc1c",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "4bfe15a09e78c8ee05fa0bfb070f1801a4d04f2191cdd8aecfb9f9bf6874bb6e",
+        "scope_rows": 7,
+        "status": "applied",
+        "verification_scope": "written_audit_rows"
+      },
+      {
+        "approved_file_sha256": "61d6cd70cbef7a5e131ae28e01ec1095653010431c3a2cfd4827ef4812560a4b",
+        "audit_integrity": true,
+        "audit_rows": 3,
+        "batch_id": "9fd89016-df52-4c81-a92e-e451955c5d00",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "0b7403b89686f9c5f8d9cfe318147127e6276ce1083b9ea50690ea5f23d1a732",
+        "scope_rows": 3,
+        "status": "applied",
+        "verification_scope": "full_input_grid"
+      },
+      {
+        "approved_file_sha256": "258460073e3db207cc748b9f54cce3d8172b5b501de5c1494bdca5bd578dbedc",
+        "audit_integrity": true,
+        "audit_rows": 140,
+        "batch_id": "f627ecb7-6445-4abb-b037-9ab6b06e833d",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "dd9d6b8dd59f59f4bca2c3a50e5f8e3a5fa43af70986c20e2142b401b25d0e38",
+        "scope_rows": 140,
+        "status": "applied",
+        "verification_scope": "written_audit_rows"
+      }
+    ],
+    "fingerprint_encoding": {
+      "column_header": [
+        "ts_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate",
+        "float_share"
+      ],
+      "json": "UTF8 ensure_ascii=False compact separators; column-name JSON line then every row-value JSON line, each newline terminated; signedfloatzero normalized; nonfinite/bytes tagged as legacy helper",
+      "query": "SELECT * FROM daily_quote ORDER BY ts_code,trade_date"
+    },
+    "path": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+    "quote_fingerprint": {
+      "daily_quote_row_count": 1965322,
+      "daily_quote_sha256": "66342e084af5fedc28d01db34ffa36f5c14247083014e24369c5c94dd3f1c1f1"
+    },
+    "read_mode": "SQLite URI mode=ro + PRAGMA query_only=ON + explicitBEGIN, one consistent snapshot for schema/all6batches/target/re-audits/full-table hash",
+    "repair_audit_count": 167,
+    "repair_batch_count": 6,
+    "schema_heads": [
+      "3b2f8da1c422"
+    ],
+    "snapshot_at_utc": "2026-11-11T06:06:19.643301+00:00",
+    "target_920083_20261030_current_row": {
+      "amount": 60154.36118,
+      "change": 0.0,
+      "close": 29.1,
+      "float_share": null,
+      "high": 30.55,
+      "low": 28.5,
+      "open": 29.0,
+      "pct_chg": 0.0,
+      "pre_close": 29.1,
+      "trade_date": "20261030",
+      "ts_code": "920083.BJ",
+      "turnover_rate": 5.55,
+      "vol": 21122.0
+    },
+    "target_row_sha256": "d87d6cf8e2a11351f16dae5ee1879065972ce22322dec220e4e6d5f037d21b6b",
+    "target_unchanged_basis": "Whole-table SHA identical to prior frozen final-review baseline, with all columns included; explicit target OHLC/volume/amount also match raw-source check."
+  },
+  "limits": [
+    "Only two-day ordinary SSE main-board subset; no full SH/SZ/BJ or 120-day closure.",
+    "Dated SDK membership controls inclusion; current basics only cross-check type and lifecycle, never fill historical gaps.",
+    "SDK exact decoded string cells are not full TCP wire capture. Source URLs identify API definitions, not HTTP downloads of SDK tables.",
+    "Official LIST_NUM minus separately verified whole-day suspension sets supplies controls. TRADE_NUM is not used.",
+    "Retrospective evidence does not establish historical information availability. SHA binds bytes, not authority/completeness or independence.",
+    "Missing/invalid/amount-uncheckable rows remain; outside-subset codes are not full-market corrupt records.",
+    "Creation-time same-UID directory replacement micro-race and non-atomic multi-file publication are documented accepted limits.",
+    "Business quote/master/schema unchanged; no repair, rekey, migration, main rollback, cloud release or paid-model call executed. Runtime restart may maintain pre-existing scheduler metadata.",
+    "Frontend/browser not rerun because no frontend changes. PostgreSQL used disposable databases/schema only."
+  ],
+  "migration_notes": {
+    "backup": "Not required for offline derivation/read-only audit; no business data mutation in this round.",
+    "migration": "None.",
+    "rollback": "Code via new revert commit; remove only owned new private output dirs if desired; retain old evidence/repair backups.",
+    "validation": "Pinned artifacts, full quote fingerprint, target row, schema head and all six repair batches independently verified."
+  },
+  "official_classification_sources": [
+    {
+      "bytes": 16277,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/universe-official-v1/szse-302132-A-stock-list-row.body",
+      "id": "szse-302132-A-stock-list-row",
+      "request_record": "szse-302132-A-stock-list-row.request.json",
+      "role": "official_direct_A_list_source",
+      "sha256": "1dda9bf1638096f4af82e4cc8b239ed5bc4c59c22fae6262a1c04b96dbaa2065",
+      "ts_code": "302132.SZ",
+      "url": "https://www.szse.cn/api/report/ShowReport/data?SHOWTYPE=JSON&CATALOGID=1110&TABKEY=tab1&txtDMorJC=302132"
+    },
+    {
+      "bytes": 370156,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/universe-official-v1/szse-302132-code-change-implementation-pdf.body",
+      "id": "szse-302132-code-change-implementation-pdf",
+      "request_record": "szse-302132-code-change-implementation-pdf.request.json",
+      "role": "historical_code_switch_source",
+      "sha256": "dd68049c48df826848f361fd9e7b23dd20b6805144a2e5bc36e54db638611488",
+      "ts_code": "302132.SZ",
+      "url": "https://disc.static.szse.cn/disc/disk03/finalpage/2025-02-15/cedb693a-f5ee-4463-9682-ea33d406b569.PDF"
+    },
+    {
+      "bytes": 1820,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/universe-official-v1/sse-689009-company-overview-raw.body",
+      "id": "sse-689009-company-overview-raw",
+      "request_record": "sse-689009-company-overview-raw.request.json",
+      "role": "official_direct_category_source",
+      "sha256": "94a23dadf6b0a6353a38abbd8cb58a851aea0fdceacfd18c261b7199639093d7",
+      "ts_code": "689009.SH",
+      "url": "https://query.sse.com.cn/commonQuery.do?sqlId=COMMON_SSE_CP_GPJCTPZ_GPLB_GPGK_GSGK_C&COMPANY_CODE=689009&isPagination=false"
+    },
+    {
+      "bytes": 170123,
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/universe-official-v1/sse-689009-q3-20261027-pdf.body",
+      "id": "sse-689009-q3-20261027-pdf",
+      "request_record": "sse-689009-q3-20261027-pdf.request.json",
+      "role": "dated_issuer_source",
+      "sha256": "9c2459bd8f330e08c84b154b00d779f44ebc75ecd79577c27029d7a89c5ceb5c",
+      "ts_code": "689009.SH",
+      "url": "https://static.sse.com.cn/disclosure/listedinfo/announcement/c/new/2026-10-27/689009_20261027_QJ16.pdf"
+    }
+  ],
+  "private_evidence_root": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11",
+  "readonly_audits": [
+    {
+      "amount_consistency": {
+        "amount_checkable_ratio": 0.015600624024960999,
+        "amount_checked_rows": 10,
+        "amount_inconsistent_rows": 0,
+        "amount_uncheckable_rows": 631,
+        "pct_checked_rows": 641,
+        "pct_inconsistent_rows": 0,
+        "vwap_out_of_range_rows": 0,
+        "zero_pair_mismatch_rows": 0
+      },
+      "amount_metrics_allowed": false,
+      "counts_match": true,
+      "evidence_bound": true,
+      "expected_trading_count": 1698,
+      "field_valid_counts": {
+        "amount": 10,
+        "close": 641,
+        "high": 641,
+        "low": 641,
+        "open": 641,
+        "pct_chg": 641,
+        "pre_close": 641,
+        "turnover_rate": 641,
+        "vol": 641
+      },
+      "full_market_qualified": false,
+      "invalid_core_count": 0,
+      "missing_count": 1057,
+      "outside_subset_codes_count": 940,
+      "outside_subset_semantics": "Observed other-board/other-market codes excluded by this explicit main-A subset; not evidence of erroneous full-market rows. Generic unexpected/anomaly counters include this scope mismatch.",
+      "raw_rows_all_markets": 1581,
+      "scoped_rows": 641,
+      "scoring_allowed": false,
+      "trade_date": "20261030",
+      "valid_core_codes": 641,
+      "valid_core_over_provided_expected": 0.37750294464075385
+    },
+    {
+      "amount_consistency": {
+        "amount_checkable_ratio": 0.0,
+        "amount_checked_rows": 0,
+        "amount_inconsistent_rows": 0,
+        "amount_uncheckable_rows": 632,
+        "pct_checked_rows": 24,
+        "pct_inconsistent_rows": 0,
+        "vwap_out_of_range_rows": 0,
+        "zero_pair_mismatch_rows": 0
+      },
+      "amount_metrics_allowed": false,
+      "counts_match": true,
+      "evidence_bound": true,
+      "expected_trading_count": 1700,
+      "field_valid_counts": {
+        "amount": 0,
+        "close": 632,
+        "high": 632,
+        "low": 632,
+        "open": 632,
+        "pct_chg": 24,
+        "pre_close": 24,
+        "turnover_rate": 632,
+        "vol": 632
+      },
+      "full_market_qualified": false,
+      "invalid_core_count": 608,
+      "missing_count": 1068,
+      "outside_subset_codes_count": 960,
+      "outside_subset_semantics": "Observed other-board/other-market codes excluded by this explicit main-A subset; not evidence of erroneous full-market rows. Generic unexpected/anomaly counters include this scope mismatch.",
+      "raw_rows_all_markets": 1592,
+      "scoped_rows": 632,
+      "scoring_allowed": false,
+      "trade_date": "20261110",
+      "valid_core_codes": 24,
+      "valid_core_over_provided_expected": 0.01411764705882353
+    }
+  ],
+  "recorded_at_utc": "2026-11-11T06:07:30.886656+00:00",
+  "schema_version": "newquant-real-market-evidence-execution-v1",
+  "scope": {
+    "amount_metrics_allowed": false,
+    "canonical_rows": 3400,
+    "control_totals_verified": false,
+    "counts_match": true,
+    "dates": [
+      "20261030",
+      "20261110"
+    ],
+    "dates_summary": [
+      {
+        "listed": 1700,
+        "suspended_codes": [
+          "601326.SH",
+          "605258.SH"
+        ],
+        "trade_date": "20261030",
+        "trading": 1698
+      },
+      {
+        "listed": 1700,
+        "suspended_codes": [],
+        "trade_date": "20261110",
+        "trading": 1700
+      }
+    ],
+    "evidence_bound": true,
+    "full_market_qualified": false,
+    "lineage_membership_and_basic_refs": 6800,
+    "markets": [
+      "SH"
+    ],
+    "scope": "security_subset",
+    "scoring_allowed": false,
+    "security_type": "ordinary_A_share",
+    "selection": "sse_main_board_a",
+    "source_basic_rows": 9036,
+    "source_count": 13,
+    "source_raw_rows": [
+      7445,
+      7451
+    ],
+    "temporal_basis": "retrospective"
+  },
+  "universe_manifest_sources": [
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/provider-membership-20261030.json",
+      "id": "provider-membership-20261030",
+      "locator": "Actual BaoStock TCP SDK query_all_stock(day=2026-10-30); upstream response_day=2026-10-30; exact decoded string cells. URL is official API definition, not an HTTP download of this SDK response.",
+      "observed_at": "2026-11-11T05:28:47.121042+00:00",
+      "path": "sources/provider-membership-20261030.json",
+      "sha256": "1555bf2c1dba2bec121e7c315338e8725f83ebd217603a67b15921f74d673bfd",
+      "url": "https://www.baostock.com/helpdocs/api/markdown/StockBasicInfoAPI.md"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/provider-membership-20261110.json",
+      "id": "provider-membership-20261110",
+      "locator": "Actual BaoStock TCP SDK query_all_stock(day=2026-11-10); upstream response_day=2026-11-10; exact decoded string cells. URL is official API definition, not an HTTP download of this SDK response.",
+      "observed_at": "2026-11-11T05:28:58.976987+00:00",
+      "path": "sources/provider-membership-20261110.json",
+      "sha256": "876e2da6503157bbd06362319a73f3732c82dd87754906b79719997770efed93",
+      "url": "https://www.baostock.com/helpdocs/api/markdown/StockBasicInfoAPI.md"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/provider-basic-current.json",
+      "id": "provider-basic-current",
+      "locator": "Actual BaoStock TCP SDK query_stock_basic empty filters; current type/IPO/outDate supplement only. URL is official API definition; current status is not historical membership.",
+      "observed_at": "2026-11-11T05:29:27.664532+00:00",
+      "path": "sources/provider-basic-current.json",
+      "sha256": "bf0a63986ab60f59c25892f92e0455486cae96af4053578231d48a3ae1eda8de",
+      "url": "https://www.baostock.com/helpdocs/api/markdown/stockBasic.md"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/StockBasicInfoAPI.md",
+      "id": "baostock-historical-definition",
+      "locator": "POST public documentation endpoint; query_all_stock dated upstream records/tradeStatus definitions",
+      "observed_at": "2026-11-11T05:27:48.751782+00:00",
+      "path": "sources/StockBasicInfoAPI.md",
+      "sha256": "036b450c6dfe080b62ac0d88f3d8dc926c0de2e3a9a5b1859b7d2893042ba894",
+      "url": "https://www.baostock.com/helpdocs/api/markdown/StockBasicInfoAPI.md"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/stockBasic.md",
+      "id": "baostock-basic-definition",
+      "locator": "POST public documentation endpoint; type/IPO/outDate/status definitions, status is current not historical membership",
+      "observed_at": "2026-11-11T05:27:49.031421+00:00",
+      "path": "sources/stockBasic.md",
+      "sha256": "11bda56d25bc19af78fe13eb2943e7be3a10dd4bbfcc63a14c47685391913b9e",
+      "url": "https://www.baostock.com/helpdocs/api/markdown/stockBasic.md"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/sse-daily-20261030.body",
+      "id": "sse-daily-20261030",
+      "locator": "result[PRODUCT_CODE='01' AND TRADE_DATE='20261030'].LIST_NUM",
+      "observed_at": "2026-11-11T05:26:38.275209+00:00",
+      "path": "sources/sse-daily-20261030.body",
+      "sha256": "5f12230f51de1b85ff2e7dfe622b9456bb88e29c17a9a7b96c0f22e289b5a15e",
+      "url": "https://query.sse.com.cn/commonQuery.do?sqlId=COMMON_SSE_SJ_GPSJ_CJGK_MRGK_C&SEARCH_DATE=2026-10-30&isPagination=false"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/sse-all-product-suspensions-20261030.body",
+      "id": "sse-all-product-suspensions-20261030",
+      "locator": "Complete all-product date overlap response; main-board A selection and whole-day boundary reviewed independently.",
+      "observed_at": "2026-11-11T05:41:11.441679+00:00",
+      "path": "sources/sse-all-product-suspensions-20261030.body",
+      "sha256": "9e1ca89ba72aef3bdd2a5f0c9f9e7799d95eba8574fd220693a4715b35f979fa",
+      "url": "https://query.sse.com.cn/commonSoaQuery.do?sqlId=GW_PL_JYTS_TFPXX&isPagination=true&pageHelp.pageSize=200&pageHelp.pageNo=1&productCode=&keyWords=&startStopDate=20261030&endStopDate=20261030"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/sse-daily-20261110.body",
+      "id": "sse-daily-20261110",
+      "locator": "result[PRODUCT_CODE='01' AND TRADE_DATE='20261110'].LIST_NUM",
+      "observed_at": "2026-11-11T05:27:06.692047+00:00",
+      "path": "sources/sse-daily-20261110.body",
+      "sha256": "e52db6cf37648008b66253ed45f8d74116bd8a0e9ffbe01a3350cd92a131b04d",
+      "url": "https://query.sse.com.cn/commonQuery.do?sqlId=COMMON_SSE_SJ_GPSJ_CJGK_MRGK_C&PRODUCT_CODE=01%2C02%2C03%2C11%2C17&type=inParams&SEARCH_DATE=2026-11-10&isPagination=false"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/sse-all-product-suspensions-20261110.body",
+      "id": "sse-all-product-suspensions-20261110",
+      "locator": "Complete all-product date overlap response; main-board A selection and whole-day boundary reviewed independently.",
+      "observed_at": "2026-11-11T05:41:11.681234+00:00",
+      "path": "sources/sse-all-product-suspensions-20261110.body",
+      "sha256": "c175022a7844d4c4f6b12ae52a8a510bf4209f813a736135443ed65e27127d81",
+      "url": "https://query.sse.com.cn/commonSoaQuery.do?sqlId=GW_PL_JYTS_TFPXX&isPagination=true&pageHelp.pageSize=200&pageHelp.pageNo=1&productCode=&keyWords=&startStopDate=20261110&endStopDate=20261110"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/sse-605258-resume-cookie-pdf.body",
+      "id": "sse-605258-resume-cookie-pdf",
+      "locator": "PDF p1 table: stop-ending2026/10/30, resume2026/11/2; PDF p1 narrative expressly lists suspension on10/26,27,28,29,30; PDF p2: resume2026/11/2 Monday market open",
+      "observed_at": "2026-11-11T05:31:22.372884+00:00",
+      "path": "sources/sse-605258-resume-cookie-pdf.body",
+      "sha256": "859c8836dcc3e309aacbd65ae156c451b5ca413ea7b6975e9c210f742d9e01ae",
+      "url": "https://static.sse.com.cn/disclosure/listedinfo/announcement/c/new/2026-10-31/605258_20261031_D5A8.pdf"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/sse-601326-resume-cookie-pdf.body",
+      "id": "sse-601326-resume-cookie-pdf",
+      "locator": "PDF p1 table: stop-ending2026/11/3, resume2026/11/4; PDF p2: resume2026/11/4 Wednesday market open",
+      "observed_at": "2026-11-11T05:31:22.724214+00:00",
+      "path": "sources/sse-601326-resume-cookie-pdf.body",
+      "sha256": "38289f0172537b7c8b2171097128344678b420b86f838079809478cfed01296b",
+      "url": "https://static.sse.com.cn/disclosure/listedinfo/announcement/c/new/2026-11-04/601326_20261104_EOGZ.pdf"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/sse-trade-tip-js.body",
+      "id": "sse-trade-tip-js",
+      "locator": "Official date/filters/pagination and suspension display semantics; boundary counts independently reviewed, TR alone not a stock certification.",
+      "observed_at": "2026-11-11T05:26:38.594651+00:00",
+      "path": "sources/sse-trade-tip-js.body",
+      "sha256": "32fc98ea41e599f457609247ba68defb82e6d855aa2551da6923dbf7e44153a7",
+      "url": "https://www.sse.com.cn/xhtml/home/2021public/querySearch/search_tradeTip_2021.js"
+    },
+    {
+      "file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/sse-main-board-evidence-v1/sources/sse-stock-search-js.body",
+      "id": "sse-stock-search-js",
+      "locator": "Official overviewDay maps PRODUCT_CODE01 to main-board A挂牌数 LIST_NUM; TRADE_NUM not used.",
+      "observed_at": "2026-11-11T05:26:24.091643+00:00",
+      "path": "sources/sse-stock-search-js.body",
+      "sha256": "3673d3f8b1cd3d98227af6adbbd0add4b37fb652bdeaeb362325a46d803c5eb8",
+      "url": "https://www.sse.com.cn/xhtml/home/2021public/querySearch/search_stockData_2021.js"
+    }
+  ],
+  "verification": {
+    "after_actual_restart": true,
+    "default_passed": 590,
+    "default_skipped": 8,
+    "default_warning_count": 1,
+    "distinct_passed": 598,
+    "frontend_changed": false,
+    "frontend_rerun": false,
+    "new_specialized_included_in_default": 74,
+    "own_scratch_postgres_stopped": true,
+    "real_postgres_passed": 8,
+    "restart": {
+      "checks": [
+        {
+          "body": {
+            "status": "ok"
+          },
+          "route": "/api/health",
+          "status": 200
+        },
+        {
+          "body": {
+            "database": "ok",
+            "schema": "ok",
+            "status": "ready"
+          },
+          "route": "/api/ready",
+          "status": 200
+        },
+        {
+          "body": {
+            "count": 4,
+            "type": "list"
+          },
+          "route": "/api/pools",
+          "status": 200
+        }
+      ],
+      "pid": 34661,
+      "previous_pid": 31665,
+      "startup_flags": {
+        "AUTO_INIT_DB": false,
+        "RUN_STARTUP_MIGRATIONS": false
+      },
+      "status": "passed"
+    },
+    "results": [
+      {
+        "argv": [
+          "/Users/lijiajun/ai-coding/newQuant/backend/venv/bin/python",
+          "-m",
+          "pytest",
+          "-q"
+        ],
+        "log_file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/verification-v1/backend-default.log",
+        "log_sha256": "eab50105ddd5606b794dd5ce617945a5cdae4e1e829542264689acebb908fe36",
+        "name": "backend-default",
+        "returncode": 0,
+        "seconds": 28.699,
+        "tail": [
+          "......................                                                   [100%]",
+          "=============================== warnings summary ===============================",
+          "tests/test_rt_k_merge_and_session.py::TestMergeRtK::test_merge_appends_converts_vol",
+          "  /Users/lijiajun/ai-coding/newQuant/backend/app/services/buy_signal_service.py:676: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.",
+          "    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)",
+          "",
+          "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+          "590 passed, 8 skipped, 1 warning in 27.76s"
+        ]
+      },
+      {
+        "argv": [
+          "/Users/lijiajun/ai-coding/newQuant/backend/venv/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "--run-integration",
+          "tests/test_quote_repair_postgres.py",
+          "tests/test_postgres_reliability.py",
+          "tests/test_runtime_postgres.py"
+        ],
+        "log_file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/verification-v1/postgres-real.log",
+        "log_sha256": "647b3cf4ff05934e78d667e6381cc3cec9ab7662ccad1d28200460eba4e2637c",
+        "name": "postgres-real",
+        "returncode": 0,
+        "seconds": 8.115,
+        "tail": [
+          "........                                                                 [100%]",
+          "8 passed in 7.37s"
+        ]
+      }
+    ]
+  }
+}

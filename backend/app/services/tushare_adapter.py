@@ -210,7 +210,7 @@ class BaoStockAdapter:
             return "北交所"
         if exch == "SH" and symbol.startswith("688"):
             return "科创板"
-        if exch == "SZ" and symbol.startswith("300"):
+        if exch == "SZ" and symbol.startswith(("300", "301", "302")):
             return "创业板"
         if exch in ("SH", "SZ"):
             return "主板"
@@ -447,7 +447,7 @@ class TencentAdapter:
             return "北交所"
         if exch == "SH" and symbol.startswith("688"):
             return "科创板"
-        if exch == "SZ" and symbol.startswith("300"):
+        if exch == "SZ" and symbol.startswith(("300", "301", "302")):
             return "创业板"
         if exch in ("SH", "SZ"):
             return "主板"
