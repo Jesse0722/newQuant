@@ -21,7 +21,7 @@ DATES = ["20261008", "20261009"]
 
 def raw(day="20261008", **overrides):
     return {**dict(ts_code="000001.SZ", trade_date=day, open=10, close=10, high=11, low=9,
-                   pre_close=10, change=0, pct_chg=0, vol=1000, amount=20000, turnover_rate=2), **overrides}
+                   pre_close=10, change=0, pct_chg=0, vol=1000, amount=10000, turnover_rate=2), **overrides}
 
 
 class Provider:
@@ -54,9 +54,9 @@ def test_source_snapshot_keeps_raw_units_and_same_row_metadata():
     source = Provider([raw(), raw(day=DATES[1])])
     result = fetch_repair_snapshot(source, CAPS, DATES, ["000001.SZ"], {}, request_interval=0)
     assert result["outcome"] == "success" and result["valid_row_count"] == 2
-    assert result["rows"][0]["vol"] == 1000 and result["rows"][0]["amount"] == 20000
+    assert result["rows"][0]["vol"] == 1000 and result["rows"][0]["amount"] == 10000
     normalized = normalized_source_row(result["rows"][0], result["source"])
-    assert normalized["vol"] == 10 and normalized["amount"] == 20 and normalized["turnover_rate"] == 2
+    assert normalized["vol"] == 10 and normalized["amount"] == 10 and normalized["turnover_rate"] == 2
     assert source.calls == [{"ts_code": "000001.SZ", "start_date": DATES[0], "end_date": DATES[1]}]
 
 

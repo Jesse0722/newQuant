@@ -47,7 +47,7 @@ def test_real_postgres_repair_backup_restore_roundtrip(tmp_path):
         engine = create_engine(target)
         engines.append(engine)
         raw = dict(ts_code="000001.SZ", trade_date="20261008", open=10., high=11., low=9., close=10.,
-                   pre_close=10., pct_chg=0., change=0., vol=1000., amount=20000., turnover_rate=None, float_share=None)
+                   pre_close=10., pct_chg=0., change=0., vol=1000., amount=10000., turnover_rate=None, float_share=None)
         with engine.begin() as conn:
             conn.execute(insert(Q).values(**{**raw, "amount": None, "pre_close": None}))
         snap = {"version": SNAPSHOT_VERSION, "id": "real-pg-fixture", "codes": ["000001.SZ"],

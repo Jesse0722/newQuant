@@ -1,0 +1,274 @@
+{
+  "schema_version": "1.0",
+  "report_date": "2026-11-11",
+  "timezone": "Asia/Shanghai",
+  "scope": "security_lifecycle_evidence_only",
+  "target_window": {
+    "from": "2026-10-19",
+    "through": "2026-11-10"
+  },
+  "report": "2026-11-11-security-lifecycle-evidence.md",
+  "private_root": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/evidence/official-lifecycle-20261111T030114Z-04138955",
+  "private_manifests": [
+    {
+      "file": "findings.json",
+      "sha256": "08b7ec2c1247677dabc7dcdb07c3970a526e5e8cd15ad4095585f5cddabb22a7",
+      "preserved": true
+    },
+    {
+      "file": "findings-v2.json",
+      "sha256": "278b315687224a4d131c207cb7dfeaf63ecd1f6ded81fe4b78e819b5bdf5b410",
+      "preserved": true
+    }
+  ],
+  "sources": [
+    {
+      "id": "szse_decision",
+      "issuer": "深圳证券交易所",
+      "url": "https://www.szse.cn/disclosure/notice/t20260612_621020.html",
+      "publication_date": "2026-06-12",
+      "observed_on": "2026-11-11",
+      "private_file": "szse-000004-delisting-decision-20260612.html",
+      "bytes": 24288,
+      "sha256": "615e018438e36de4fab985dcffa57f313e16420c8da8b710f46f3bc2247cfad0"
+    },
+    {
+      "id": "szse_delist",
+      "issuer": "深圳国华网安科技股份有限公司",
+      "url": "https://disc.static.szse.cn/disc/disk03/finalpage/2026-07-14/7ac00e87-c015-4085-b165-23f2a5a1ca42.PDF",
+      "publication_date": "2026-07-14",
+      "observed_on": "2026-11-11",
+      "private_file": "szse-000004-delist-20260714.pdf",
+      "bytes": 78436,
+      "sha256": "df4684ad5cee5b21a88672ea6d8c555046424eae2dcdfaa02bbc311bf6926ddc",
+      "announcement_number": "2026-062",
+      "page_one_based": 1
+    },
+    {
+      "id": "old_listing",
+      "issuer": "深圳中国农大科技股份有限公司",
+      "url": "https://static.cninfo.com.cn/finalpage/2014-04-22/63889870.PDF",
+      "publication_date": "2014-04-22",
+      "observed_on": "2026-11-11",
+      "private_file": "cninfo-000004-2013-financial-notes-20140422.pdf",
+      "bytes": 1049721,
+      "sha256": "d9d35c8e03e3c48bc90f89a9e9dffa97fb4178c4cdd7fe802123cf929bb42562",
+      "page_one_based": 24,
+      "printed_page": "20"
+    },
+    {
+      "id": "charter_listing",
+      "issuer": "深圳国华网安科技股份有限公司",
+      "url": "https://disc.static.szse.cn/disc/disk03/finalpage/2025-04-28/6d7e9bd9-bd7a-48d5-bbfb-ab8515ad3201.PDF",
+      "publication_date": "2025-04-28",
+      "observed_on": "2026-11-11",
+      "private_file": "szse-000004-2025-charter-20250428.pdf",
+      "bytes": 589161,
+      "sha256": "36b49033de7dc61eaceb300603fd8b5e3eb3e5079a0026be1798e6178424a77a",
+      "page_one_based": 3,
+      "printed_page": "2",
+      "article": "第三条"
+    },
+    {
+      "id": "annual_listing",
+      "issuer": "深圳国华网安科技股份有限公司",
+      "url": "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-04-28/ff8ef4df-a947-45fd-9b47-dcb66b747879.PDF",
+      "publication_date": "2026-04-28",
+      "observed_on": "2026-11-11",
+      "private_file": "szse-000004-2025-annual-report-20260428.pdf",
+      "bytes": 1466269,
+      "sha256": "69d11975ff2947c0cd42c8d3b4f7dc7bc0a4234c4fb4132d547bc139b55b6d60",
+      "page_one_based": 8,
+      "heading": "四、注册变更情况"
+    },
+    {
+      "id": "bse_map",
+      "issuer": "北京证券交易所",
+      "url": "https://www.bse.cn/service/code_mapping.html",
+      "publication_date": null,
+      "observed_on": "2026-11-11",
+      "private_file": "bse-code-mapping.html",
+      "bytes": 460508,
+      "sha256": "24c6d5215c0e7cbc4b7bf2cb41001f875a5c476e1d50e58dd33be2b1d4c7cb06",
+      "row_number": 149
+    },
+    {
+      "id": "bse_cutover",
+      "issuer": "北京证券交易所",
+      "url": "https://www.bse.cn/important_news/200026735.html",
+      "publication_date": "2025-09-12",
+      "observed_on": "2026-11-11",
+      "private_file": "bse-code-cutover-20250912.html",
+      "bytes": 17048,
+      "sha256": "4f7e31844394e41a6ad9c89df99973eadadb8cfe9404175ab2ceb6aeed6efb1e",
+      "announcement_number": "北证公告〔2025〕46号"
+    },
+    {
+      "id": "bse_pilot_list",
+      "issuer": "北京证券交易所",
+      "url": "https://www.bse.cn/important_news/200025487.html",
+      "publication_date": "2025-04-11",
+      "observed_on": "2026-11-11",
+      "private_file": "bse-pilot-list-20250411.html",
+      "bytes": 22826,
+      "sha256": "27a0b6c610fc168104b35b030199828892a0602e6660558b3e29e950eec4057b",
+      "announcement_number": "北证公告〔2025〕13号"
+    },
+    {
+      "id": "bse_pilot_live",
+      "issuer": "北京证券交易所",
+      "url": "https://www.bse.cn/important_news/200025603.html",
+      "publication_date": "2025-04-25",
+      "observed_on": "2026-11-11",
+      "private_file": "bse-pilot-live-20250425.html",
+      "bytes": 31570,
+      "sha256": "888c7b4d94f4e5b1574401457e6079c5201c014e9d28080a94bd4c3cc4cbabf9",
+      "announcement_number": "北证公告〔2025〕19号"
+    },
+    {
+      "id": "bse_listing",
+      "issuer": "北京证券交易所",
+      "url": "https://www.bse.cn/issue_report_meeting/200012642.html",
+      "publication_date": "2022-07-06",
+      "observed_on": "2026-11-11",
+      "private_file": "bse-837821-listing-20220706.html",
+      "bytes": 13853,
+      "sha256": "296431c0558c588a589ed2bcd8b38942130b413643f56a8b58729f36d82dfe82"
+    },
+    {
+      "id": "bse_old_header",
+      "issuer": "深圳市则成电子股份有限公司",
+      "url": "https://www.bse.cn/disclosure/2025/2025-07-11/5a036076ba93444583055cba53133dfc.pdf",
+      "publication_date": "2025-07-11",
+      "observed_on": "2026-11-11",
+      "private_file": "bse-837821-company-announcement-20250711.pdf",
+      "bytes": 399256,
+      "sha256": "c04b36a0d0a62e1df407ffd2967218bf3f651e74cd759424738268ad45f965f4",
+      "announcement_number": "2025-041",
+      "page_one_based": 1
+    },
+    {
+      "id": "bse_new_header",
+      "issuer": "深圳市则成电子股份有限公司",
+      "url": "https://www.bse.cn/disclosure/2025/2025-10-24/4f4b8d1d78194c5aa5b3e678c72b36d2.pdf",
+      "publication_date": "2025-10-24",
+      "observed_on": "2026-11-11",
+      "private_file": "bse-920821-2025Q3-20251024.pdf",
+      "bytes": 707405,
+      "sha256": "0b53094d652f49df255cc184e58099d34ee65cf04ebe0daacfd564d25bf31892",
+      "page_one_based": 1
+    },
+    {
+      "id": "szse_registry",
+      "issuer": "深圳证券交易所",
+      "url": "https://www.szse.cn/api/report/ShowReport?SHOWTYPE=xlsx&CATALOGID=1793_ssgs&TABKEY=tab2",
+      "publication_date": null,
+      "observed_on": "2026-11-11",
+      "private_file": "szse-delisted-companies-20261111.xlsx",
+      "bytes": 10948,
+      "sha256": "3de9d01bd63b9d0bcf26ab786be12943db78879678a0a2174b00cd4073f634de",
+      "locator": {
+        "security_code": "000004",
+        "listing_date": "1990-12-01",
+        "delisting_date": "2026-07-14"
+      },
+      "download_row_count": 212
+    }
+  ],
+  "claims": [
+    {
+      "id": "000004-delisting",
+      "security": "000004.SZ",
+      "kind": "direct_official_disclosure",
+      "termination_decision_date": "2026-06-12",
+      "delisting_effective_date": "2026-07-14",
+      "sources": [
+        "szse_decision",
+        "szse_delist",
+        "szse_registry"
+      ],
+      "target_window_classification": "outside_SZSE_A_share_listing_period"
+    },
+    {
+      "id": "000004-listing-date-discrepancy",
+      "security": "000004.SZ",
+      "kind": "unresolved_historical_disclosure_discrepancy",
+      "current_exchange_registry_date": "1990-12-01",
+      "agreeing_recent_issuer_sources": [
+        "charter_listing",
+        "annual_listing"
+      ],
+      "conflicting_historical_issuer_date": "1991-01-14",
+      "conflicting_source": "old_listing",
+      "difference_reason_established": false,
+      "automatic_master_update": false
+    },
+    {
+      "id": "837821-920821-mapping",
+      "security": "837821.BJ",
+      "kind": "direct_exchange_mapping",
+      "company": "深圳市则成电子股份有限公司",
+      "old_code": "837821.BJ",
+      "new_code": "920821.BJ",
+      "bse_listing_date": "2022-07-06",
+      "sources": [
+        "bse_map",
+        "bse_listing"
+      ]
+    },
+    {
+      "id": "920821-cutover-date",
+      "security": "920821.BJ",
+      "kind": "inference_from_official_notice_chain",
+      "effective_from_inclusive": "2025-10-09",
+      "old_code_valid_to_exclusive": "2025-10-09",
+      "sources": [
+        "bse_pilot_list",
+        "bse_pilot_live",
+        "bse_cutover",
+        "bse_map"
+      ],
+      "supporting_code_headers": [
+        "bse_old_header",
+        "bse_new_header"
+      ],
+      "company_specific_effective_date_announcement_found": false,
+      "inference_basis": "Not among the six pilot stocks; non-pilot stocks retained old codes after 2025-05-06; the official full cutover notice activates the new codes on 2025-10-09."
+    }
+  ],
+  "boundaries": {
+    "per_day_suspension_or_resumption_verified": false,
+    "guarantees_traded_quote_for_each_day": false,
+    "whole_market_point_in_time_denominator_verified": false,
+    "market_scoring_gate_released": false,
+    "automatic_master_update": false,
+    "automatic_historical_quote_rekey": false,
+    "provider_canonical_history_alias_semantics_verified": false,
+    "post_delisting_NEEQ_code_or_quotes_verified": false,
+    "quote_fetch_apply_or_rollback_result_included": false,
+    "private_originals_modified": false
+  },
+  "validation": {
+    "raw_source_count": 13,
+    "all_private_bytes_and_sha256_verified": true,
+    "verified_at_utc": "2026-11-11T03:09:50.761967+00:00",
+    "pdf_visual_checks": [
+      {
+        "source": "szse_delist",
+        "page_one_based": 1
+      },
+      {
+        "source": "old_listing",
+        "page_one_based": 24
+      },
+      {
+        "source": "charter_listing",
+        "page_one_based": 3
+      },
+      {
+        "source": "annual_listing",
+        "page_one_based": 8
+      }
+    ]
+  }
+}

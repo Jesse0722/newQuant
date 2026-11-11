@@ -1,0 +1,941 @@
+{
+  "all_batches": [
+    {
+      "approved_file_sha256": "96ed6ee075687b671243f3bc8d2ec11c9c4db826c15c83c87a2f5e7e0819b423",
+      "audit_integrity": true,
+      "audit_rows": 10,
+      "batch_id": "028c6219-7f10-4d69-810a-e4a37fb22f92",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "f142356b47462657a04fb42c0573ee7c3c2ea03d4ecb6759231264f903e765af",
+      "scope_rows": 10,
+      "status": "applied",
+      "verification_scope": "full_input_grid"
+    },
+    {
+      "approved_file_sha256": "ee44c12a72c90b9cd9f04fcd06a03f44893fe527ecf8ccc65d554cb7c12dba2c",
+      "audit_integrity": true,
+      "audit_rows": 2,
+      "batch_id": "31139c6f-b99c-4d3b-b4c3-14110322a6dd",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "04ff84de34dc363035cda561e170aacd92f3a1f29cca6bced77ff0d23a4b6f2c",
+      "scope_rows": 2,
+      "status": "applied",
+      "verification_scope": "full_input_grid"
+    },
+    {
+      "approved_file_sha256": "7675d8c7a0cf9f55e6d8a750c3cc3845eafb826c2584f8b508f58518fab67059",
+      "audit_integrity": true,
+      "audit_rows": 5,
+      "batch_id": "38763387-e27e-46e0-9334-db692505c3a5",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "782c0f0bf265af2a041d21c66e504d1cf97c354031d151d5ef40ae323b1f1241",
+      "scope_rows": 5,
+      "status": "applied",
+      "verification_scope": "written_audit_rows"
+    },
+    {
+      "approved_file_sha256": "c96d2fb2b691b1ae6f9e693bec4e965936272667c3eed3084fc9ab0a4b5fdefe",
+      "audit_integrity": true,
+      "audit_rows": 7,
+      "batch_id": "50134166-d133-43e7-93f7-100b115dfc1c",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "4bfe15a09e78c8ee05fa0bfb070f1801a4d04f2191cdd8aecfb9f9bf6874bb6e",
+      "scope_rows": 7,
+      "status": "applied",
+      "verification_scope": "written_audit_rows"
+    },
+    {
+      "approved_file_sha256": "61d6cd70cbef7a5e131ae28e01ec1095653010431c3a2cfd4827ef4812560a4b",
+      "audit_integrity": true,
+      "audit_rows": 3,
+      "batch_id": "9fd89016-df52-4c81-a92e-e451955c5d00",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "0b7403b89686f9c5f8d9cfe318147127e6276ce1083b9ea50690ea5f23d1a732",
+      "scope_rows": 3,
+      "status": "applied",
+      "verification_scope": "full_input_grid"
+    },
+    {
+      "approved_file_sha256": "258460073e3db207cc748b9f54cce3d8172b5b501de5c1494bdca5bd578dbedc",
+      "audit_integrity": true,
+      "audit_rows": 140,
+      "batch_id": "f627ecb7-6445-4abb-b037-9ab6b06e833d",
+      "matches": true,
+      "mismatches": [],
+      "plan_hash": "dd9d6b8dd59f59f4bca2c3a50e5f8e3a5fa43af70986c20e2142b401b25d0e38",
+      "scope_rows": 140,
+      "status": "applied",
+      "verification_scope": "written_audit_rows"
+    }
+  ],
+  "allow_clear_optional": false,
+  "branch": "codex/t07-market-data-repair",
+  "common_artifacts": {
+    "audit-post/comparison.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/audit-post/comparison.json",
+      "sha256": "fc9471185ab6f9f050317ad9820d52a84d878af2a2451f42619314bf18fafa69"
+    },
+    "audit-post/market-data-quality.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/audit-post/market-data-quality.json",
+      "sha256": "e88d9f692a61833bba56799a38516cefd621afec900087ba18f833cb7c5cfa25"
+    },
+    "audit-pre/market-data-quality.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/audit-pre/market-data-quality.json",
+      "sha256": "2d88b9f902f64827430518ecb877ea58ed807c551c189a6393bdc27d88e4af35"
+    },
+    "code-review-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/code-review-v1.json",
+      "sha256": "c886487d628ff95fa3601829518404718577134df76df31d27a5c452860efa50"
+    },
+    "final-review-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/final-review-v1.json",
+      "sha256": "79c2f76a65ddc145c044c494906faecbe0805d7cdb824f3da599e8e02fe72715"
+    },
+    "independent-rehearsal-review-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/independent-rehearsal-review-v1.json",
+      "sha256": "e43f5b925d0e8c8011dca2694049692d2f495961d376ddd9d2faaa6f07127dd9"
+    },
+    "main-execution-v1/full-comparison.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/main-execution-v1/full-comparison.json",
+      "sha256": "b0090e7b0d92528ab86ca249b572bbabddf380532e2091d1b093cfae73ed3ce5"
+    },
+    "main-execution-v1/result.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/main-execution-v1/result.json",
+      "sha256": "3a079e45ba2dbd531b849901844bf029c8247227c8386a0265dd7b68fdfe05c8"
+    },
+    "maintenance-restart-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/maintenance-restart-v1.json",
+      "sha256": "efb34936c49b124d9623783ded782ffc175aa0a0b9714ff030f57a9d0c5bb9c4"
+    },
+    "maintenance-stop-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/maintenance-stop-v1.json",
+      "sha256": "8f7aa184b9d16f17c95d484daf7d8fb6332c02f3e96b470b7cfc42ceb6a84ff6"
+    },
+    "post-restart-tests-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/post-restart-tests-v1.json",
+      "sha256": "7d03dd4e355bf22891fd2794136d1b198d9a02737f024b1facaca90c5d638d22"
+    },
+    "rehearsal-v1/result.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/rehearsal-v1/result.json",
+      "sha256": "8705582c8787160919ea03a879c42fe767c5ed608c2609691a9599a162d6f91f"
+    },
+    "supervisor-execution-authorization-v1.json": {
+      "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/supervisor-execution-authorization-v1.json",
+      "sha256": "9c6264712b76cac3eb8d8760caee10ee450b4ad728531fbd91873eb54fd43fd4"
+    }
+  },
+  "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+  "date": "2026-11-11",
+  "full_comparison": {
+    "exact_target_keys": [
+      [
+        "000002.SZ",
+        "20261019"
+      ],
+      [
+        "000002.SZ",
+        "20261020"
+      ],
+      [
+        "000006.SZ",
+        "20261019"
+      ],
+      [
+        "000006.SZ",
+        "20261020"
+      ],
+      [
+        "000007.SZ",
+        "20261019"
+      ],
+      [
+        "000007.SZ",
+        "20261020"
+      ],
+      [
+        "000009.SZ",
+        "20261019"
+      ],
+      [
+        "000009.SZ",
+        "20261020"
+      ],
+      [
+        "000010.SZ",
+        "20261019"
+      ],
+      [
+        "000010.SZ",
+        "20261020"
+      ],
+      [
+        "600208.SH",
+        "20261104"
+      ],
+      [
+        "600208.SH",
+        "20261105"
+      ],
+      [
+        "600208.SH",
+        "20261106"
+      ],
+      [
+        "920821.BJ",
+        "20261019"
+      ],
+      [
+        "920821.BJ",
+        "20261020"
+      ]
+    ],
+    "integrity_check": "ok",
+    "quote_diff": {
+      "deletes": 0,
+      "inserts": 12,
+      "unchanged": 1965307,
+      "updates": 3
+    },
+    "quote_fingerprint_after": {
+      "daily_quote_row_count": 1965322,
+      "daily_quote_sha256": "66342e084af5fedc28d01db34ffa36f5c14247083014e24369c5c94dd3f1c1f1"
+    },
+    "quote_fingerprint_before": {
+      "daily_quote_row_count": 1965310,
+      "daily_quote_sha256": "b86839fff98f68e01f1bfec5384e74263c9e51f059fc68b19f8e5ed99ca74363"
+    },
+    "schema_unchanged": true,
+    "tables": {
+      "alembic_version": {
+        "after": {
+          "rows": 1,
+          "sha256": "254ceb5cd12a301ae149ee0409ea920d54754734a1e2857471b25b0f77b6903d"
+        },
+        "before": {
+          "rows": 1,
+          "sha256": "254ceb5cd12a301ae149ee0409ea920d54754734a1e2857471b25b0f77b6903d"
+        }
+      },
+      "alert": {
+        "after": {
+          "rows": 122,
+          "sha256": "481b41d42cdba67bd865586b5b84b4c86c4fb18d4d5aa64bf6c92f533df8c689"
+        },
+        "before": {
+          "rows": 122,
+          "sha256": "481b41d42cdba67bd865586b5b84b4c86c4fb18d4d5aa64bf6c92f533df8c689"
+        }
+      },
+      "background_task": {
+        "after": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "before": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "daily_quote_repair_audit": {
+        "after": {
+          "rows": 167,
+          "sha256": "7f3a2423a3950298851236b41dbf2682f2f8dfa6cffa0a471faefa698b8254d6"
+        },
+        "before": {
+          "rows": 152,
+          "sha256": "ee57337abd656fa3e976034efb4ae6d8506e0047dfc354adbfbc93e7d6bfc103"
+        }
+      },
+      "daily_quote_repair_batch": {
+        "after": {
+          "rows": 6,
+          "sha256": "a15c15581030048ae3abd8aeda8e53f1d01df68a47ef48fa7c9129b660a62fe6"
+        },
+        "before": {
+          "rows": 3,
+          "sha256": "9d0398cc01c36786e56d4f0ce0d551606299ce40fa28518c92d2d3a39e602da3"
+        }
+      },
+      "industry_daily_report": {
+        "after": {
+          "rows": 28,
+          "sha256": "707232126c275330e3cdf521ef62d308d7feb081ac7ed8657e3b1494d708c897"
+        },
+        "before": {
+          "rows": 28,
+          "sha256": "707232126c275330e3cdf521ef62d308d7feb081ac7ed8657e3b1494d708c897"
+        }
+      },
+      "industry_report_candidate": {
+        "after": {
+          "rows": 224,
+          "sha256": "0525b8cefafda14af2b9f3cc5df15ed06e00e8e09d32b9820e8682309f15d138"
+        },
+        "before": {
+          "rows": 224,
+          "sha256": "0525b8cefafda14af2b9f3cc5df15ed06e00e8e09d32b9820e8682309f15d138"
+        }
+      },
+      "intraday_scan_config": {
+        "after": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "before": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "message_agent_run": {
+        "after": {
+          "rows": 1,
+          "sha256": "0fb5c5f7057cc940bf86e69ddce9ee3dd6c2c5cb87ca7e17b64a856a70b7496a"
+        },
+        "before": {
+          "rows": 1,
+          "sha256": "0fb5c5f7057cc940bf86e69ddce9ee3dd6c2c5cb87ca7e17b64a856a70b7496a"
+        }
+      },
+      "message_entity": {
+        "after": {
+          "rows": 26,
+          "sha256": "92214a492fa81741939d7ba9d852272a65b485c67cc72b5872b86d1c521814f8"
+        },
+        "before": {
+          "rows": 26,
+          "sha256": "92214a492fa81741939d7ba9d852272a65b485c67cc72b5872b86d1c521814f8"
+        }
+      },
+      "message_evidence": {
+        "after": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "before": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "message_keyword_seed": {
+        "after": {
+          "rows": 73,
+          "sha256": "c5d90146a2977a81b41996f31304e8c37fb12ce70f6beffaaf54e56850b5b934"
+        },
+        "before": {
+          "rows": 73,
+          "sha256": "c5d90146a2977a81b41996f31304e8c37fb12ce70f6beffaaf54e56850b5b934"
+        }
+      },
+      "message_opportunity": {
+        "after": {
+          "rows": 68,
+          "sha256": "9a33f7ac98d0241b349f684b8a47f34ec60017926b8c9eb07c9c22c94d8a2494"
+        },
+        "before": {
+          "rows": 68,
+          "sha256": "9a33f7ac98d0241b349f684b8a47f34ec60017926b8c9eb07c9c22c94d8a2494"
+        }
+      },
+      "message_opportunity_evidence": {
+        "after": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "before": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "message_relation": {
+        "after": {
+          "rows": 23,
+          "sha256": "e7084a6d58553627261d79119085ea832f0c23af82e7fd98253453b4496fd8e8"
+        },
+        "before": {
+          "rows": 23,
+          "sha256": "e7084a6d58553627261d79119085ea832f0c23af82e7fd98253453b4496fd8e8"
+        }
+      },
+      "message_relation_evidence": {
+        "after": {
+          "rows": 23,
+          "sha256": "8d18e1666b6a2f76f4b684b9073efef52dc32c10921e53b18ac62fe9ad80c223"
+        },
+        "before": {
+          "rows": 23,
+          "sha256": "8d18e1666b6a2f76f4b684b9073efef52dc32c10921e53b18ac62fe9ad80c223"
+        }
+      },
+      "message_source_item": {
+        "after": {
+          "rows": 281,
+          "sha256": "2ba0144b238389eb272b8afcb6d9cb5f5cad5cc481b0d8a94383150a6b999a64"
+        },
+        "before": {
+          "rows": 281,
+          "sha256": "2ba0144b238389eb272b8afcb6d9cb5f5cad5cc481b0d8a94383150a6b999a64"
+        }
+      },
+      "message_topic": {
+        "after": {
+          "rows": 55,
+          "sha256": "d60ba9c9cd6090dc384b8043c70bf653ad24d04cbc2fda50a3b1ca689880041b"
+        },
+        "before": {
+          "rows": 55,
+          "sha256": "d60ba9c9cd6090dc384b8043c70bf653ad24d04cbc2fda50a3b1ca689880041b"
+        }
+      },
+      "monitor_rule": {
+        "after": {
+          "rows": 1,
+          "sha256": "11cfac32f5271e3076edb16ebdbec630ba9b24759482648ed597caad4f0d9241"
+        },
+        "before": {
+          "rows": 1,
+          "sha256": "11cfac32f5271e3076edb16ebdbec630ba9b24759482648ed597caad4f0d9241"
+        }
+      },
+      "scheduled_job_run": {
+        "after": {
+          "rows": 43,
+          "sha256": "0f7ee90245cb0c2b7f91b7122574b5fd76c816ba0f929cd190505a112eaee566"
+        },
+        "before": {
+          "rows": 43,
+          "sha256": "0f7ee90245cb0c2b7f91b7122574b5fd76c816ba0f929cd190505a112eaee566"
+        }
+      },
+      "scheduler_lease": {
+        "after": {
+          "rows": 1,
+          "sha256": "ea9903c1ae3edf506b5c8436233e1795a9559f1032dd7fbfc1eb287788fad2cc"
+        },
+        "before": {
+          "rows": 1,
+          "sha256": "ea9903c1ae3edf506b5c8436233e1795a9559f1032dd7fbfc1eb287788fad2cc"
+        }
+      },
+      "sector_basic": {
+        "after": {
+          "rows": 1116,
+          "sha256": "5d2de7677373d6b5e1dc64d0aa02eec5bc5c3243ae3db459bd04d9c5e93197f5"
+        },
+        "before": {
+          "rows": 1116,
+          "sha256": "5d2de7677373d6b5e1dc64d0aa02eec5bc5c3243ae3db459bd04d9c5e93197f5"
+        }
+      },
+      "sector_daily_quote": {
+        "after": {
+          "rows": 14152,
+          "sha256": "26cfa86b1f038902c35bc83dce016fda4d6a1feec666fba40377a8ca70268451"
+        },
+        "before": {
+          "rows": 14152,
+          "sha256": "26cfa86b1f038902c35bc83dce016fda4d6a1feec666fba40377a8ca70268451"
+        }
+      },
+      "sector_quote_sync_state": {
+        "after": {
+          "rows": 119,
+          "sha256": "203e0f302cbcb472f57d05308678ba9dd1fc7be5a6a35f979add0dc87ba0d797"
+        },
+        "before": {
+          "rows": 119,
+          "sha256": "203e0f302cbcb472f57d05308678ba9dd1fc7be5a6a35f979add0dc87ba0d797"
+        }
+      },
+      "stock_ai_analysis": {
+        "after": {
+          "rows": 63,
+          "sha256": "3f40cf0bc1e94a5be43917184e16a97ef57edbd650cc779d0ddea983316e4278"
+        },
+        "before": {
+          "rows": 63,
+          "sha256": "3f40cf0bc1e94a5be43917184e16a97ef57edbd650cc779d0ddea983316e4278"
+        }
+      },
+      "stock_basic": {
+        "after": {
+          "rows": 7689,
+          "sha256": "8452d24d3773a5f68fbea099c282b62c9dbef67a08b3ec04fad4e4a7335df28a"
+        },
+        "before": {
+          "rows": 7689,
+          "sha256": "8452d24d3773a5f68fbea099c282b62c9dbef67a08b3ec04fad4e4a7335df28a"
+        }
+      },
+      "stock_sector_map": {
+        "after": {
+          "rows": 3640,
+          "sha256": "c34e1bd0049a7d2f188b396fbc5717e612167bf40f29dc6d2bbabc9cdc8769b3"
+        },
+        "before": {
+          "rows": 3640,
+          "sha256": "c34e1bd0049a7d2f188b396fbc5717e612167bf40f29dc6d2bbabc9cdc8769b3"
+        }
+      },
+      "sync_log": {
+        "after": {
+          "rows": 8270,
+          "sha256": "16eb9b40baf6ba766320e94e2c3cf71835d4ee472d76802f81e61be271744a50"
+        },
+        "before": {
+          "rows": 8270,
+          "sha256": "16eb9b40baf6ba766320e94e2c3cf71835d4ee472d76802f81e61be271744a50"
+        }
+      },
+      "trade_detail": {
+        "after": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "before": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "trade_plan": {
+        "after": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "before": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "trade_plan_stock": {
+        "after": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "before": {
+          "rows": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "watch_pool": {
+        "after": {
+          "rows": 4,
+          "sha256": "035575d980a4a46fe04b00c6dc00b4dbea8dc5478babfcd8e93be31ce6446e24"
+        },
+        "before": {
+          "rows": 4,
+          "sha256": "035575d980a4a46fe04b00c6dc00b4dbea8dc5478babfcd8e93be31ce6446e24"
+        }
+      },
+      "watch_stock": {
+        "after": {
+          "rows": 1872,
+          "sha256": "603f63ab435680d9349be9d0a2bc73701129e85a5cfbd9d65467025fb4d3a7b5"
+        },
+        "before": {
+          "rows": 1872,
+          "sha256": "603f63ab435680d9349be9d0a2bc73701129e85a5cfbd9d65467025fb4d3a7b5"
+        }
+      }
+    }
+  },
+  "generated_at": "2026-11-11T03:31:57.296882+00:00",
+  "groups": [
+    {
+      "artifacts": {
+        "plan-review.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-SZ-missing-v1/plan-review.json",
+          "sha256": "d62983f07d90a61cd1123bc3058e66f9052f92377088d8488b8b8af9db8577c5"
+        },
+        "plan.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-SZ-missing-v1/plan.json",
+          "sha256": "96ed6ee075687b671243f3bc8d2ec11c9c4db826c15c83c87a2f5e7e0819b423"
+        },
+        "scope.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-SZ-missing-v1/scope.json",
+          "sha256": "3547d29547e0f208fb52df242ea40577b3840c12ae622ab8f5fcfa5fbb025da7"
+        },
+        "source-review.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-SZ-missing-v1/source-review.json",
+          "sha256": "6f593fc032a87d79f673200313d315e95b4a4d6396293b064070118522a15935"
+        },
+        "source.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-SZ-missing-v1/source.json",
+          "sha256": "d1a9dbc0e438d80a96c21a14ed38c9f8619d68f9c282c6adb7c66349ff04b693"
+        }
+      },
+      "backup": {
+        "created_at": "2026-11-11T03:26:43.365313Z",
+        "daily_quote_row_count": 1965310,
+        "daily_quote_sha256": "b86839fff98f68e01f1bfec5384e74263c9e51f059fc68b19f8e5ed99ca74363",
+        "database_identity": {
+          "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+          "dialect": "sqlite"
+        },
+        "format": "sqlite",
+        "id": "78257b78-6834-4dcb-96ee-077feb80d02a",
+        "integrity_check": "ok",
+        "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/main-execution-v1/pilot-SZ-missing-v1-pre-apply/78257b78-6834-4dcb-96ee-077feb80d02a.db",
+        "sha256": "3b4a01b6eeb96bf953aedc470b32b095b4de2d207ff6bec719e4ef6affd81bfd"
+      },
+      "batch_id": "028c6219-7f10-4d69-810a-e4a37fb22f92",
+      "group": "pilot-SZ-missing-v1",
+      "plan_hash": "f142356b47462657a04fb42c0573ee7c3c2ea03d4ecb6759231264f903e765af",
+      "plan_sha256": "96ed6ee075687b671243f3bc8d2ec11c9c4db826c15c83c87a2f5e7e0819b423",
+      "scope": {
+        "codes": [
+          "000002.SZ",
+          "000006.SZ",
+          "000007.SZ",
+          "000009.SZ",
+          "000010.SZ"
+        ],
+        "dates": [
+          "20261019",
+          "20261020"
+        ]
+      },
+      "summary": {
+        "inserts": 10,
+        "requested_cells": 10,
+        "skipped": 0,
+        "unchanged": 0,
+        "updates": 0
+      },
+      "verify": {
+        "approved_file_sha256": "96ed6ee075687b671243f3bc8d2ec11c9c4db826c15c83c87a2f5e7e0819b423",
+        "audit_integrity": true,
+        "audit_rows": 10,
+        "batch_id": "028c6219-7f10-4d69-810a-e4a37fb22f92",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "f142356b47462657a04fb42c0573ee7c3c2ea03d4ecb6759231264f903e765af",
+        "scope_rows": 10,
+        "status": "applied",
+        "verification_scope": "full_input_grid"
+      }
+    },
+    {
+      "artifacts": {
+        "plan-review.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-SH-amount-v1/plan-review.json",
+          "sha256": "2611f8c9c7d8e03dd4fa4a7f756f194b013b288fb8ef99cd3b77b9db52b017c2"
+        },
+        "plan.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-SH-amount-v1/plan.json",
+          "sha256": "61d6cd70cbef7a5e131ae28e01ec1095653010431c3a2cfd4827ef4812560a4b"
+        },
+        "scope.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-SH-amount-v1/scope.json",
+          "sha256": "a4ce67967c44725675d31dac5b9cc99b3e2d1fc86b344dd82f9a0392f8ffd2aa"
+        },
+        "source-review.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-SH-amount-v1/source-review.json",
+          "sha256": "4e556ddfbb4d19e3327f4f7996e29a3ad25e459f22acc4c7d3c785c7833c43a8"
+        },
+        "source.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-SH-amount-v1/source.json",
+          "sha256": "559888712aba1d2157709c0d61f0dffabff565c06628431a5d250c3d2ac92712"
+        }
+      },
+      "backup": {
+        "created_at": "2026-11-11T03:27:27.199973Z",
+        "daily_quote_row_count": 1965320,
+        "daily_quote_sha256": "393c0654732ae756c3f661e7deafbb47cf866e49d6403d2bedc8718d04c88822",
+        "database_identity": {
+          "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+          "dialect": "sqlite"
+        },
+        "format": "sqlite",
+        "id": "0100366a-415d-42bf-9cb8-aedeed22fae3",
+        "integrity_check": "ok",
+        "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/main-execution-v1/pilot-SH-amount-v1-pre-apply/0100366a-415d-42bf-9cb8-aedeed22fae3.db",
+        "sha256": "8e61c64f553f6a7056b0a095bb04b9391e796a3b7f1e035293969b565c0f96fa"
+      },
+      "batch_id": "9fd89016-df52-4c81-a92e-e451955c5d00",
+      "group": "pilot-SH-amount-v1",
+      "plan_hash": "0b7403b89686f9c5f8d9cfe318147127e6276ce1083b9ea50690ea5f23d1a732",
+      "plan_sha256": "61d6cd70cbef7a5e131ae28e01ec1095653010431c3a2cfd4827ef4812560a4b",
+      "scope": {
+        "codes": [
+          "600208.SH"
+        ],
+        "dates": [
+          "20261104",
+          "20261105",
+          "20261106"
+        ]
+      },
+      "summary": {
+        "inserts": 0,
+        "requested_cells": 3,
+        "skipped": 0,
+        "unchanged": 0,
+        "updates": 3
+      },
+      "verify": {
+        "approved_file_sha256": "61d6cd70cbef7a5e131ae28e01ec1095653010431c3a2cfd4827ef4812560a4b",
+        "audit_integrity": true,
+        "audit_rows": 3,
+        "batch_id": "9fd89016-df52-4c81-a92e-e451955c5d00",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "0b7403b89686f9c5f8d9cfe318147127e6276ce1083b9ea50690ea5f23d1a732",
+        "scope_rows": 3,
+        "status": "applied",
+        "verification_scope": "full_input_grid"
+      }
+    },
+    {
+      "artifacts": {
+        "plan-review.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-BJ-new-code-v1/plan-review.json",
+          "sha256": "d006bd0e27aaffb36091898c7aff545cdaea1ff56d3d9e9a648e4e55cc05958c"
+        },
+        "plan.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-BJ-new-code-v1/plan.json",
+          "sha256": "ee44c12a72c90b9cd9f04fcd06a03f44893fe527ecf8ccc65d554cb7c12dba2c"
+        },
+        "scope.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-BJ-new-code-v1/scope.json",
+          "sha256": "c79e43db9dbf62c2fe3722ba51b0ded0dcb14912518547228caa42c511eb9f83"
+        },
+        "source-review.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-BJ-new-code-v1/source-review.json",
+          "sha256": "d4f78bc872230a953f047d36ce61e0d15676250e71570d893d143964fe3143cd"
+        },
+        "source.json": {
+          "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/pilot-BJ-new-code-v1/source.json",
+          "sha256": "ceeea31a3c7456f0cfb2301f64e722f2ddb12927b435f7c12050e26e7dae2adc"
+        }
+      },
+      "backup": {
+        "created_at": "2026-11-11T03:28:11.699255Z",
+        "daily_quote_row_count": 1965320,
+        "daily_quote_sha256": "c11617184c2d3da83322542cc3d889bf3ff92ec0b644f6faa45042a8db56f35b",
+        "database_identity": {
+          "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+          "dialect": "sqlite"
+        },
+        "format": "sqlite",
+        "id": "2ad1963e-9997-439a-8383-ae9bcfd53742",
+        "integrity_check": "ok",
+        "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/main-execution-v1/pilot-BJ-new-code-v1-pre-apply/2ad1963e-9997-439a-8383-ae9bcfd53742.db",
+        "sha256": "60b610ca01b089bd1ba1ccaefb9619503e815e14b84ae5d0337d28e280cb3c18"
+      },
+      "batch_id": "31139c6f-b99c-4d3b-b4c3-14110322a6dd",
+      "group": "pilot-BJ-new-code-v1",
+      "plan_hash": "04ff84de34dc363035cda561e170aacd92f3a1f29cca6bced77ff0d23a4b6f2c",
+      "plan_sha256": "ee44c12a72c90b9cd9f04fcd06a03f44893fe527ecf8ccc65d554cb7c12dba2c",
+      "scope": {
+        "codes": [
+          "920821.BJ"
+        ],
+        "dates": [
+          "20261019",
+          "20261020"
+        ]
+      },
+      "summary": {
+        "inserts": 2,
+        "requested_cells": 2,
+        "skipped": 0,
+        "unchanged": 0,
+        "updates": 0
+      },
+      "verify": {
+        "approved_file_sha256": "ee44c12a72c90b9cd9f04fcd06a03f44893fe527ecf8ccc65d554cb7c12dba2c",
+        "audit_integrity": true,
+        "audit_rows": 2,
+        "batch_id": "31139c6f-b99c-4d3b-b4c3-14110322a6dd",
+        "matches": true,
+        "mismatches": [],
+        "plan_hash": "04ff84de34dc363035cda561e170aacd92f3a1f29cca6bced77ff0d23a4b6f2c",
+        "scope_rows": 2,
+        "status": "applied",
+        "verification_scope": "full_input_grid"
+      }
+    }
+  ],
+  "historical_rekey": false,
+  "independent_final_review": {
+    "path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/final-review-v1.json",
+    "sha256": "79c2f76a65ddc145c044c494906faecbe0805d7cdb824f3da599e8e02fe72715",
+    "status": "passed"
+  },
+  "limitations": [
+    "Only frozen 15 security-days repaired; no full-market acceptance.",
+    "Main database rollback and disaster switch were not performed; rollback was rehearsed on the complete copy.",
+    "Historical point-in-time universe, suspension evidence and full 120-day quality remain incomplete.",
+    "No frontend, paid model, external deployment or live-trading changes."
+  ],
+  "main_result_path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/main-execution-v1/result.json",
+  "master_data_changed": false,
+  "quality": {
+    "actual_universe_verified": false,
+    "after_inventory": {
+      "first_date": "20231009",
+      "latest_date": "20261110",
+      "total_rows": 1965322
+    },
+    "before_inventory": {
+      "first_date": "20231009",
+      "latest_date": "20261110",
+      "total_rows": 1965310
+    },
+    "changed_dates": [
+      {
+        "amount_valid_after": 25,
+        "amount_valid_before": 19,
+        "core_after": 1432,
+        "core_before": 1426,
+        "raw_after": 1583,
+        "raw_before": 1577,
+        "trade_date": "20261019"
+      },
+      {
+        "amount_valid_after": 25,
+        "amount_valid_before": 19,
+        "core_after": 1584,
+        "core_before": 1578,
+        "raw_after": 1585,
+        "raw_before": 1579,
+        "trade_date": "20261020"
+      },
+      {
+        "amount_valid_after": 20,
+        "amount_valid_before": 19,
+        "core_after": 1580,
+        "core_before": 1580,
+        "raw_after": 1580,
+        "raw_before": 1580,
+        "trade_date": "20261104"
+      },
+      {
+        "amount_valid_after": 20,
+        "amount_valid_before": 19,
+        "core_after": 1580,
+        "core_before": 1580,
+        "raw_after": 1580,
+        "raw_before": 1580,
+        "trade_date": "20261105"
+      },
+      {
+        "amount_valid_after": 10,
+        "amount_valid_before": 9,
+        "core_after": 1570,
+        "core_before": 1570,
+        "raw_after": 1570,
+        "raw_before": 1570,
+        "trade_date": "20261106"
+      }
+    ],
+    "status": "passed",
+    "summary": {
+      "detail_days": 20,
+      "empty_slots": 0,
+      "requested_days": 120,
+      "scoring_allowed": false,
+      "verified_pass_days": 0
+    },
+    "unchanged_dates": 115
+  },
+  "rehearsal": {
+    "exact_quote_restore": true,
+    "legacy_identity_preserved": true,
+    "quote_fingerprint_rollback": {
+      "daily_quote_row_count": 1965310,
+      "daily_quote_sha256": "b86839fff98f68e01f1bfec5384e74263c9e51f059fc68b19f8e5ed99ca74363"
+    },
+    "quote_fingerprint_start": {
+      "daily_quote_row_count": 1965310,
+      "daily_quote_sha256": "b86839fff98f68e01f1bfec5384e74263c9e51f059fc68b19f8e5ed99ca74363"
+    },
+    "result_path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/rehearsal-v1/result.json",
+    "retained_audit": true
+  },
+  "repository": "/Users/lijiajun/ai-coding/newQuant",
+  "restart": {
+    "command": "AUTO_INIT_DB=false RUN_STARTUP_MIGRATIONS=false ./venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000",
+    "health_checks": [
+      {
+        "body_sha256": "a29ee2b15c494311c52521766e44af56a3ad2248e7a8ab465e5206463c13d288",
+        "endpoint": "/api/health",
+        "response": {
+          "status": "ok"
+        },
+        "status": 200
+      },
+      {
+        "body_sha256": "aee3a4ab3d584bad2a02c7070541d37a0edf489caefe45a69fdb307fcda13ed5",
+        "endpoint": "/api/ready",
+        "response": {
+          "database": "ok",
+          "schema": "ok",
+          "status": "ready"
+        },
+        "status": 200
+      },
+      {
+        "body_sha256": "9cf1c06e0978ab18eddbe7f976ab6ad8e41a4c5724a59dc32222fe218053987e",
+        "count": 4,
+        "endpoint": "/api/pools",
+        "status": 200
+      }
+    ],
+    "log_path": "/Users/lijiajun/.local/share/newquant/quote-repair/2026-11-11/backend-restart-v1.log",
+    "pid": 29028,
+    "restarted_at": "2026-11-11T03:31:10.179125+00:00",
+    "scheduler_configuration_preserved": {
+      "AUTO_START_SCHEDULER": "true",
+      "SCHEDULER_ENABLED": "true"
+    },
+    "status": "passed"
+  },
+  "schema_changed": false,
+  "schema_version": "newquant-real-quote-repair-execution-v1",
+  "test_result": {
+    "after_actual_backend_restart": true,
+    "cases": {
+      "backend": {
+        "command": [
+          "/Users/lijiajun/ai-coding/newQuant/backend/venv/bin/python",
+          "-m",
+          "pytest",
+          "-q"
+        ],
+        "cwd": "/Users/lijiajun/ai-coding/newQuant/backend",
+        "duration_seconds": 27.25,
+        "passed": 391,
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "........................................................................ [ 18%]\n........................................................................ [ 36%]\n........................................................................ [ 54%]\n.......................................................ssss............. [ 72%]\n..........................s.....................sss..................... [ 90%]\n.......................................                                  [100%]\n=============================== warnings summary ===============================\ntests/test_rt_k_merge_and_session.py::TestMergeRtK::test_merge_appends_converts_vol\n  /Users/lijiajun/ai-coding/newQuant/backend/app/services/buy_signal_service.py:676: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n391 passed, 8 skipped, 1 warning in 26.22s\n"
+      },
+      "postgresql": {
+        "command": [
+          "/Users/lijiajun/ai-coding/newQuant/backend/venv/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "--run-integration",
+          "tests/test_quote_repair_postgres.py",
+          "tests/test_postgres_reliability.py",
+          "tests/test_runtime_postgres.py"
+        ],
+        "cwd": "/Users/lijiajun/ai-coding/newQuant/backend",
+        "duration_seconds": 8.39,
+        "passed": 8,
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "........                                                                 [100%]\n8 passed in 7.70s\n"
+      }
+    },
+    "frozen_code_hashes_still_match": true,
+    "status": "passed",
+    "total_passed": 399
+  }
+}

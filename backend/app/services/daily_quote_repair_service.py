@@ -17,6 +17,7 @@ from app.services.quote_repair_io import database_identity, validate_backup, quo
 
 PLAN_VERSION = "daily-quote-repair-v1"
 SNAPSHOT_VERSION = "daily-quote-source-v1"
+INPUT_VALIDATION_POLICY = "complete-grid-price-volume-v1"
 Q = DailyQuote.__table__
 B = DailyQuoteRepairBatch.__table__
 A = DailyQuoteRepairAudit.__table__
@@ -83,7 +84,7 @@ def state_hash(row):
     return None if row is None else digest(row)
 
 
-def normalized_source_row(raw, source):
+def normalized_source_row(raw, source, *, enforce_market_consistency=True):
     if source.get("identity_policy"):
         from app.services.source_identity import IDENTITY_POLICY, verify_row_identity
         if source["identity_policy"] != IDENTITY_POLICY:
@@ -111,6 +112,15 @@ def normalized_source_row(raw, source):
         new["vol"] /= 100
     if source["amount_unit"] == "cny":
         new["amount"] /= 1000
+    if enforce_market_consistency:
+        if (new["vol"] == 0) != (new["amount"] == 0):
+            raise RepairError("来源零量与零成交额必须配对")
+        if new["vol"] > 0:
+            # Canonical units are lots (100 shares) and thousand CNY.
+            average_price = new["amount"] * 10 / new["vol"]
+            tolerance = max(1e-8, max(abs(new["low"]), abs(new["high"])) * 1e-9)
+            if not math.isfinite(average_price) or not new["low"] - tolerance <= average_price <= new["high"] + tolerance:
+                raise RepairError("来源量额均价不在日内价格区间")
     for field in ("turnover_rate", "float_share"):
         if row.get(field) is not None and not valid_field(field, row[field]):
             raise RepairError("来源附加字段无效")
@@ -137,70 +147,180 @@ def _losses(old, new):
     return [f for f in ("turnover_rate", "float_share") if old and valid_field(f, old.get(f)) and new.get(f) is None]
 
 
-def make_repair_plan(conn, snapshot, *, allow_clear_optional=False):
+def _grid_scope(codes, dates):
+    if not isinstance(codes, list) or not isinstance(dates, list) or not codes or not dates or len(dates) > 250:
+        raise RepairError("来源网格范围为空或格式无效")
+    if any(not isinstance(code, str) or not CODE.fullmatch(code) for code in codes):
+        raise RepairError("来源网格证券代码无效")
+    if any(not isinstance(day, str) for day in dates):
+        raise RepairError("来源网格日期无效")
+    if len(set(codes)) != len(codes) or len(set(dates)) != len(dates):
+        raise RepairError("来源网格证券或日期重复")
+    for day in dates:
+        parse_date(day)
+    if len(codes) * len(dates) > 1000000:
+        raise RepairError("来源网格过大")
+    return {(code, day) for code in codes for day in dates}
+
+
+def validate_snapshot_grid(snapshot):
+    """Validate actual input cells; status labels and reported counts are not proof."""
+    from app.services.source_identity import IDENTITY_POLICY
     if snapshot.get("version") != SNAPSHOT_VERSION:
         raise RepairError("来源快照版本不匹配")
-    dates = snapshot.get("dates", [])
-    codes = snapshot.get("codes", [])
-    if not dates or not codes or len(dates) * len(codes) > 1000000:
-        raise RepairError("快照范围为空或过大")
-    for d in dates:
-        parse_date(d)
+    if snapshot.get("source", {}).get("identity_policy") != IDENTITY_POLICY:
+        raise RepairError("新快照缺少原始身份强校验")
+    expected = _grid_scope(snapshot.get("codes"), snapshot.get("dates"))
+    rows = snapshot.get("rows")
+    if not isinstance(rows, list) or len(rows) != len(expected):
+        raise RepairError("来源网格不完整：实际行数与证券×日期范围不符")
+    if "valid_row_count" in snapshot and (type(snapshot["valid_row_count"]) is not int or snapshot["valid_row_count"] != len(expected)):
+        raise RepairError("来源网格有效行汇总不一致")
+    normalized = {}
+    for raw in rows:
+        if not isinstance(raw, dict):
+            raise RepairError("来源网格行格式无效")
+        key = (raw.get("ts_code"), raw.get("trade_date"))
+        if key not in expected or key in normalized:
+            raise RepairError("来源网格存在范围外或重复主键")
+        try:
+            normalized[key] = normalized_source_row(raw, snapshot["source"])
+        except (ValueError, TypeError, KeyError) as exc:
+            raise RepairError("来源网格含无效行情或原始身份") from exc
+    if set(normalized) != expected:
+        raise RepairError("来源网格不完整")
+    return normalized
+
+
+def _input_grid_digest(plan):
+    return digest({"policy": INPUT_VALIDATION_POLICY, "codes": plan["codes"], "dates": plan["dates"],
+                   "source": plan["source"], "cells": plan["input_grid"]})
+
+
+def make_repair_plan(conn, snapshot, *, allow_clear_optional=False):
+    normalized = validate_snapshot_grid(snapshot)
+    dates, codes = snapshot["dates"], snapshot["codes"]
     source = snapshot["source"]
     snapshot_hash = digest(snapshot)
     raw_rows = snapshot.get("rows", [])
-    counts = Counter(_key(r) for r in raw_rows)
     # One bulk read per 400 symbols; no database mutation or per-row network calls.
     existing = {}
     for index in range(0, len(codes), 400):
         query = select(Q).where(Q.c.ts_code.in_(codes[index:index + 400]),
                                 Q.c.trade_date.in_(dates))
         existing.update({_key(r): quote_state(r) for r in conn.execute(query).mappings()})
-    items, skipped = [], []
+    items, skipped, input_grid = [], [], []
     unchanged = 0
     for raw in sorted(raw_rows, key=_key):
         key = _key(raw)
-        if key[0] not in codes or key[1] not in dates or counts[key] != 1:
-            skipped.append({"ts_code": key[0], "trade_date": key[1], "reason": "outside_scope_or_duplicate"})
-            continue
-        try:
-            new = normalized_source_row(raw, source)
-        except (ValueError, TypeError, KeyError):
-            skipped.append({"ts_code": key[0], "trade_date": key[1], "reason": "invalid_source_row"})
-            continue
+        new = normalized[key]
         old = existing.get(key)
+        raw_state = canonical(raw)
+        raw_hash = digest(raw_state)
+        cell = {"ts_code": key[0], "trade_date": key[1], "raw_hash": raw_hash}
+        input_grid.append(cell)
         if _losses(old, new) and not allow_clear_optional:
             skipped.append({"ts_code": key[0], "trade_date": key[1], "reason": "optional_field_loss",
                             "fields": _losses(old, new)})
+            cell.update(disposition="skipped", proof={"raw_values": raw_state, "old_values": old})
             continue
         changed = [f for f in VALUE_FIELDS if old is None or old[f] != new[f]]
         if not changed:
             unchanged += 1
+            cell.update(disposition="unchanged", proof={"raw_values": raw_state, "old_values": old})
             continue
-        raw_state = canonical(raw)
-        raw_hash = digest(raw_state)
+        cell["disposition"] = "insert" if old is None else "update"
         source_json = {"source": source, "snapshot_id": snapshot["id"], "snapshot_hash": snapshot_hash,
                        "raw_values": raw_state, "raw_hash": raw_hash, "normalization_version": PLAN_VERSION,
                        "field_source": {f: raw_hash for f in VALUE_FIELDS}}
         items.append({"operation": "insert" if old is None else "update", "ts_code": key[0], "trade_date": key[1],
                       "old_values": old, "new_values": new, "old_hash": state_hash(old), "new_hash": digest(new),
                       "changed_fields": changed, "source_json": source_json})
-    return {"version": PLAN_VERSION, "id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc).isoformat(),
+    result = {"version": PLAN_VERSION, "id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc).isoformat(),
             "database_identity": database_identity(conn), "source": source, "dates": dates, "codes": codes,
             "snapshot_id": snapshot["id"], "snapshot_hash": snapshot_hash,
-            "policy": {"selection": "single_authoritative_row", "allow_clear_optional": allow_clear_optional},
+            "policy": {"selection": "single_authoritative_row", "allow_clear_optional": allow_clear_optional,
+                       "input_validation": INPUT_VALIDATION_POLICY},
             "summary": {"updates": sum(i["operation"] == "update" for i in items),
                         "inserts": sum(i["operation"] == "insert" for i in items),
                         "unchanged": unchanged, "skipped": len(skipped), "requested_cells": len(codes) * len(dates)},
-            "items": items, "skipped": skipped,
+            "items": items, "skipped": skipped, "input_grid": input_grid,
             "source_requests": snapshot.get("requests", []), "calendar": snapshot.get("calendar", {})}
+    result["input_grid_digest"] = _input_grid_digest(result)
+    return result
 
 
-def validate_plan(plan):
+def _validate_input_grid(plan):
+    from app.services.source_identity import IDENTITY_POLICY
+    if plan.get("source", {}).get("identity_policy") != IDENTITY_POLICY:
+        raise RepairError("新计划缺少原始身份强校验")
+    expected = _grid_scope(plan.get("codes"), plan.get("dates"))
+    cells = plan.get("input_grid")
+    if not isinstance(cells, list) or len(cells) != len(expected):
+        raise RepairError("计划输入网格不完整")
+    counts = Counter()
+    seen = set()
+    writes = {_key(item): item for item in plan["items"]}
+    skipped = {}
+    for item in plan.get("skipped", []):
+        key = _key(item)
+        if key in skipped or key not in expected or item.get("reason") != "optional_field_loss":
+            raise RepairError("计划跳过记录与输入网格不一致")
+        skipped[key] = item
+    for cell in cells:
+        key = _key(cell)
+        if key in seen or key not in expected:
+            raise RepairError("计划输入网格有重复或范围外主键")
+        seen.add(key)
+        disposition = cell.get("disposition")
+        counts[disposition] += 1
+        if key in writes:
+            item = writes[key]
+            if disposition != item["operation"] or cell.get("raw_hash") != item["source_json"]["raw_hash"] or key in skipped:
+                raise RepairError("计划写入与输入网格证明不一致")
+            continue
+        proof = cell.get("proof")
+        if not isinstance(proof, dict) or not isinstance(proof.get("raw_values"), dict):
+            raise RepairError("计划非写入格缺少来源证明")
+        raw, old = proof["raw_values"], proof.get("old_values")
+        if _key(raw) != key or digest(raw) != cell.get("raw_hash"):
+            raise RepairError("计划输入网格来源证明不一致")
+        if not isinstance(old, dict) or set(old) != ROW_FIELDS or _key(old) != key:
+            raise RepairError("计划非写入格缺少完整旧值证明")
+        new = normalized_source_row(raw, plan["source"])
+        if disposition == "unchanged":
+            if old != new or key in skipped:
+                raise RepairError("计划未变化格与输入证明不一致")
+        elif disposition == "skipped":
+            losses = _losses(old, new)
+            if (not losses or plan["policy"]["allow_clear_optional"] or key not in skipped
+                    or skipped[key].get("fields") != losses):
+                raise RepairError("计划可选字段保护与输入证明不一致")
+        else:
+            raise RepairError("计划输入网格处置类型无效")
+    summary = plan["summary"]
+    actual_counts = {"updates": counts["update"], "inserts": counts["insert"],
+                     "unchanged": counts["unchanged"], "skipped": counts["skipped"],
+                     "requested_cells": len(expected)}
+    if (seen != expected or len(writes) != counts["insert"] + counts["update"]
+            or len(skipped) != counts["skipped"] or sum(counts.values()) != len(expected)):
+        raise RepairError("计划输入网格与处置集合不完整")
+    if any(type(summary.get(field)) is not int or summary[field] != count for field, count in actual_counts.items()):
+        raise RepairError("计划输入网格与汇总不一致")
+    if plan.get("input_grid_digest") != _input_grid_digest(plan):
+        raise RepairError("计划输入网格摘要校验失败")
+
+
+def validate_plan(plan, *, allow_legacy=False):
     if plan.get("version") != PLAN_VERSION or plan.get("policy", {}).get("selection") != "single_authoritative_row":
         raise RepairError("修复计划版本或策略无效")
     if not isinstance(plan["policy"].get("allow_clear_optional"), bool):
         raise RepairError("计划附加字段策略格式无效")
+    policy = plan["policy"].get("input_validation")
+    if policy not in (None, INPUT_VALIDATION_POLICY):
+        raise RepairError("计划输入网格验证版本不支持")
+    if policy is None and not allow_legacy:
+        raise RepairError("旧计划缺少完整输入网格证明，请重新生成")
     if len(plan.get("items", [])) > 1000000:
         raise RepairError("修复计划过大")
     for operation, field in (("insert", "inserts"), ("update", "updates")):
@@ -226,7 +346,8 @@ def validate_plan(plan):
             raise RepairError("原始来源校验失败")
         if evidence.get("normalization_version") != PLAN_VERSION or evidence.get("field_source") != {f: evidence["raw_hash"] for f in VALUE_FIELDS}:
             raise RepairError("字段来源血缘不一致")
-        recomputed = normalized_source_row(evidence["raw_values"], evidence["source"])
+        recomputed = normalized_source_row(evidence["raw_values"], evidence["source"],
+                                           enforce_market_consistency=policy == INPUT_VALIDATION_POLICY)
         if recomputed != new or state_hash(old) != item["old_hash"] or digest(new) != item["new_hash"]:
             raise RepairError("新旧值或标准化校验失败")
         changed = [f for f in VALUE_FIELDS if old is None or old[f] != new[f]]
@@ -234,14 +355,39 @@ def validate_plan(plan):
             raise RepairError("字段差异清单不匹配")
         if _losses(old, new) and not plan["policy"].get("allow_clear_optional"):
             raise RepairError("计划会清空已有附加字段")
+    if policy == INPUT_VALIDATION_POLICY:
+        _validate_input_grid(plan)
 
 
-def _preflight(conn, items, expected, lock=True):
-    conflicts = []
+def _full_grid_checks(grid, items):
+    """Bind every frozen disposition to its claimed database state."""
+    writes = {_key(item): item for item in items}
+    checks = []
+    for cell in grid:
+        key = _key(cell)
+        if key in writes:
+            checks.append({**writes[key], "disposition": cell["disposition"]})
+        else:
+            frozen = state_hash(cell["proof"]["old_values"])
+            checks.append({"ts_code": key[0], "trade_date": key[1], "old_hash": frozen,
+                           "new_hash": frozen, "disposition": cell["disposition"]})
+    return checks
+
+
+def _state_mismatches(conn, items, expected, lock=False):
+    mismatches = []
     for item in sorted(items, key=_key):
         current = _read(conn, _key(item), lock)
         if state_hash(current) != item[expected]:
-            conflicts.append({"ts_code": item["ts_code"], "trade_date": item["trade_date"]})
+            mismatch = {"ts_code": item["ts_code"], "trade_date": item["trade_date"]}
+            if "disposition" in item:
+                mismatch["disposition"] = item["disposition"]
+            mismatches.append(mismatch)
+    return mismatches
+
+
+def _preflight(conn, items, expected, lock=True):
+    conflicts = _state_mismatches(conn, items, expected, lock)
     if conflicts:
         raise RepairError(f"发现 {len(conflicts)} 条并发修改冲突；未应用本批次")
 
@@ -276,12 +422,17 @@ def _validate_audits(batch, items):
              "snapshot_id": summary["snapshot_id"], "snapshot_hash": summary["snapshot_hash"],
              "summary": summary, "dates": [i["trade_date"] for i in items],
              "codes": [i["ts_code"] for i in items], "items": items}
-    validate_plan(proof)
+    if batch["policy"].get("input_validation") == INPUT_VALIDATION_POLICY:
+        scope = summary.get("input_grid_scope", {})
+        proof.update(codes=scope.get("codes"), dates=scope.get("dates"),
+                     input_grid=summary.get("input_grid"), input_grid_digest=summary.get("input_grid_digest"),
+                     skipped=summary.get("input_grid_skipped", []))
+    validate_plan(proof, allow_legacy=True)
 
 
 def apply_repair_plan(conn, plan, backup_manifest, *, approved_file_sha256=None):
     """Caller uses writer_connection; all data and audit writes share one transaction."""
-    validate_plan(plan)
+    validate_plan(plan, allow_legacy=True)
     if approved_file_sha256 is not None and (len(approved_file_sha256) != 64 or any(c not in "0123456789abcdef" for c in approved_file_sha256)):
         raise RepairError("已核对文件哈希格式无效")
     _lock_quotes(conn)
@@ -295,13 +446,18 @@ def apply_repair_plan(conn, plan, backup_manifest, *, approved_file_sha256=None)
             raise RepairError("该计划已回滚或状态异常；请重新生成计划")
         return {"batch_id": batch["id"], "status": "already_applied", "plan_hash": batch["plan_hash"],
                 "approved_file_sha256": batch["summary"].get("approved_file_sha256")}
-    if not plan["items"]:
-        return {"batch_id": None, "status": "no_changes"}
     from app.services.source_identity import IDENTITY_POLICY
     if plan.get("source", {}).get("identity_policy") != IDENTITY_POLICY:
         raise RepairError("尚未应用的旧计划缺少原始身份强校验；请保留工件并重新采集生成计划")
+    validate_plan(plan)
+    if not plan["items"]:
+        # An empty change set still makes claims about unchanged/skipped cells.
+        # Verify those claims under the same write lock before reporting success.
+        _preflight(conn, _full_grid_checks(plan["input_grid"], plan["items"]), "old_hash")
+        return {"batch_id": None, "status": "no_changes"}
     _backup_state(conn, backup_manifest)
-    _preflight(conn, plan["items"], "old_hash")
+    checks = _full_grid_checks(plan["input_grid"], plan["items"])
+    _preflight(conn, checks, "old_hash")
     now, batch_id = utc_now(), str(uuid.uuid4())
     before_count = conn.execute(select(func.count()).select_from(Q)).scalar_one()
     conn.execute(insert(B).values(id=batch_id, plan_hash=plan_hash, status="applied", database_identity=identity,
@@ -321,7 +477,7 @@ def apply_repair_plan(conn, plan, backup_manifest, *, approved_file_sha256=None)
                      source_json=item["source_json"], applied_at=now)
         conn.execute(insert(A).values(**audit_record))
         audit_records.append({**audit_record, "rolled_back_at": None})
-    _preflight(conn, plan["items"], "new_hash")
+    _preflight(conn, checks, "new_hash")
     count = conn.execute(select(func.count()).select_from(Q)).scalar_one()
     if count != before_count + plan["summary"]["inserts"]:
         raise RepairError("修复后的行数不匹配")
@@ -330,12 +486,17 @@ def apply_repair_plan(conn, plan, backup_manifest, *, approved_file_sha256=None)
                "plan_id": plan["id"], "plan_version": plan["version"], "source": plan["source"],
                "snapshot_id": plan["snapshot_id"], "snapshot_hash": plan["snapshot_hash"],
                "approved_file_sha256": approved_file_sha256, "audit_hash": _audit_digest(audit_records),
+               "input_grid_scope": {"codes": plan["codes"], "dates": plan["dates"]},
+               "input_grid": plan["input_grid"], "input_grid_digest": plan["input_grid_digest"],
+               "input_grid_skipped": plan["skipped"],
                "affected_hash": digest([(i["ts_code"], i["trade_date"], i["new_hash"]) for i in plan["items"]])}
     conn.execute(update(B).where(B.c.id == batch_id).values(summary=summary))
     stored_batch = conn.execute(select(B).where(B.c.id == batch_id)).mappings().one()
     stored_audits = list(conn.execute(select(A).where(A.c.batch_id == batch_id).order_by(A.c.sequence)).mappings())
     _validate_audits(stored_batch, stored_audits)
-    return {"batch_id": batch_id, "status": "applied", **summary}
+    public_summary = {key: value for key, value in summary.items()
+                      if key not in {"input_grid", "input_grid_scope", "input_grid_skipped"}}
+    return {"batch_id": batch_id, "status": "applied", **public_summary}
 
 
 def rollback_repair_batch(conn, batch_id, backup_manifest):
@@ -351,7 +512,9 @@ def rollback_repair_batch(conn, batch_id, backup_manifest):
     items = [dict(r) for r in conn.execute(select(A).where(A.c.batch_id == batch_id).order_by(A.c.sequence).with_for_update()).mappings()]
     _validate_audits(batch, items)
     # Check every row before any mutation; later edits to any field are protected.
-    _preflight(conn, items, "new_hash")
+    checks = (_full_grid_checks(batch["summary"]["input_grid"], items)
+              if batch["policy"].get("input_validation") == INPUT_VALIDATION_POLICY else items)
+    _preflight(conn, checks, "new_hash")
     before_count = conn.execute(select(func.count()).select_from(Q)).scalar_one()
     for item in reversed(items):
         if item["old_values"] is None:
@@ -365,7 +528,7 @@ def rollback_repair_batch(conn, batch_id, backup_manifest):
                                      tuple(old[f] for f in VALUE_FIELDS) + _key(item))
             else:
                 conn.execute(update(Q).where(_where(_key(item))).values(**{f: old[f] for f in VALUE_FIELDS}))
-    _preflight(conn, items, "old_hash")
+    _preflight(conn, checks, "old_hash")
     current_audits = list(conn.execute(select(A).where(A.c.batch_id == batch_id).order_by(A.c.sequence).with_for_update()).mappings())
     _validate_audits(batch, current_audits)
     count = conn.execute(select(func.count()).select_from(Q)).scalar_one()
@@ -387,13 +550,16 @@ def verify_repair_batch(conn, batch_id):
         raise RepairError("批次状态异常")
     items = list(conn.execute(select(A).where(A.c.batch_id == batch_id).order_by(A.c.sequence)).mappings())
     expected = "old_hash" if batch["status"] == "rolled_back" else "new_hash"
-    mismatches = [{"ts_code": i["ts_code"], "trade_date": i["trade_date"]} for i in items
-                  if state_hash(_read(conn, _key(i))) != i[expected]]
     try:
         _validate_audits(batch, items)
         integrity = True
     except (ValueError, TypeError, KeyError):
         integrity = False
+    full_grid = integrity and batch["policy"].get("input_validation") == INPUT_VALIDATION_POLICY
+    checks = _full_grid_checks(batch["summary"]["input_grid"], items) if full_grid else items
+    mismatches = _state_mismatches(conn, checks, expected)
     return {"batch_id": batch_id, "status": batch["status"], "audit_rows": len(items),
             "plan_hash": batch["plan_hash"], "approved_file_sha256": batch["summary"].get("approved_file_sha256"),
-            "audit_integrity": integrity, "matches": not mismatches and integrity, "mismatches": mismatches}
+            "audit_integrity": integrity, "matches": not mismatches and integrity, "mismatches": mismatches,
+            "verification_scope": "full_input_grid" if full_grid else "written_audit_rows",
+            "scope_rows": len(checks)}

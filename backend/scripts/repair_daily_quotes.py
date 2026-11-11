@@ -20,6 +20,7 @@ from app.models.stock import StockBasic
 from app.models.daily_quote_repair import DailyQuoteRepairAudit, DailyQuoteRepairBatch
 from app.services.daily_quote_repair_service import (
     RepairError, apply_repair_plan, make_repair_plan, rollback_repair_batch, validate_plan, verify_repair_batch,
+    validate_snapshot_grid,
 )
 from app.services.market_data_quality_service import CODE, readonly_connection
 from app.services.quote_repair_io import QuoteRepairIOError, create_backup, database_identity, writer_connection
@@ -150,6 +151,7 @@ def main(argv=None):
                 raise RepairError("来源冻结批次不完整，禁止以部分响应生成可执行计划")
             if not snapshot.get("rows") or snapshot.get("outcome") in ("failed", "no_data", "unsupported"):
                 raise RepairError("来源快照没有有效修复数据；请先处理上游空数据或失败")
+            validate_snapshot_grid(snapshot)
             with readonly_connection(url, args.app_cwd) as (conn, _):
                 if snapshot.get("target_at_fetch") not in (None, database_identity(conn)):
                     raise RepairError("快照采集目标与当前库不一致")
@@ -176,7 +178,9 @@ def main(argv=None):
                         raise RepairError("审计表未初始化；先迁移schema")
                 if args.command == "apply":
                     plan = load_json(args.plan, args.plan_sha256)
-                    validate_plan(plan)
+                    # Service permits idempotent lookup of an already-applied
+                    # legacy plan, but requires full new proof before new writes.
+                    validate_plan(plan, allow_legacy=True)
                     if identity != plan["database_identity"]:
                         raise RepairError("计划不属于当前数据库")
             manifest = _backup(url, args.app_cwd, args.backup_dir)
