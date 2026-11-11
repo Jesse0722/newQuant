@@ -9,6 +9,9 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.models.message import MessageOpportunity, MessageSourceItem, MessageTopic
+from app.models.message import MessageEvidence, MessageAgentRun
+from app.services.message_source_policy import source_policy
+from app.services.message_llm_validation import anchored_quote
 from app.models.stock import StockBasic
 from app.schemas.message import (
     MessageAggregationResult,
@@ -25,6 +28,7 @@ from app.services.message_evidence_service import (
     ensure_rule_evidence_for_source_items,
     link_opportunity_evidence,
     record_rule_evidence_batch_run,
+    MANUAL_REVIEW_AGENT,
 )
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
@@ -173,6 +177,7 @@ def _upsert_aggregated_opportunity(
     ts_code: str,
     stock_name: str | None,
     items: list[MessageSourceItem],
+    evidence_rows: list[MessageEvidence] | None = None,
 ) -> MessageOpportunity:
     channels = sorted({item.channel for item in items})
     channel_bonus = min(16, max(0, len(channels) - 1) * 8)
@@ -186,6 +191,21 @@ def _upsert_aggregated_opportunity(
     mapping_confidence = _clamp_score(55 + channel_bonus + min(20, len(items) * 4))
     opportunity_score = _clamp_score(heat_score * 0.55 + credibility_score * 0.35 - risk_score * 0.15 + channel_bonus)
     action_suggestion = "add_to_pool" if opportunity_score >= 80 and risk_score < 70 else "watch"
+    policy = source_policy([
+        {"channel": row.channel, "stance": row.stance, "confidence": row.confidence,
+         "source_item_id": row.source_item_id,
+         "url": next((item.url for item in items if item.id == row.source_item_id), None)}
+        for row in (evidence_rows or [])
+    ])
+    if policy["social_only"]:
+        opportunity_score = min(opportunity_score, 69)
+        action_suggestion = "watch"
+    if policy["official_contradiction"]:
+        risk_score = max(risk_score, 85)
+        opportunity_score = min(opportunity_score, 39)
+    elif policy["contradiction_count"]:
+        risk_score = max(risk_score, 65)
+        opportunity_score = min(opportunity_score, 49)
     if risk_score >= 70:
         action_suggestion = "risk_watch"
 
@@ -205,6 +225,8 @@ def _upsert_aggregated_opportunity(
         )
         .first()
     )
+    mappings = [(item.raw_payload or {}).get("entity_mapping", {}) for item in items]
+    needs_mapping_review = any(mapping.get("review_status") == "needs_review" for mapping in mappings)
     values = {
         "topic_id": topic.id,
         "trade_date": trade_date,
@@ -220,17 +242,31 @@ def _upsert_aggregated_opportunity(
         "action_suggestion": action_suggestion,
         "reason": reason,
         "catalysts": catalysts,
-        "risks": ["消息热度变化快，需等待买点雷达确认"],
+        "risks": ["消息热度变化快，需等待买点雷达确认"] + (
+            ["存在官方反证，进入风险观察"] if policy["official_contradiction"] else []
+        ) + (["当前仅有社媒线索，待权威来源验证"] if policy["social_only"] else []),
         "source_platforms": channels,
         "source_links": source_links,
-        "review_status": "reviewed",
+        "review_status": "needs_review" if needs_mapping_review else "reviewed",
         "generated_by": "rule",
+        "status": "active",
     }
     if existing:
         if existing.review_status in {"accepted", "dismissed"}:
             return existing
+        human_reviewed = (
+            existing.review_reason is not None or existing.generated_by in {None, "manual"}
+            or db.query(MessageAgentRun.id).filter(
+                MessageAgentRun.agent_name == MANUAL_REVIEW_AGENT,
+                MessageAgentRun.input_ref_type == "opportunity",
+                MessageAgentRun.input_ref_id == existing.id,
+                MessageAgentRun.status == "success",
+            ).first() is not None
+        )
         for key, value in values.items():
-            if key == "review_status" and existing.review_status:
+            # Calculated scores/reasons may refresh. Human review status/reason,
+            # timestamps and accepted/dismissed decisions remain authoritative.
+            if key in {"review_status", "generated_by"} and human_reviewed:
                 continue
             setattr(existing, key, value)
         return existing
@@ -252,14 +288,27 @@ def aggregate_source_items(db: Session, trade_date: str) -> MessageAggregationRe
         )
         .all()
     )
+    ensure_rule_evidence_for_source_items(db, items)
+    db.flush()
+    evidence_rows = db.query(MessageEvidence).filter(
+        MessageEvidence.source_item_id.in_([item.id for item in items]),
+        MessageEvidence.status == "active",
+    ).all() if items else []
+    item_by_id = {item.id: item for item in items}
+    evidence_by_source_id: dict[str, list] = {}
+    for evidence in evidence_rows:
+        item = item_by_id[evidence.source_item_id]
+        try:
+            anchored_quote(evidence.evidence_text, item.title, item.content)
+        except ValueError:
+            evidence.status = "ignored"
+            continue
+        evidence_by_source_id.setdefault(evidence.source_item_id, []).append(evidence)
+    items = [item for item in items if evidence_by_source_id.get(item.id)]
     grouped_by_theme: dict[str, list[MessageSourceItem]] = {}
     for item in items:
         if item.theme:
             grouped_by_theme.setdefault(item.theme, []).append(item)
-    evidence_rows = ensure_rule_evidence_for_source_items(db, items)
-    evidence_by_source_id: dict[str, list] = {}
-    for evidence in evidence_rows:
-        evidence_by_source_id.setdefault(evidence.source_item_id, []).append(evidence)
 
     topics: dict[str, MessageTopic] = {}
     for theme, theme_items in grouped_by_theme.items():
@@ -290,6 +339,12 @@ def aggregate_source_items(db: Session, trade_date: str) -> MessageAggregationRe
             opportunity_groups.setdefault((item.theme, item.ts_code), []).append(item)
 
     opportunities: list[MessageOpportunity] = []
+    for old in db.query(MessageOpportunity).filter(
+        MessageOpportunity.trade_date == trade_date, MessageOpportunity.generated_by == "rule",
+        MessageOpportunity.review_status.notin_(["accepted", "dismissed"]),
+    ).all():
+        if (old.theme, old.ts_code) not in opportunity_groups:
+            old.status = "inactive"
     for (theme, ts_code), opp_items in opportunity_groups.items():
         topic = topics.get(theme)
         if not topic:
@@ -302,6 +357,7 @@ def aggregate_source_items(db: Session, trade_date: str) -> MessageAggregationRe
             ts_code=ts_code,
             stock_name=opp_items[0].stock_name,
             items=opp_items,
+            evidence_rows=[evidence for item in opp_items for evidence in evidence_by_source_id.get(item.id, [])],
         )
         db.flush()
         opportunity_evidence = [

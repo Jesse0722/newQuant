@@ -28,6 +28,7 @@ app.add_exception_handler(AppError, app_error_handler)
 from app.routers import (
     alerts,
     dashboard,
+    health,
     data,
     industry_reports,
     market,
@@ -44,6 +45,7 @@ from app.routers import (
 )
 
 app.include_router(pools.router)
+app.include_router(health.router)
 app.include_router(sync.router)
 app.include_router(monitor.router)
 app.include_router(alerts.router)

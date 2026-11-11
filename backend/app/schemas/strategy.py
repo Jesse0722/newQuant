@@ -114,7 +114,10 @@ class StrategyBacktestResult(BaseModel):
     avg_return_1d: float = 0.0
     avg_return_3d: float = 0.0
     avg_return_5d: float = 0.0
-    max_drawdown: float = 0.0
+    max_drawdown: Optional[float] = None
+    worst_return_5d: float = 0.0
+    evaluation_basis: str = "signal_close_forward_return"
+    disclaimer: str = "信号当日收盘价的后验收益；不含成交可得性、滑点、费用及组合仓位，不代表可执行策略净值。"
     profit_factor: float = 0.0
     signals: list[StrategyBacktestSignal] = []
 

@@ -471,7 +471,7 @@ def test_llm_evidence_cleaner_uses_deepseek_and_sanitizes(monkeypatch):
           "ts_code": "300475.SZ",
           "entities": [{"type": "product", "name": "HBM", "confidence": 80}],
           "evidence": [
-            {"text": "HBM supply remains tight，确定买入", "stance": "support", "confidence": 78}
+            {"text": "HBM supply remains tight，确定买入", "text_kind": "summary", "source_quote": "HBM supply remains tight", "stance": "support", "confidence": 78}
           ],
           "risk_flags": ["weak_mapping"]
         }
@@ -500,7 +500,9 @@ def test_llm_evidence_cleaner_uses_deepseek_and_sanitizes(monkeypatch):
     assert len(evidence) == 1
     assert evidence[0]["extractor_name"] == "llm_evidence_cleaner"
     assert "确定买入" not in evidence[0]["evidence_text"]
-    assert "待验证" in evidence[0]["evidence_text"]
+    assert evidence[0]["evidence_text"] == "HBM supply remains tight"
+    assert "待验证" in evidence[0]["raw_json"]["model_summary"]
+    assert evidence[0]["raw_json"]["text_kind"] == "quote"
     assert evidence[0]["raw_json"]["risk_flags"] == ["weak_mapping"]
 
 
@@ -639,6 +641,39 @@ def test_agent_daily_report_can_use_deepseek_and_sanitize(monkeypatch):
     assert "确定买入" not in text
     assert "稳赚" not in text
     assert "无风险" not in text
+
+
+def test_agent_daily_rejects_unknown_action_and_retains_failure_audit(monkeypatch):
+    client = _client()
+    imported = client.post("/api/messages/source-items/import", json={"aggregate": True, "items": [{
+        "trade_date": "20261111", "channel": "announcement", "theme": "AI服务器", "ts_code": "601138.SH",
+        "content": "公司披露AI服务器产品交付进度，相关业务增量仍需持续验证。"
+    }]})
+    assert imported.status_code == 201
+    raw = '{"headline":"待验证","summary":"观察候选","next_actions":["补证","开盘全仓买入并追涨"]}'
+    monkeypatch.setattr("app.services.message_evidence_service.call_llm_model", lambda *a, **k: raw)
+    response = client.post("/api/messages/agent-daily/generate", json={"trade_date": "20261111", "use_llm": True})
+    assert response.status_code == 200
+    report = response.json()
+    assert report["model_provider"] == "rules"
+    assert set(report["next_actions"]) <= {"观察", "补证", "加入观察池等待买点雷达确认", "风险观察"}
+    runs = client.get("/api/message-agents/runs?agent_name=message_daily_reporter&trade_date=20261111").json()
+    assert runs[0]["status"] == "failed" and runs[0]["output_json"]["raw_response"] == raw
+
+
+def test_agent_daily_normalizes_known_research_action_aliases(monkeypatch):
+    client = _client()
+    client.post("/api/messages/source-items/import", json={"aggregate": True, "items": [{
+        "trade_date": "20261111", "channel": "announcement", "theme": "AI服务器", "ts_code": "601138.SH",
+        "content": "公司披露AI服务器产品交付进度，相关业务增量仍需持续验证。"
+    }]})
+    monkeypatch.setattr("app.services.message_evidence_service.call_llm_model", lambda *a, **k: '''{
+        "headline":"待验证", "summary":"观察候选", "next_actions":["继续观察","补充证据","加入观察池后等待买点雷达确认"]
+    }''')
+    response = client.post("/api/messages/agent-daily/generate", json={"trade_date": "20261111", "use_llm": True})
+    assert response.status_code == 200
+    assert response.json()["model_provider"] == "deepseek"
+    assert response.json()["next_actions"] == ["观察", "补证", "加入观察池等待买点雷达确认"]
 
 
 def test_x_seed_summary_exposes_keyword_and_account_pool():

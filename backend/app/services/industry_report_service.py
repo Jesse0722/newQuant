@@ -14,15 +14,18 @@ from app.models.message import (
     MessageEntity,
     MessageEvidence,
     MessageRelation,
+    MessageSourceItem,
     MessageTopic,
 )
 from app.models.stock import StockBasic
 from app.services.core_watch_service import toggle_core_watch_star
 from app.services.llm_client import call_llm_model
-from app.services.message_graph_service import find_paths, import_seed_graph
+from app.services.message_graph_service import find_paths, import_seed_graph, relation_is_effective, relation_evidence_as_of, source_item_available_on
 from app.services.message_service import today_yyyymmdd
+from app.services.message_source_policy import source_policy
+from app.services.message_llm_validation import IndustryReportOutput, anchored_quote
 
-PROMPT_VERSION = "1.0"
+PROMPT_VERSION = "1.2"
 DEFAULT_START_ENTITIES = ["Rubin", "AI capex", "HBM", "AI算力", "人形机器人"]
 REPORT_PROMPT = """你是A股产业链研究助手。请只基于输入 JSON 生成结构化日报。
 
@@ -31,6 +34,7 @@ REPORT_PROMPT = """你是A股产业链研究助手。请只基于输入 JSON 生
 2. 不得承诺收益，不得输出确定买入/卖出。
 3. 区分强证据、中证据、弱证据和风险观察。
 4. 如果证据不足，必须明确写“待验证”。
+5. next_actions 仅允许：观察、补证、加入观察池等待买点雷达确认、风险观察。
 
 输出格式：
 {
@@ -83,14 +87,17 @@ def _start_entities(db: Session, trade_date: str) -> list[str]:
     return names
 
 
-def _stock_business_relations(db: Session) -> list[tuple[MessageEntity, MessageEntity, MessageRelation]]:
+def _stock_business_relations(db: Session, *, as_of: str | None = None, evidence_by_relation: dict | None = None) -> list[tuple[MessageEntity, MessageEntity, MessageRelation]]:
     result: list[tuple[MessageEntity, MessageEntity, MessageRelation]] = []
+    eligible_evidence = relation_evidence_as_of(db, as_of=as_of) if evidence_by_relation is None else evidence_by_relation
     relations = db.query(MessageRelation).filter(MessageRelation.relation_type == "maps_to", MessageRelation.status == "active").all()
     for relation in relations:
-        stock = db.query(MessageEntity).filter(MessageEntity.id == relation.source_entity_id, MessageEntity.entity_type == "stock").first()
+        if not relation_is_effective(relation, as_of) or not eligible_evidence.get(relation.id):
+            continue
+        stock = db.query(MessageEntity).filter(MessageEntity.id == relation.source_entity_id, MessageEntity.entity_type == "stock", MessageEntity.status == "active").first()
         if not stock:
             continue
-        business = db.query(MessageEntity).filter(MessageEntity.id == relation.target_entity_id).first()
+        business = db.query(MessageEntity).filter(MessageEntity.id == relation.target_entity_id, MessageEntity.status == "active").first()
         if business:
             result.append((stock, business, relation))
     return result
@@ -105,13 +112,28 @@ def _message_evidence_for_candidate(db: Session, trade_date: str, ts_code: str |
             MessageEvidence.trade_date == trade_date,
             MessageEvidence.status == "active",
             MessageEvidence.ts_code == ts_code,
+            MessageEvidence.theme == theme,
         )
+        .join(MessageSourceItem, MessageSourceItem.id == MessageEvidence.source_item_id)
+        .filter(MessageSourceItem.status.in_(["new", "processed"]))
         .order_by(MessageEvidence.confidence.desc(), MessageEvidence.credibility_score.desc())
-        .limit(5)
+        .limit(30)
         .all()
     )
-    exact = [row for row in rows if row.theme == theme]
-    return (exact or rows)[:3]
+    source_by_id = {row.id: row for row in db.query(MessageSourceItem).filter(
+        MessageSourceItem.id.in_([row.source_item_id for row in rows])
+    ).all()}
+    supported = []
+    for row in rows:
+        row.source_item = source_by_id.get(row.source_item_id)
+        if not source_item_available_on(row.source_item, trade_date):
+            continue
+        try:
+            anchored_quote(row.evidence_text, row.source_item.title, row.source_item.content)
+        except (AttributeError, ValueError):
+            continue
+        supported.append(row)
+    return supported
 
 
 def _message_evidence_json(rows: list[MessageEvidence]) -> list[dict]:
@@ -126,6 +148,11 @@ def _message_evidence_json(rows: list[MessageEvidence]) -> list[dict]:
             "theme": row.theme,
             "evidence_text": row.evidence_text,
             "stance": row.stance,
+            "channel": row.channel,
+            "url": getattr(row, "source_item", None).url if getattr(row, "source_item", None) else None,
+            "source_name": getattr(row, "source_item", None).source_name if getattr(row, "source_item", None) else None,
+            "extraction_method": row.extraction_method,
+            "evidence_kind": "quote",
         }
         for row in rows
     ]
@@ -133,14 +160,15 @@ def _message_evidence_json(rows: list[MessageEvidence]) -> list[dict]:
 
 def _build_candidate_rows(db: Session, trade_date: str) -> list[dict]:
     topic_by_theme = _topic_lookup(db, trade_date)
+    eligible_relation_evidence = relation_evidence_as_of(db, as_of=trade_date)
     paths_by_end: dict[str, list] = {}
     for start in _start_entities(db, trade_date):
-        for path in find_paths(db, start, max_depth=3):
+        for path in find_paths(db, start, max_depth=3, as_of=trade_date):
             paths_by_end.setdefault(path.end, []).append(path)
 
     candidates: list[dict] = []
     seen: set[tuple[str, str]] = set()
-    for stock, business, stock_relation in _stock_business_relations(db):
+    for stock, business, stock_relation in _stock_business_relations(db, as_of=trade_date, evidence_by_relation=eligible_relation_evidence):
         paths = paths_by_end.get(business.name) or []
         if not paths:
             continue
@@ -152,14 +180,19 @@ def _build_candidate_rows(db: Session, trade_date: str) -> list[dict]:
         seen.add(key)
 
         topic = topic_by_theme.get(theme)
-        path_score = _clamp((best_path.score * 0.75) + (stock_relation.confidence * 0.25))
+        terminal_evidence = eligible_relation_evidence[stock_relation.id]
+        stock_confidence = min(stock_relation.confidence, max(row["confidence"] for row in terminal_evidence))
+        path_score = _clamp((best_path.score * 0.75) + (stock_confidence * 0.25))
         message_evidence_rows = _message_evidence_for_candidate(db, trade_date, stock.ts_code, theme)
-        graph_evidence_score = _clamp(mean([step.confidence for step in best_path.steps] + [stock_relation.confidence]))
-        message_evidence_score = (
-            _clamp(mean([row.confidence for row in message_evidence_rows]))
-            if message_evidence_rows
-            else 0
-        )
+        graph_evidence_score = _clamp(mean([step.confidence for step in best_path.steps] + [stock_confidence]))
+        message_json = _message_evidence_json(message_evidence_rows)
+        live_graph_evidence = [dict(evidence, stance="contradiction" if step.relation == "refutes" else "support")
+                               for path in paths for step in path.steps for evidence in step.evidence
+                               if evidence.get("extraction_method") != "seed" and evidence.get("source_trade_date") == trade_date]
+        live_graph_evidence.extend(dict(evidence, stance="support") for evidence in terminal_evidence
+                                   if not evidence["static_mapping"] and evidence.get("source_trade_date") == trade_date)
+        policy = source_policy([*message_json, *live_graph_evidence])
+        message_evidence_score = _clamp(mean(policy["support_confidences"])) if policy["support_confidences"] else 0
         evidence_score = (
             _clamp(graph_evidence_score * 0.65 + message_evidence_score * 0.35)
             if message_evidence_rows
@@ -179,34 +212,43 @@ def _build_candidate_rows(db: Session, trade_date: str) -> list[dict]:
             1,
         )
         grade = _grade(final_score, evidence_score, risk_score)
+        weak_semantics = any(step.relation == "mentions" for step in best_path.steps)
+        refuted_path = any(step.relation == "refutes" for path in paths for step in path.steps)
+        if policy["seed_only"] or policy["social_only"] or weak_semantics:
+            grade = "weak"
+            final_score = min(final_score, 59.0)
+            evidence_score = min(evidence_score, 59)
+        if policy["contradiction_count"] or policy["risk_count"]:
+            risk_score = max(risk_score, 65)
+            final_score = min(final_score, 49.0)
+            grade = "weak"
+        if policy["official_contradiction"] or refuted_path:
+            risk_score = max(risk_score, 85)
+            final_score = min(final_score, 39.0)
+            grade = "risk_watch"
         stock_basic = db.query(StockBasic).filter(StockBasic.ts_code == stock.ts_code).first() if stock.ts_code else None
         path_json = [step.model_dump() for step in best_path.steps] + [
             {
                 "source": business.name,
                 "relation": stock_relation.relation_type,
                 "target": stock.name,
-                "confidence": stock_relation.confidence,
-                "strength": stock_relation.strength,
+                "confidence": stock_confidence,
+                "strength": min(stock_relation.strength, stock_confidence),
+                "relation_id": stock_relation.id,
+                "source_type": stock_relation.source_type,
+                "evidence": terminal_evidence,
             }
         ]
         evidence_json = [
-            {
-                "source": step.source,
-                "relation": step.relation,
-                "target": step.target,
-                "confidence": step.confidence,
-            }
-            for step in best_path.steps
+            dict(evidence, relation=step.relation, source=step.source, target=step.target)
+            for step in best_path.steps for evidence in step.evidence
         ]
-        evidence_json.append(
-            {
-                "source": business.name,
-                "relation": stock_relation.relation_type,
-                "target": stock.name,
-                "confidence": stock_relation.confidence,
-            }
-        )
-        evidence_json.extend(_message_evidence_json(message_evidence_rows))
+        evidence_json.extend(dict(evidence, source=business.name, relation=stock_relation.relation_type,
+                                  target=stock.name) for evidence in terminal_evidence)
+        evidence_json.extend(message_json)
+        included_ids = {row.get("evidence_id") for row in evidence_json}
+        evidence_json.extend(row for row in live_graph_evidence
+                             if row["stance"] == "contradiction" and row.get("evidence_id") not in included_ids)
         message_evidence_note = (
             f"，并匹配到 {len(message_evidence_rows)} 条当日舆情证据"
             if message_evidence_rows
@@ -228,7 +270,11 @@ def _build_candidate_rows(db: Session, trade_date: str) -> list[dict]:
                 "final_score": final_score,
                 "grade": grade,
                 "reason": f"{stock_basic.name if stock_basic else stock.name} 通过 {business.name} 映射到 {theme}，路径证据分 {evidence_score}{message_evidence_note}。",
-                "risks": _candidate_risks(grade, evidence_score, crowding_score),
+                "risks": _candidate_risks(grade, evidence_score, crowding_score) + (
+                    ["存在官方反证，进入风险观察"] if policy["official_contradiction"] else []
+                ) + (["只有社媒来源，待公告或权威媒体验证"] if policy["social_only"] else []) + (
+                    ["仅有种子产业映射，不代表当日催化"] if policy["seed_only"] else []
+                ) + (["路径仅共现或含反证，不能推断业务增量"] if weak_semantics or refuted_path else []),
             }
         )
     return sorted(candidates, key=lambda row: (-row["final_score"], row["risk_score"], row["ts_code"]))[:20]
@@ -266,14 +312,17 @@ def _json_from_llm(text: str) -> dict:
 
 def _rule_report_json(candidates: list[dict]) -> dict:
     return {
-        "core_catalysts": sorted({row["theme"] for row in candidates})[:6],
+        "core_catalysts": sorted({row["theme"] for row in candidates if any(
+            evidence.get("extraction_method") != "seed" and evidence.get("stance") == "support"
+            for evidence in row["evidence_json"]
+        )})[:6],
         "candidate_count": len(candidates),
         "grade_counts": {
             grade: len([row for row in candidates if row["grade"] == grade])
             for grade in ["strong", "medium", "weak", "risk_watch"]
         },
         "risk_flags": sorted({risk for row in candidates for risk in row["risks"]})[:8],
-        "next_actions": ["优先查看 strong/medium 候选", "加入观察池后等待买点雷达确认", "弱证据候选需补充公告或权威媒体证据"],
+        "next_actions": ["观察", "加入观察池等待买点雷达确认", "补证"],
     }
 
 
@@ -293,11 +342,18 @@ def _build_llm_payload(trade_date: str, candidates: list[dict]) -> dict:
                 "path": row["path_json"][:4],
                 "risks": row["risks"][:4],
                 "reason": row["reason"],
+                "evidence": row["evidence_json"][:20],
             }
             for row in candidates[:12]
         ],
         "source_policy": "候选仅用于研究观察，必须等待买点雷达与人工复核，不构成投资建议。",
     }
+
+
+class ReportOutputError(ValueError):
+    def __init__(self, error: Exception, raw_response: str | None):
+        super().__init__(str(error))
+        self.raw_response = raw_response
 
 
 def _generate_llm_report_json(trade_date: str, candidates: list[dict]) -> tuple[dict, str | None]:
@@ -308,8 +364,29 @@ def _generate_llm_report_json(trade_date: str, candidates: list[dict]) -> tuple[
         model=INDUSTRY_REPORT_MODEL,
         temperature=0.1,
     )
-    data = _json_from_llm(raw)
-    return _sanitize_llm_report_json(data, len(candidates)), raw
+    try:
+        data = _json_from_llm(raw)
+        result = _sanitize_llm_report_json(data, len(candidates))
+        supplied = candidates[:12]
+        allowed_codes = {row["ts_code"] for row in supplied}
+        if any(row["ts_code"] not in allowed_codes for row in result["candidate_summary"]):
+            raise ValueError("LLM report contains a candidate outside its input")
+        allowed_themes = {row["theme"] for row in supplied}
+        if any(theme not in allowed_themes for theme in result["core_catalysts"]):
+            raise ValueError("LLM report contains an unsupported theme")
+        allowed_edges = {(step["source"], step["target"]) for row in supplied for step in row["path_json"][:4]}
+        for path in result["industry_paths"]:
+            if path["theme"] not in allowed_themes or any(edge not in allowed_edges for edge in zip(path["path"], path["path"][1:])):
+                raise ValueError("LLM report contains a path outside its input")
+            if not any(row["grade"] == "strong" and row["theme"] == path["theme"] for row in supplied):
+                path["evidence_level"] = "weak" if all(row["grade"] == "weak" for row in supplied if row["theme"] == path["theme"]) else "medium"
+        # Grades belong to the deterministic scorer, never to the model.
+        grades = {row["ts_code"]: row["grade"] for row in candidates}
+        for row in result["candidate_summary"]:
+            row["grade"] = grades[row["ts_code"]]
+        return result, raw
+    except Exception as exc:
+        raise ReportOutputError(exc, raw) from exc
 
 
 def _safe_text(value, limit: int = 200) -> str | None:
@@ -337,8 +414,7 @@ def _safe_list(value, limit: int = 8) -> list[str]:
 
 
 def _sanitize_llm_report_json(data: dict, candidate_count: int) -> dict:
-    if not isinstance(data, dict):
-        raise ValueError("LLM report must be a JSON object")
+    data = IndustryReportOutput.model_validate(data).model_dump()
     candidate_summary = []
     for item in data.get("candidate_summary") or []:
         if not isinstance(item, dict):
@@ -388,26 +464,48 @@ def generate_industry_report(
     candidates = _build_candidate_rows(db, resolved_date)
     top = candidates[0] if candidates else None
     headline = f"今日主线：{top['theme']}" if top else "暂无可归档的产业链主线"
+    seed_only = bool(candidates) and all(
+        all(evidence.get("extraction_method") == "seed" for evidence in row["evidence_json"])
+        for row in candidates
+    )
+    if seed_only:
+        headline = f"产业链映射观察：{top['theme']}（待当日证据）"
     summary = (
         f"系统基于产业链种子图谱和当日消息热度生成 {len(candidates)} 个候选标的，所有候选仍需结合买点雷达确认。"
         if candidates
         else "当前图谱路径和消息数据不足，暂未生成候选标的。"
     )
+    if seed_only:
+        summary = f"当前 {len(candidates)} 个候选仅来自产业链种子映射，缺少当日事实证据，不能作为当日催化。"
     report_json = _rule_report_json(candidates)
     model_provider = "rules"
     model_name = "deterministic-graphrag-lite"
     error_message = None
+    raw_response = None
+    input_snapshot = {"prompt_version": PROMPT_VERSION, "trade_date": resolved_date,
+                      "candidates": candidates, "llm_payload": _build_llm_payload(resolved_date, candidates)}
     should_use_llm = INDUSTRY_REPORT_LLM_ENABLED if use_llm is None else use_llm
-    if should_use_llm and candidates:
+    llm_attempted = bool(should_use_llm and candidates)
+    if llm_attempted:
         try:
-            llm_json, _raw = _generate_llm_report_json(resolved_date, candidates)
+            llm_json, raw_response = _generate_llm_report_json(resolved_date, candidates)
+            llm_json["risk_flags"] = list(dict.fromkeys([*report_json.get("risk_flags", []), *llm_json.get("risk_flags", [])]))
             report_json = {**report_json, **llm_json}
             headline = llm_json.get("headline") or headline
             summary = llm_json.get("summary") or summary
             model_provider = INDUSTRY_REPORT_MODEL_PROVIDER
             model_name = INDUSTRY_REPORT_MODEL
         except Exception as exc:
+            raw_response = getattr(exc, "raw_response", None)
             error_message = f"LLM日报生成失败，已回退规则版：{str(exc)[:200]}"
+
+    from app.services.message_evidence_service import create_agent_run
+    create_agent_run(db, agent_name="industry_daily_reporter", agent_version=PROMPT_VERSION,
+                     trade_date=resolved_date, input_snapshot=input_snapshot, raw_response=raw_response,
+                     output_json=report_json, model_provider=INDUSTRY_REPORT_MODEL_PROVIDER if llm_attempted else model_provider,
+                     model_name=INDUSTRY_REPORT_MODEL if llm_attempted else model_name,
+                     prompt_version=PROMPT_VERSION, status="success_with_fallback" if error_message else "success",
+                     error_message=error_message)
 
     report = db.query(IndustryDailyReport).filter(IndustryDailyReport.trade_date == resolved_date).first()
     values = {
@@ -416,6 +514,8 @@ def generate_industry_report(
         "headline": headline,
         "summary": summary,
         "report_json": report_json,
+        "input_snapshot": input_snapshot,
+        "raw_response": raw_response,
         "model_provider": model_provider,
         "model_name": model_name,
         "prompt_version": PROMPT_VERSION,

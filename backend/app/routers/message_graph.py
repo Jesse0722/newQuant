@@ -32,6 +32,7 @@ def extract_relations(body: GraphExtractRequest, db: Session = Depends(get_db)):
         limit=body.limit,
         provider=body.provider,
         model=body.model,
+        force=body.force,
     )
 
 

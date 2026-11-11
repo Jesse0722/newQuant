@@ -4,6 +4,7 @@ from __future__ import annotations
 import types
 from datetime import datetime, timedelta
 import time
+import math
 import pandas as pd
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -19,6 +20,8 @@ from app.services.tushare_adapter import tushare_adapter
 from app.services.limit_up_service import fetch_limit_up_stocks_in_range
 from app.services.monitor_engine import _get_df, evaluate_template, TEMPLATE_INFO
 from app.services.sync_service import sync_stock_info, sync_daily, _sync_stock_basic_full
+from app.services.market_data_capabilities import configured_providers, provider_capabilities
+from app.services.market_data_quality_service import CORE, CODE
 from app.tasks.background import task_registry
 
 # 涨停回调买点选股可用模板（需 limit_up_date 的用虚拟 watch_stock 传入）
@@ -62,18 +65,40 @@ def _chunked(values: list[str], size: int) -> list[list[str]]:
 def _get_df_from_db(db: Session, ts_code: str, limit: int = 250) -> pd.DataFrame:
     rows = db.query(DailyQuote).filter(
         DailyQuote.ts_code == ts_code
-    ).order_by(DailyQuote.trade_date.asc()).limit(limit).all()
+    ).order_by(DailyQuote.trade_date.desc()).limit(limit).all()
+    rows.reverse()
     if not rows:
         return pd.DataFrame()
     data = [{"trade_date": r.trade_date, "open": r.open, "high": r.high, "low": r.low,
-             "close": r.close, "pre_close": r.pre_close, "vol": r.vol, "amount": r.amount} for r in rows]
+             "close": r.close, "pre_close": r.pre_close, "pct_chg": r.pct_chg,
+             "vol": r.vol, "amount": r.amount} for r in rows]
     return pd.DataFrame(data)
 
 
+def required_screen_history(template_id: str, params: dict) -> int:
+    """Number of bars needed by this condition, including crossover history."""
+    def period(key: str, default: int) -> int:
+        value = int(params.get(key, default))
+        if not 1 <= value <= 2000 or float(params.get(key, default)) != value:
+            raise ValueError("指标周期必须在 1 至 2000 之间")
+        return value
+    if template_id == "ma_cross":
+        return max(period("n1", 5), period("n2", 10)) + 1
+    if template_id in {"macd_golden", "macd_dead"}:
+        return 35
+    if template_id in {"rsi_range", "rsi_oversold"}:
+        return period("period", 14) + 1
+    if template_id == "breakout_high":
+        return period("n", 60) + 1
+    return period("n", 5 if template_id == "volume_surge" else 20)
+
+
 def _eval_condition(df: pd.DataFrame, template_id: str, params: dict) -> bool:
-    if len(df) < 70:
-        return False
     try:
+        if len(df) < required_screen_history(template_id, params):
+            return False
+        params = {key: int(value) if key in {"n", "n1", "n2", "period"} else value
+                  for key, value in params.items()}
         if template_id == "ma_cross":
             n1, n2 = params.get("n1", 5), params.get("n2", 10)
             ma1, ma2 = calc_ma(df, n1), calc_ma(df, n2)
@@ -172,26 +197,98 @@ def _get_trade_dates(days: int = 60) -> list[str]:
     return dates
 
 
+class MarketFrameBatch(dict):
+    def __init__(self, frames=(), *, diagnostics=None):
+        super().__init__(frames)
+        self.diagnostics = diagnostics or {}
+
+
+class MarketDataInsufficient(ValueError):
+    def __init__(self, message, diagnostics):
+        super().__init__(message)
+        self.diagnostics = diagnostics
+
+
+def _local_full_market_daily(db: Session, days: int) -> MarketFrameBatch:
+    """Latest per-security windows without invoking any external provider."""
+    fields = ("ts_code", "trade_date", *CORE, "vol", "amount")
+    columns = [getattr(DailyQuote, field).label(field) for field in fields]
+    subquery = db.query(*columns, func.row_number().over(
+        partition_by=DailyQuote.ts_code, order_by=DailyQuote.trade_date.desc(),
+    ).label("row_number")).subquery()
+    rows = db.query(*(subquery.c[field] for field in fields)).filter(
+        subquery.c.row_number <= days,
+    ).order_by(subquery.c.ts_code, subquery.c.trade_date).all()
+    frames = {}
+    dates = set()
+    for row in rows:
+        if not CODE.fullmatch(row.ts_code):
+            continue
+        record = dict(row._mapping)
+        frames.setdefault(row.ts_code, []).append(record)
+        dates.add(row.trade_date)
+    return MarketFrameBatch({code: pd.DataFrame(records) for code, records in frames.items()}, diagnostics={
+        "source": "local_available_quotes", "available_dates": sorted(dates),
+        "latest_available_date": max(dates) if dates else None,
+        "universe_basis": "local_available_quotes_not_certified_full_market",
+        "requested_days": days, "failed_dates": [], "empty_dates": [],
+    })
+
+
 def _fetch_full_market_daily(days: int = 60) -> dict[str, pd.DataFrame]:
-    """从 Tushare 按日拉取全市场日线，返回 ts_code -> DataFrame"""
-    dates = _get_trade_dates(days)
-    all_data: list[pd.DataFrame] = []
-    for i, trade_date in enumerate(dates):
+    """Use one configured, enabled historical bulk source; expose all gaps."""
+    from app.services.full_market_history_service import resolve_history_dates
+    source = None
+    for candidate in configured_providers(tushare_adapter):
         try:
-            df = tushare_adapter.get_daily_by_date(trade_date)
-            if not df.empty:
+            caps = provider_capabilities(candidate)
+        except ValueError:
+            continue
+        if caps.enabled and caps.history_by_date:
+            source = candidate
+            break
+    if source is None:
+        raise MarketDataInsufficient("数据不足：本地无行情，已配置数据源不支持全市场历史按日获取；请先补齐本地日线",
+                                     {"source": "unavailable", "requested_days": days,
+                                      "outcome": "unsupported_history", "successful_dates": []})
+    dates, calendar = resolve_history_dates(source, days)
+    diagnostics = {"source": caps.name, "requested_days": days, "requested_dates": dates,
+                   "calendar": calendar, "successful_dates": [], "empty_dates": [], "failed_dates": []}
+    all_data: list[pd.DataFrame] = []
+    for trade_date in dates:
+        try:
+            from app.services.provider_daily_normalization import normalize_provider_daily
+            df = normalize_provider_daily(source.get_daily_by_date(trade_date), source)
+            if df is None or df.empty:
+                diagnostics["empty_dates"].append(trade_date)
+            elif "trade_date" not in df or set(df["trade_date"].astype(str)) != {trade_date}:
+                diagnostics["failed_dates"].append({"trade_date": trade_date, "error_type": "DateMismatch"})
+            else:
                 all_data.append(df)
+                diagnostics["successful_dates"].append(trade_date)
             time.sleep(0.15)
-        except Exception:
-            pass
+        except Exception as exc:
+            diagnostics["failed_dates"].append({"trade_date": trade_date, "error_type": type(exc).__name__})
     if not all_data:
-        return {}
+        raise MarketDataInsufficient(f"数据不足：历史行情成功 0 日，失败 {len(diagnostics['failed_dates'])} 日，空数据 {len(diagnostics['empty_dates'])} 日", diagnostics)
     merged = pd.concat(all_data, ignore_index=True)
     result = {}
     for ts_code, g in merged.groupby("ts_code"):
         g = g.sort_values("trade_date").reset_index(drop=True)
         result[ts_code] = g
-    return result
+    return MarketFrameBatch(result, diagnostics=diagnostics)
+
+
+def _invalid_price_bars(frame: pd.DataFrame) -> int:
+    if any(field not in frame for field in CORE):
+        return len(frame)
+    import numpy as np
+    prices = frame[list(CORE)].apply(pd.to_numeric, errors="coerce")
+    valid = pd.Series(np.isfinite(prices).all(axis=1), index=frame.index)
+    valid &= (prices[list(CORE[:-1])] > 0).all(axis=1)
+    valid &= (prices["low"] <= prices[["open", "close"]].min(axis=1))
+    valid &= (prices["high"] >= prices[["open", "close"]].max(axis=1))
+    return int((~valid).sum())
 
 
 def _latest_quote(db: Session, ts_code: str) -> DailyQuote | None:
@@ -948,14 +1045,22 @@ def run_indicator_screen(task_id: str, scope: str, conditions: list[dict], logic
     try:
         stock_dfs: dict[str, pd.DataFrame] = {}
         name_map: dict[str, str] = {}
+        conditions = conditions[:10]
+        if not conditions or any(c.get("template_id") not in SCREEN_TEMPLATES for c in conditions):
+            raise ValueError("请提供有效的指标组合条件")
+        if logic not in {"and", "or"}:
+            raise ValueError("组合逻辑必须是 and 或 or")
+        required_bars = max((required_screen_history(c.get("template_id", ""), c.get("params", {}))
+                             for c in conditions), default=1)
 
         if scope == "full":
-            task.message = "正在拉取全市场日线数据..."
-            stock_dfs = _fetch_full_market_daily(60)
-            basic_df = tushare_adapter.get_stock_basic()
-            if not basic_df.empty:
-                for _, row in basic_df.iterrows():
-                    name_map[row["ts_code"]] = row.get("name", "")
+            task.message = "正在读取本地行情窗口..."
+            stock_dfs = _local_full_market_daily(db, max(60, required_bars))
+            if not stock_dfs:
+                task.message = "本地无行情，正在查询已配置历史源..."
+                stock_dfs = _fetch_full_market_daily(max(60, required_bars))
+            for basic in db.query(StockBasic).filter(StockBasic.ts_code.in_(list(stock_dfs))).all():
+                name_map[basic.ts_code] = basic.name
         else:
             pool = db.query(WatchPool).filter(WatchPool.id == scope).first()
             if not pool:
@@ -964,17 +1069,36 @@ def run_indicator_screen(task_id: str, scope: str, conditions: list[dict], logic
                 return
             stocks = db.query(WatchStock).filter(WatchStock.pool_id == scope).all()
             for ws in stocks:
-                df = _get_df_from_db(db, ws.ts_code)
-                if not df.empty:
-                    stock_dfs[ws.ts_code] = df
+                df = _get_df_from_db(db, ws.ts_code, max(250, required_bars))
+                stock_dfs[ws.ts_code] = df
                 basic = db.query(StockBasic).filter(StockBasic.ts_code == ws.ts_code).first()
                 name_map[ws.ts_code] = basic.name if basic else ""
 
         conditions = conditions[:10]
         logic = logic or "and"
         matched = []
+        insufficient_codes = []
+        insufficient_reasons = {}
+        coverage = getattr(stock_dfs, "diagnostics", {})
+        reference_dates = sorted(coverage.get("available_dates", []))[-required_bars:]
         total = len(stock_dfs)
         for i, (ts_code, df) in enumerate(stock_dfs.items()):
+            relevant = df.tail(required_bars)
+            reasons = []
+            if len(df) < required_bars:
+                reasons.append("history_too_short")
+            if _invalid_price_bars(relevant):
+                reasons.append("invalid_price_evidence")
+            if reference_dates and not set(reference_dates) <= set(df["trade_date"]):
+                reasons.append("missing_recent_dates")
+            if any(c["template_id"] == "volume_surge" for c in conditions):
+                volume = pd.to_numeric(relevant.get("vol", pd.Series(dtype=float)), errors="coerce")
+                if len(volume) < len(relevant) or volume.isna().any() or not volume.map(math.isfinite).all() or (volume < 0).any():
+                    reasons.append("missing_volume_evidence")
+            if reasons:
+                insufficient_codes.append(ts_code)
+                insufficient_reasons[ts_code] = reasons
+                continue
             task.progress = (i + 1) / total if total else 1.0
             task.message = f"已筛选 {i+1}/{total}"
             results = []
@@ -996,13 +1120,23 @@ def run_indicator_screen(task_id: str, scope: str, conditions: list[dict], logic
             "ts_codes": matched,
             "stock_names": {c: name_map.get(c, "") for c in matched},
             "total": len(matched),
+            "required_bars": required_bars,
+            "insufficient_data_codes": insufficient_codes,
+            "insufficient_data_reasons": insufficient_reasons,
+            "data_coverage": coverage,
+            "outcome": "insufficient_data" if insufficient_codes or coverage.get("failed_dates") or coverage.get("empty_dates") else "completed",
         }
-        task.status = "completed"
+        insufficient = task.result["outcome"] == "insufficient_data"
+        task.status = "failed" if insufficient else "completed"
         task.progress = 1.0
-        task.message = f"筛选完成，共 {len(matched)} 只"
+        task.message = (f"数据不足：{len(insufficient_codes)} 只证券缺少有效窗口，已确认候选 {len(matched)} 只；请查看覆盖明细"
+                        if insufficient else f"筛选完成，共 {len(matched)} 只")
     except Exception as e:
         task.status = "failed"
         task.message = str(e)
+        if isinstance(e, MarketDataInsufficient):
+            task.result = {"outcome": "insufficient_data", "total": 0, "ts_codes": [],
+                           "data_coverage": e.diagnostics}
     finally:
         db.close()
 

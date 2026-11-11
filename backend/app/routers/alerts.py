@@ -142,6 +142,13 @@ def create_plan_from_alert(alert_id: str, db: Session = Depends(get_db)):
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
     if not alert:
         raise AppError(code=3003, message="提醒不存在", status_code=404)
+    if alert.plan_id:
+        existing = db.get(TradePlan, alert.plan_id)
+        if not existing:
+            raise AppError(code=4001, message="提醒关联的计划不存在，请先修复关联", status_code=409)
+        return {"id": existing.id, "ts_code": alert.ts_code,
+                "stock_name": existing.stocks[0].stock_name if existing.stocks else None,
+                "status": existing.status}
     basic = db.query(StockBasic).filter(StockBasic.ts_code == alert.ts_code).first()
     snap = alert.snapshot if isinstance(alert.snapshot, dict) else {}
     sig = snap.get("signal") if isinstance(snap.get("signal"), dict) else {}
@@ -162,6 +169,15 @@ def create_plan_from_alert(alert_id: str, db: Session = Depends(get_db)):
     )
     db.add(plan)
     db.flush()
+    # Atomic claim serializes concurrent requests, including on SQLite where
+    # SELECT FOR UPDATE is ignored. A losing transaction removes its new plan.
+    claimed = db.query(Alert).filter(Alert.id == alert_id, Alert.plan_id.is_(None)).update(
+        {"plan_id": plan.id, "status": "processed"}, synchronize_session=False,
+    )
+    if not claimed:
+        db.rollback()
+        db.expire_all()
+        return create_plan_from_alert(alert_id, db)
     ps = TradePlanStock(
         plan_id=plan.id,
         ts_code=alert.ts_code,
@@ -171,8 +187,6 @@ def create_plan_from_alert(alert_id: str, db: Session = Depends(get_db)):
         risk_level=2,
     )
     db.add(ps)
-    alert.status = "processed"
-    alert.plan_id = plan.id
     db.commit()
     db.refresh(plan)
     return {"id": plan.id, "ts_code": alert.ts_code, "stock_name": basic.name if basic else None, "status": plan.status}

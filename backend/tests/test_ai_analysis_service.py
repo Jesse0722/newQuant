@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from types import SimpleNamespace
 
 import pandas as pd
@@ -242,7 +243,7 @@ def test_query_messages_promotes_capacity_order_value_signals():
         )
         db.commit()
 
-        news = _query_messages(db, "300308.SZ")
+        news = _query_messages(db, "300308.SZ", as_of=datetime(2026, 5, 22))
 
         assert news["has_value_signal"] is True
         assert news["value_signal_count"] == 1

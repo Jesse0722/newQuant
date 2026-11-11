@@ -135,7 +135,8 @@ def run_strategy_backtest(
                 "avg_return_1d": 0.0,
                 "avg_return_3d": 0.0,
                 "avg_return_5d": 0.0,
-                "max_drawdown": 0.0,
+                "max_drawdown": None,
+                "worst_return_5d": 0.0,
                 "profit_factor": 0.0,
                 "signals": [],
             }
@@ -153,7 +154,8 @@ def run_strategy_backtest(
                 "avg_return_1d": 0.0,
                 "avg_return_3d": 0.0,
                 "avg_return_5d": 0.0,
-                "max_drawdown": 0.0,
+                "max_drawdown": None,
+                "worst_return_5d": 0.0,
                 "profit_factor": 0.0,
                 "signals": [],
             }
@@ -174,7 +176,8 @@ def run_strategy_backtest(
             "avg_return_1d": 0.0,
             "avg_return_3d": 0.0,
             "avg_return_5d": 0.0,
-            "max_drawdown": 0.0,
+            "max_drawdown": None,
+            "worst_return_5d": 0.0,
             "profit_factor": 0.0,
             "signals": [],
         }
@@ -265,7 +268,7 @@ def run_strategy_backtest(
     def _win(vals: list[float]) -> float:
         return round(sum(1 for v in vals if v > 0) / len(vals) * 100, 1) if vals else 0.0
 
-    max_drawdown = round(min(ret_5d_vals), 2) if ret_5d_vals else 0.0
+    worst_return_5d = round(min(ret_5d_vals), 2) if ret_5d_vals else 0.0
     pos_sum = sum(v for v in ret_1d_vals if v > 0)
     neg_sum = sum(v for v in ret_1d_vals if v < 0)
     profit_factor = round(pos_sum / abs(neg_sum), 2) if neg_sum < 0 else 0.0
@@ -286,7 +289,10 @@ def run_strategy_backtest(
         "avg_return_1d": _avg(ret_1d_vals),
         "avg_return_3d": _avg(ret_3d_vals),
         "avg_return_5d": _avg(ret_5d_vals),
-        "max_drawdown": max_drawdown,
+        "max_drawdown": None,
+        "worst_return_5d": worst_return_5d,
+        "evaluation_basis": "signal_close_forward_return",
+        "disclaimer": "信号当日收盘价的后验收益；不含成交可得性、滑点、费用及组合仓位，不代表可执行策略净值。",
         "profit_factor": profit_factor,
         "signals": signals,
     }

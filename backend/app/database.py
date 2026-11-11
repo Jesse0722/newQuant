@@ -32,6 +32,7 @@ MIGRATION_RUNNERS = (
     ("alert_buy_radar", "scripts.migrate_alert_buy_radar", "migrate"),
     ("sector_data", "scripts.migrate_sector_data", "migrate"),
     ("message_opportunity_review_fields", "scripts.migrate_message_opportunity_review_fields", "migrate"),
+    ("reliability_fields", "scripts.migrate_reliability_fields", "migrate"),
 )
 
 def get_db():

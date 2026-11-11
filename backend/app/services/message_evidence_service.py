@@ -21,18 +21,21 @@ from app.schemas.message import MessageAgentRunResult
 from app.schemas.message import MessageAgentDailyCandidate, MessageAgentDailyOut
 from app.services.core_watch_service import toggle_core_watch_star
 from app.services.llm_client import call_llm_model
+from app.services.message_llm_validation import DailySummaryOutput, EvidenceOutput, anchored_quote
+from app.services.message_mapping_service import supported_stock_code
 
 RULE_EVIDENCE_AGENT = "rule_evidence_cleaner"
 RULE_EVIDENCE_VERSION = "1.0"
 LLM_EVIDENCE_AGENT = "llm_evidence_cleaner"
-LLM_EVIDENCE_VERSION = "1.0"
+LLM_EVIDENCE_VERSION = "1.1"
 UNSAFE_TERMS = ("必涨", "稳赚", "确定买入", "强烈推荐买入", "无风险", "一定上涨")
 LLM_EVIDENCE_PROMPT = """你是 A 股产业舆情证据清洗器。请只基于输入 JSON 提取证据，不要补充外部知识。
 
 硬性规则：
 1. 只返回 JSON，不要 Markdown。
 2. 不得输出买入、卖出、确定上涨、稳赚、无风险等投资建议。
-3. evidence.text 必须是输入 title/content 中存在或高度贴近的短片段。
+3. 默认 evidence.text_kind=quote，text 必须是输入 title/content 中逐字存在的短片段。
+   如需摘要，使用 text_kind=summary，并提供逐字存在的 source_quote；摘要不能替代原文证据。
 4. 如果证据不足，confidence 不得高于 50，stance 使用 neutral 或 risk。
 5. 只做研究候选证据，不做交易决策。
 
@@ -52,8 +55,9 @@ LLM_EVIDENCE_PROMPT = """你是 A 股产业舆情证据清洗器。请只基于�
 输入 JSON：
 {payload}
 """
-DAILY_REPORT_PROMPT_VERSION = "1.0"
+DAILY_REPORT_PROMPT_VERSION = "1.1"
 DAILY_REPORT_AGENT = "message_daily_reporter"
+MANUAL_REVIEW_AGENT = "manual_opportunity_review"
 DAILY_REPORT_PROMPT = """你是 A 股舆情研究日报助手。请只基于输入 JSON 生成日报摘要。
 
 硬性规则：
@@ -130,7 +134,16 @@ def _source_payload(item: MessageSourceItem) -> dict:
     }
 
 
+def _source_content_digest(item: MessageSourceItem) -> str:
+    source = _source_payload(item)
+    semantic_input = {key: source[key] for key in ("id", "title", "content", "channel", "source_name", "url")}
+    return hashlib.sha256(json.dumps(semantic_input, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
 def _quality_from_item(item: MessageSourceItem) -> int:
+    verdict = (item.raw_payload or {}).get("evidence_cleaner") or {}
+    if verdict.get("content_digest") == _source_content_digest(item) and verdict.get("is_relevant") is False:
+        return 0
     quality_tags = [tag for tag in (item.tags or []) if isinstance(tag, str) and tag.startswith("quality:")]
     if quality_tags:
         try:
@@ -146,6 +159,9 @@ def _quality_from_item(item: MessageSourceItem) -> int:
 
 
 def _stance_from_item(item: MessageSourceItem) -> str:
+    text = " ".join([item.title or "", item.content or ""]).casefold()
+    if any(term in text for term in ("否认", "不涉及", "未获得", "不存在该", "denies", "refutes")):
+        return "contradiction"
     if item.sentiment == "negative":
         return "risk"
     if item.sentiment == "positive":
@@ -176,6 +192,10 @@ def upsert_rule_evidence_for_source_item(db: Session, item: MessageSourceItem) -
         )
         .first()
     )
+    db.query(MessageEvidence).filter(
+        MessageEvidence.source_item_id == item.id,
+        MessageEvidence.extractor_name == RULE_EVIDENCE_AGENT,
+    ).update({"status": "ignored"}, synchronize_session="fetch")
     quality_score = _quality_from_item(item)
     evidence_text = _short_text(item)
     values = {
@@ -206,41 +226,68 @@ def upsert_rule_evidence_for_source_item(db: Session, item: MessageSourceItem) -
     return evidence, True
 
 
-def _sanitize_llm_evidence_data(data: dict, item: MessageSourceItem) -> dict:
+def _sanitize_llm_evidence_data(data: dict, item: MessageSourceItem, db: Session | None = None) -> dict:
+    checked = EvidenceOutput.model_validate(data)
+    proposed_code = checked.ts_code
+    if db is not None:
+        resolved_code = supported_stock_code(db, item, proposed_code)
+    elif proposed_code is None or proposed_code == item.ts_code:
+        resolved_code = item.ts_code
+    else:
+        raise ValueError("LLM stock code has no validated source mapping")
+    allowed_theme = item.theme
+    if checked.theme and checked.theme != item.theme:
+        from app.services.message_mapping_service import mapping_candidates
+        seed_themes = {row["theme"] for row in mapping_candidates(db, item)} if db is not None else set()
+        if checked.theme not in seed_themes:
+            anchored_quote(checked.theme, item.title, item.content)
+        allowed_theme = checked.theme
+    for entity in checked.entities:
+        anchored_quote(entity.name, item.title, item.content)
     evidence_items = []
-    for evidence in data.get("evidence") or []:
-        if not isinstance(evidence, dict):
-            continue
-        text = _safe_text(evidence.get("text"), 240)
-        if not text:
-            continue
-        stance = str(evidence.get("stance") or "neutral").strip()
-        if stance not in {"support", "risk", "contradiction", "neutral"}:
-            stance = "neutral"
+    for evidence in checked.evidence:
+        quote = evidence.text if evidence.text_kind == "quote" else evidence.source_quote
+        if not quote:
+            raise ValueError("A summary requires a source_quote")
+        text = anchored_quote(quote, item.title, item.content)[:240]
         evidence_items.append(
             {
                 "text": text,
-                "stance": stance,
-                "confidence": _clamp_score(evidence.get("confidence") or 50),
+                "stance": evidence.stance,
+                "confidence": evidence.confidence,
+                "text_kind": "quote",
+                "model_summary": _safe_text(evidence.text) if evidence.text_kind == "summary" else None,
             }
         )
-    if not evidence_items:
-        evidence_items.append(
-            {
-                "text": _short_text(item),
-                "stance": _stance_from_item(item),
-                "confidence": _clamp_score(item.credibility_score),
-            }
-        )
+    if checked.is_relevant and not evidence_items:
+        raise ValueError("Relevant model output contains no source-anchored evidence")
     return {
-        "is_relevant": bool(data.get("is_relevant", True)),
-        "quality_score": _clamp_score(data.get("quality_score") or _quality_from_item(item)),
-        "theme": _safe_text(data.get("theme"), 64) or item.theme,
-        "ts_code": _safe_text(data.get("ts_code"), 16) or item.ts_code,
-        "entities": data.get("entities") if isinstance(data.get("entities"), list) else [],
+        "is_relevant": checked.is_relevant,
+        "quality_score": checked.quality_score,
+        "theme": allowed_theme,
+        "ts_code": resolved_code,
+        "entities": [entity.model_dump() for entity in checked.entities],
         "evidence": evidence_items[:3],
-        "risk_flags": data.get("risk_flags") if isinstance(data.get("risk_flags"), list) else [],
+        "risk_flags": checked.risk_flags,
     }
+
+
+class EvidenceOutputError(ValueError):
+    def __init__(self, error: Exception, raw_response: str | None):
+        super().__init__(str(error))
+        self.raw_response = raw_response
+
+
+def llm_cleaner_input_is_cached(db: Session, item: MessageSourceItem, provider: str | None = None, model: str | None = None) -> bool:
+    snapshot = _source_payload(item)
+    digest = hashlib.sha256(json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+    query = db.query(MessageAgentRun).filter(
+        MessageAgentRun.agent_name == LLM_EVIDENCE_AGENT, MessageAgentRun.agent_version == LLM_EVIDENCE_VERSION,
+        MessageAgentRun.input_ref_type == "source_item", MessageAgentRun.input_ref_id == item.id,
+        MessageAgentRun.input_digest == digest, MessageAgentRun.model_provider == (provider or MESSAGE_AGENT_MODEL_PROVIDER),
+        MessageAgentRun.model_name == (model or MESSAGE_AGENT_MODEL),
+    )
+    return query.filter(MessageAgentRun.status == "success").first() is not None or query.filter(MessageAgentRun.status == "failed").count() >= 3
 
 
 def upsert_llm_evidence_for_source_item(
@@ -249,17 +296,53 @@ def upsert_llm_evidence_for_source_item(
     *,
     provider: str,
     model: str,
+    force: bool = False,
 ) -> tuple[list[MessageEvidence], int, int]:
+    snapshot = _source_payload(item)
+    digest = hashlib.sha256(json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+    if not force and llm_cleaner_input_is_cached(db, item, provider, model):
+        return db.query(MessageEvidence).filter(
+            MessageEvidence.source_item_id == item.id, MessageEvidence.extractor_name == LLM_EVIDENCE_AGENT,
+            MessageEvidence.extractor_version == LLM_EVIDENCE_VERSION, MessageEvidence.status == "active",
+        ).all(), 0, 0
     prompt = LLM_EVIDENCE_PROMPT.replace("{payload}", json.dumps(_source_payload(item), ensure_ascii=False))
-    raw = call_llm_model(prompt, provider=provider, model=model, temperature=0.1)
-    data = _sanitize_llm_evidence_data(_json_from_llm_text(raw), item)
+    raw = None
+    try:
+        raw = call_llm_model(prompt, provider=provider, model=model, temperature=0.1)
+        data = _sanitize_llm_evidence_data(_json_from_llm_text(raw), item, db)
+    except Exception as exc:
+        raise EvidenceOutputError(exc, raw) from exc
+    create_agent_run(db, agent_name=LLM_EVIDENCE_AGENT, agent_version=LLM_EVIDENCE_VERSION,
+                     input_ref_type="source_item", input_ref_id=item.id, trade_date=item.trade_date,
+                     model_provider=provider, model_name=model, prompt_version=LLM_EVIDENCE_VERSION,
+                     input_snapshot=_source_payload(item), raw_response=raw,
+                     output_json={"validation": "source_anchored", "is_relevant": data["is_relevant"]})
+    payload = dict(item.raw_payload or {})
+    payload["evidence_cleaner"] = {"input_digest": digest, "is_relevant": data["is_relevant"],
+                                   "content_digest": _source_content_digest(item), "prompt_version": LLM_EVIDENCE_VERSION}
+    item.raw_payload = payload
+    # Re-running a source replaces its former model interpretation, including
+    # the case where the new result marks it irrelevant or changes stance.
+    db.query(MessageEvidence).filter(
+        MessageEvidence.source_item_id == item.id,
+        MessageEvidence.extractor_name == LLM_EVIDENCE_AGENT,
+    ).update({"status": "ignored"}, synchronize_session="fetch")
     if not data["is_relevant"]:
+        db.query(MessageEvidence).filter(MessageEvidence.source_item_id == item.id).update(
+            {"status": "ignored"}, synchronize_session="fetch"
+        )
         return [], 0, 0
 
     created_count = 0
     updated_count = 0
     rows: list[MessageEvidence] = []
-    for evidence_item in data["evidence"]:
+    grouped = {}
+    for fragment in data["evidence"]:
+        if fragment["stance"] in grouped:
+            grouped[fragment["stance"]]["source_quotes"].append(fragment["text"])
+            continue
+        grouped[fragment["stance"]] = dict(fragment, source_quotes=[fragment["text"]])
+    for evidence_item in grouped.values():
         stance = evidence_item["stance"]
         existing = (
             db.query(MessageEvidence)
@@ -292,6 +375,9 @@ def upsert_llm_evidence_for_source_item(
                 "entities": data["entities"],
                 "risk_flags": data["risk_flags"],
                 "source_url": item.url,
+                "text_kind": "quote",
+                "model_summary": evidence_item.get("model_summary"),
+                "source_quotes": evidence_item["source_quotes"],
             },
             "status": "active" if quality_score >= 35 else "ignored",
         }
@@ -323,6 +409,7 @@ def run_rule_evidence_cleaner(
     trade_date: str | None = None,
     source_item_ids: list[str] | None = None,
     dry_run: bool = False,
+    limit: int = 100,
 ) -> MessageAgentRunResult:
     started_at = datetime.utcnow()
     elapsed_start = perf_counter()
@@ -338,7 +425,9 @@ def run_rule_evidence_cleaner(
             detail="请提供 trade_date 或 source_item_ids。",
             status_code=400,
         )
-    items = query.filter(MessageSourceItem.status != "ignored").all()
+    items = query.filter(MessageSourceItem.status.in_(["new", "processed"])).order_by(
+        MessageSourceItem.heat_score.desc(), MessageSourceItem.id
+    ).limit(max(1, min(limit, 100))).all()
     existing_keys = {
         (
             row.source_item_id,
@@ -423,6 +512,7 @@ def run_llm_evidence_cleaner(
     provider: str | None = None,
     model: str | None = None,
     dry_run: bool = False,
+    force: bool = False,
 ) -> MessageAgentRunResult:
     resolved_provider = provider or MESSAGE_AGENT_MODEL_PROVIDER
     resolved_model = model or MESSAGE_AGENT_MODEL
@@ -440,12 +530,20 @@ def run_llm_evidence_cleaner(
             detail="请提供 trade_date 或 source_item_ids。",
             status_code=400,
         )
-    items = (
-        query.filter(MessageSourceItem.status != "ignored")
+    source_rows = (
+        query.filter(MessageSourceItem.status.in_(["new", "processed"]))
         .order_by(MessageSourceItem.heat_score.desc(), MessageSourceItem.captured_at.desc())
-        .limit(limit)
         .all()
     )
+    items = []
+    skipped_count = 0
+    for item in source_rows:
+        if not force and llm_cleaner_input_is_cached(db, item, resolved_provider, resolved_model):
+            skipped_count += 1
+            continue
+        items.append(item)
+        if len(items) >= max(1, min(limit, 100)):
+            break
     if dry_run:
         return MessageAgentRunResult(
             agent_name=LLM_EVIDENCE_AGENT,
@@ -454,7 +552,7 @@ def run_llm_evidence_cleaner(
             source_item_count=len(items),
             created_count=0,
             updated_count=0,
-            skipped_count=0,
+            skipped_count=skipped_count,
             evidence_count=0,
             fallback_count=0,
             error_count=0,
@@ -468,19 +566,27 @@ def run_llm_evidence_cleaner(
     evidence_count = 0
     for item in items:
         try:
-            rows, created, updated = upsert_llm_evidence_for_source_item(
-                db,
-                item,
-                provider=resolved_provider,
-                model=resolved_model,
-            )
+            # A bad source must not roll back evidence from earlier sources.
+            with db.begin_nested():
+                rows, created, updated = upsert_llm_evidence_for_source_item(
+                    db,
+                    item,
+                    provider=resolved_provider,
+                    model=resolved_model,
+                    force=force,
+                )
             evidence_count += len(rows)
             created_count += created
             updated_count += updated
+            if not created and not updated:
+                skipped_count += 1
         except Exception as exc:
-            db.rollback()
             error_count += 1
             fallback_count += 1
+            db.query(MessageEvidence).filter(
+                MessageEvidence.source_item_id == item.id,
+                MessageEvidence.extractor_name == LLM_EVIDENCE_AGENT,
+            ).update({"status": "ignored"}, synchronize_session="fetch")
             evidence, created = upsert_rule_evidence_for_source_item(db, item)
             evidence_count += 1
             created_count += 1 if created else 0
@@ -493,6 +599,9 @@ def run_llm_evidence_cleaner(
                 input_ref_type="source_item",
                 input_ref_id=item.id,
                 output_json={"fallback_evidence_id": evidence.id},
+                input_snapshot=_source_payload(item),
+                raw_response=getattr(exc, "raw_response", None),
+                prompt_version=LLM_EVIDENCE_VERSION,
                 model_provider=resolved_provider,
                 model_name=resolved_model,
                 status="failed",
@@ -513,10 +622,11 @@ def run_llm_evidence_cleaner(
             "source_item_count": len(items),
             "created_count": created_count,
             "updated_count": updated_count,
-            "skipped_count": 0,
+            "skipped_count": skipped_count,
             "evidence_count": evidence_count,
             "fallback_count": fallback_count,
             "error_count": error_count,
+            "processed_source_ids": [item.id for item in items],
         },
         model_provider=resolved_provider,
         model_name=resolved_model,
@@ -534,7 +644,7 @@ def run_llm_evidence_cleaner(
         source_item_count=len(items),
         created_count=created_count,
         updated_count=updated_count,
-        skipped_count=0,
+        skipped_count=skipped_count,
         evidence_count=evidence_count,
         fallback_count=fallback_count,
         error_count=error_count,
@@ -552,12 +662,13 @@ def link_opportunity_evidence(
     for evidence in evidence_rows:
         if evidence.status == "ignored":
             continue
+        evidence_role = evidence.stance if evidence.stance in {"risk", "contradiction"} else role
         existing = (
             db.query(MessageOpportunityEvidence)
             .filter(
                 MessageOpportunityEvidence.opportunity_id == opportunity.id,
                 MessageOpportunityEvidence.evidence_id == evidence.id,
-                MessageOpportunityEvidence.role == role,
+                MessageOpportunityEvidence.role == evidence_role,
             )
             .first()
         )
@@ -569,7 +680,7 @@ def link_opportunity_evidence(
         link = MessageOpportunityEvidence(
             opportunity_id=opportunity.id,
             evidence_id=evidence.id,
-            role=role,
+            role=evidence_role,
             weight=weight,
         )
         db.add(link)
@@ -631,12 +742,15 @@ def get_opportunity_evidence(db: Session, opportunity_id: str) -> list[MessageOp
         .all()
     )
     evidence_ids = [link.evidence_id for link in links]
-    evidence_rows = db.query(MessageEvidence).filter(MessageEvidence.id.in_(evidence_ids)).all() if evidence_ids else []
+    evidence_rows = db.query(MessageEvidence).join(
+        MessageSourceItem, MessageEvidence.source_item_id == MessageSourceItem.id
+    ).filter(MessageEvidence.id.in_(evidence_ids), MessageEvidence.status == "active",
+             MessageSourceItem.status.in_(["new", "processed"])).all() if evidence_ids else []
     attach_evidence_source_items(db, evidence_rows)
     evidence_by_id = {row.id: row for row in evidence_rows}
     for link in links:
         link.evidence = evidence_by_id.get(link.evidence_id)
-    return links
+    return [link for link in links if link.evidence is not None]
 
 
 def _get_opportunity_or_error(db: Session, opportunity_id: str) -> MessageOpportunity:
@@ -656,11 +770,19 @@ def review_opportunity(db: Session, opportunity_id: str, review_status: str, rev
             detail=f"允许状态：{', '.join(sorted(allowed))}",
             status_code=400,
         )
+    prior = {"opportunity_id": opportunity.id, "review_status": opportunity.review_status,
+             "review_reason": opportunity.review_reason, "generated_by": opportunity.generated_by}
     opportunity.review_status = review_status
     opportunity.review_reason = review_reason
     if review_status == "dismissed":
         opportunity.status = "dismissed"
         opportunity.dismissed_at = datetime.utcnow()
+    # A real review is explicit even when the reviewer leaves the reason empty.
+    # Reuse the audit table so automatic default 'reviewed' needs no fake marker.
+    create_agent_run(db, agent_name=MANUAL_REVIEW_AGENT, input_ref_type="opportunity",
+                     input_ref_id=opportunity.id, trade_date=opportunity.trade_date,
+                     input_snapshot=prior, output_json={"review_status": review_status, "review_reason": review_reason},
+                     model_provider="human", model_name="manual_review")
     db.commit()
     db.refresh(opportunity)
     return opportunity
@@ -707,18 +829,29 @@ def create_agent_run(
     model_provider: str = "rules",
     model_name: str = "deterministic-rule",
     prompt_version: str | None = None,
+    input_snapshot: dict | None = None,
+    raw_response: str | None = None,
 ) -> MessageAgentRun:
     started = started_at or datetime.utcnow()
     finished = finished_at or datetime.utcnow()
-    digest_source = f"{agent_name}|{agent_version}|{trade_date or ''}|{input_ref_type or ''}|{input_ref_id or ''}|{output_json or {}}"
+    digest_source = json.dumps(input_snapshot if input_snapshot is not None else {
+        "agent": agent_name, "version": agent_version, "date": trade_date,
+        "type": input_ref_type, "ref": input_ref_id,
+    }, ensure_ascii=False, sort_keys=True, default=str)
+    output = dict(output_json or {})
+    if input_snapshot is not None:
+        output["input_snapshot"] = input_snapshot
+    if raw_response is not None:
+        output["raw_response"] = raw_response
     run = MessageAgentRun(
         agent_name=agent_name,
         agent_version=agent_version,
         trade_date=trade_date,
         input_ref_type=input_ref_type,
-        input_ref_id=input_ref_id,
+        input_ref_id=(input_ref_id if input_ref_id is None or len(input_ref_id) <= 64
+                      else hashlib.sha256(input_ref_id.encode()).hexdigest()),
         input_digest=hashlib.sha256(digest_source.encode("utf-8")).hexdigest(),
-        output_json=output_json or {},
+        output_json=output,
         model_provider=model_provider,
         model_name=model_name,
         prompt_version=prompt_version,
@@ -811,8 +944,7 @@ def _safe_list(value, limit: int = 8) -> list[str]:
 
 
 def _sanitize_daily_report_json(data: dict) -> dict:
-    if not isinstance(data, dict):
-        return {}
+    data = DailySummaryOutput.model_validate(data).model_dump()
     return {
         "headline": _safe_text(data.get("headline"), 120),
         "summary": _safe_text(data.get("summary"), 220),
@@ -832,16 +964,19 @@ def build_agent_daily_report(
 ) -> MessageAgentDailyOut:
     opportunities = (
         db.query(MessageOpportunity)
-        .filter(MessageOpportunity.trade_date == trade_date, MessageOpportunity.status == "active")
+        .filter(MessageOpportunity.trade_date == trade_date, MessageOpportunity.status == "active",
+                MessageOpportunity.review_status.notin_(["dismissed", "archived"]))
         .order_by(MessageOpportunity.opportunity_score.desc(), MessageOpportunity.evidence_score.desc())
         .limit(limit)
         .all()
     )
     evidence_rows = (
-        db.query(MessageEvidence)
-        .filter(MessageEvidence.trade_date == trade_date, MessageEvidence.status == "active")
+        db.query(MessageEvidence).join(MessageSourceItem, MessageEvidence.source_item_id == MessageSourceItem.id)
+        .filter(MessageEvidence.trade_date == trade_date, MessageEvidence.status == "active",
+                MessageSourceItem.status.in_(["new", "processed"]))
         .all()
     )
+    attach_evidence_source_items(db, evidence_rows)
     links = (
         db.query(MessageOpportunityEvidence)
         .filter(MessageOpportunityEvidence.opportunity_id.in_([opp.id for opp in opportunities]))
@@ -850,11 +985,14 @@ def build_agent_daily_report(
         else []
     )
     evidence_count_by_opp: dict[str, int] = {}
+    active_evidence_ids = {row.id for row in evidence_rows}
     for link in links:
-        evidence_count_by_opp[link.opportunity_id] = evidence_count_by_opp.get(link.opportunity_id, 0) + 1
+        if link.evidence_id in active_evidence_ids:
+            evidence_count_by_opp[link.opportunity_id] = evidence_count_by_opp.get(link.opportunity_id, 0) + 1
 
     candidates = [
         MessageAgentDailyCandidate(
+            opportunity_id=opp.id,
             theme=opp.theme,
             ts_code=opp.ts_code,
             stock_name=opp.stock_name,
@@ -882,7 +1020,7 @@ def build_agent_daily_report(
         if evidence_rows
         else "当前日期尚无 agent 证据，请先运行证据清洗或导入原始消息。"
     )
-    next_actions = ["优先查看有多条证据的候选", "弱证据候选需补充公告或权威媒体证据", "加入观察池后等待买点雷达确认"]
+    next_actions = ["观察", "补证", "加入观察池等待买点雷达确认"]
     model_provider = "rules"
     model_name = "deterministic-evidence-report"
     if use_llm and evidence_rows:
@@ -894,9 +1032,18 @@ def build_agent_daily_report(
             "candidate_count": len(candidates),
             "themes": themes[:8],
             "candidates": [candidate.model_dump() for candidate in candidates],
+            "evidence": [
+                {"evidence_id": row.id, "source_item_id": row.source_item_id,
+                 "quote": row.evidence_text, "stance": row.stance,
+                 "confidence": row.confidence, "channel": row.channel,
+                 "source_name": row.source_item.source_name if row.source_item else None,
+                 "url": row.source_item.url if row.source_item else None}
+                for row in evidence_rows[:30]
+            ],
             "risk_flags": risk_flags,
             "source_policy": "仅用于研究观察，不构成投资建议。",
         }
+        raw = None
         try:
             raw = call_llm_model(
                 DAILY_REPORT_PROMPT.replace("{payload}", json.dumps(payload, ensure_ascii=False)),
@@ -907,10 +1054,15 @@ def build_agent_daily_report(
             llm_json = _sanitize_daily_report_json(_json_from_llm_text(raw))
             headline = llm_json.get("headline") or headline
             summary = llm_json.get("summary") or summary
-            risk_flags = llm_json.get("risk_flags") or risk_flags
+            risk_flags = list(dict.fromkeys([*risk_flags, *(llm_json.get("risk_flags") or [])]))
             next_actions = llm_json.get("next_actions") or next_actions
             model_provider = resolved_provider
             model_name = resolved_model
+            create_agent_run(db, agent_name=DAILY_REPORT_AGENT, agent_version=DAILY_REPORT_PROMPT_VERSION,
+                             trade_date=trade_date, input_snapshot=payload, raw_response=raw,
+                             output_json=llm_json, model_provider=resolved_provider, model_name=resolved_model,
+                             prompt_version=DAILY_REPORT_PROMPT_VERSION)
+            db.commit()
         except Exception as exc:
             create_agent_run(
                 db,
@@ -918,6 +1070,9 @@ def build_agent_daily_report(
                 agent_version=DAILY_REPORT_PROMPT_VERSION,
                 trade_date=trade_date,
                 output_json={"fallback": True},
+                input_snapshot=payload,
+                raw_response=raw,
+                prompt_version=DAILY_REPORT_PROMPT_VERSION,
                 model_provider=resolved_provider,
                 model_name=resolved_model,
                 status="failed",

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.exceptions import AppError
 from app.schemas.message import MessageAgentRunOut, MessageAgentRunRequest, MessageAgentRunResult
+from app.services.message_mapping_service import MAPPING_AGENT, run_entity_mapping_agent
 from app.services.message_evidence_service import (
     LLM_EVIDENCE_AGENT,
     RULE_EVIDENCE_AGENT,
@@ -26,7 +27,11 @@ def run_agent(body: MessageAgentRunRequest, db: Session = Depends(get_db)):
             trade_date=body.trade_date,
             source_item_ids=body.source_item_ids,
             dry_run=body.dry_run,
+            limit=body.limit,
         )
+    if body.agent_name == MAPPING_AGENT:
+        return run_entity_mapping_agent(db, trade_date=body.trade_date, source_item_ids=body.source_item_ids,
+                                        limit=body.limit, dry_run=body.dry_run)
     if body.agent_name == LLM_EVIDENCE_AGENT:
         return run_llm_evidence_cleaner(
             db,
@@ -36,12 +41,13 @@ def run_agent(body: MessageAgentRunRequest, db: Session = Depends(get_db)):
             provider=body.provider,
             model=body.model,
             dry_run=body.dry_run,
+            force=body.force,
         )
     else:
         raise AppError(
             code=5108,
             message="暂不支持的 Agent",
-            detail=f"当前支持 {RULE_EVIDENCE_AGENT}、{LLM_EVIDENCE_AGENT}。",
+            detail=f"当前支持 {RULE_EVIDENCE_AGENT}、{LLM_EVIDENCE_AGENT}、{MAPPING_AGENT}。",
             status_code=400,
         )
 

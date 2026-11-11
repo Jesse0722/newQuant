@@ -12,6 +12,7 @@ from app.models.stock import DailyQuote, StockBasic
 from app.services.daily_quote_repair_service import normalized_source_row
 from app.services.market_data_capabilities import ProviderCapabilities
 from app.services.quote_repair_source_service import fetch_repair_snapshot, repair_dates, select_repair_source
+from app.services.source_identity import attach_identity
 from scripts import repair_daily_quotes as cli
 
 CAPS = ProviderCapabilities("baostock", False, True, False, ("SH", "SZ"), "share", "cny", False, True, True)
@@ -31,7 +32,12 @@ class Provider:
         self.calls.append(kwargs)
         if self.error:
             raise ConnectionError("https://secret-token@example.invalid")
-        return pd.DataFrame(self.rows)
+        frame = pd.DataFrame(self.rows)
+        if frame.empty:
+            return frame
+        identities = [{"provider": "baostock", "raw_code": row["ts_code"].split(".")[1].lower() + "." + row["ts_code"].split(".")[0],
+                       "trade_date": row["trade_date"]} for row in self.rows]
+        return attach_identity(frame, "baostock", identities, self.rows)
 
 
 @pytest.mark.parametrize("kind,outcome", [("empty", "no_data"), ("error", "failed"), ("wrong_code", "failed"),

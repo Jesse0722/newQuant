@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from sqlalchemy import create_engine, select
+import pytest
 
 from app.database import Base
 import app.models  # noqa: F401
@@ -71,3 +72,36 @@ def test_migrate_sqlite_to_target_database(tmp_path: Path):
 
     assert len(stock_count) == 1
     assert len(quote_count) == 1
+
+
+def test_failed_copy_restores_truncated_target_and_earlier_tables(tmp_path):
+    source_url = _sqlite_url(tmp_path / "source.db")
+    target_url = _sqlite_url(tmp_path / "target.db")
+    source, target = create_engine(source_url), create_engine(target_url)
+    for engine, code in ((source, "000001.SZ"), (target, "600000.SH")):
+        Base.metadata.create_all(engine)
+        with engine.begin() as conn:
+            conn.execute(StockBasic.__table__.insert(), {"ts_code": code, "name": "preserved"})
+            conn.execute(DailyQuote.__table__.insert(), {"ts_code": code, "trade_date": "20261110", "close": 10})
+    with target.begin() as conn:
+        conn.exec_driver_sql("CREATE TRIGGER reject_stock BEFORE INSERT ON stock_basic BEGIN SELECT RAISE(ABORT, 'fixture failure'); END")
+    with pytest.raises(Exception):
+        migrate(sqlite_url=source_url, target_url=target_url, truncate=True, batch_size=1)
+    with target.connect() as conn:
+        assert conn.execute(select(StockBasic.__table__.c.ts_code)).scalars().all() == ["600000.SH"]
+        assert conn.execute(select(DailyQuote.__table__.c.ts_code)).scalars().all() == ["600000.SH"]
+    source.dispose()
+    target.dispose()
+
+
+def test_same_file_alias_and_missing_source_cannot_be_truncated(tmp_path):
+    path = tmp_path / "same.db"
+    source = create_engine(_sqlite_url(path))
+    Base.metadata.create_all(source)
+    with pytest.raises(ValueError, match="different"):
+        migrate(sqlite_url=_sqlite_url(path), target_url=_sqlite_url(tmp_path / "." / "same.db"), truncate=True)
+    missing = tmp_path / "missing.db"
+    with pytest.raises(ValueError):
+        migrate(sqlite_url=_sqlite_url(missing), target_url=_sqlite_url(tmp_path / "target.db"))
+    assert not missing.exists()
+    source.dispose()

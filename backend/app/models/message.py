@@ -266,6 +266,8 @@ class IndustryDailyReport(Base):
     headline = Column(String(200), nullable=True)
     summary = Column(Text, nullable=True)
     report_json = Column(JSON, nullable=True)
+    input_snapshot = Column(JSON, nullable=True)
+    raw_response = Column(Text, nullable=True)
     model_provider = Column(String(32), nullable=True)
     model_name = Column(String(80), nullable=True)
     prompt_version = Column(String(16), nullable=False, default="1.0")

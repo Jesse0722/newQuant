@@ -10,15 +10,17 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
+        postgresql-client \
         tesseract-ocr \
         tesseract-ocr-chi-sim \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt ./requirements.txt
+COPY backend/requirements.lock ./requirements.lock
 RUN pip install --upgrade pip \
-    && pip install -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com -r requirements.txt
+    && pip install -r requirements.lock
 
 COPY backend/ ./
+COPY alembic.ini /app/alembic.ini
 
 EXPOSE 8000
 

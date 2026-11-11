@@ -8,6 +8,7 @@ from app.models.trade import TradePlan, TradePlanStock, TradeDetail
 from app.models.sync_log import SyncLog
 from app.models.intraday_scan import IntradayScanConfig
 from app.models.daily_quote_repair import DailyQuoteRepairAudit, DailyQuoteRepairBatch
+from app.models.task import BackgroundTask, SchedulerLease, ScheduledJobRun
 from app.models.message import (
     IndustryDailyReport,
     IndustryReportCandidate,
@@ -32,6 +33,7 @@ __all__ = [
     "SyncLog",
     "IntradayScanConfig",
     "DailyQuoteRepairBatch", "DailyQuoteRepairAudit",
+    "BackgroundTask", "SchedulerLease", "ScheduledJobRun",
     "MessageTopic", "MessageKeywordSeed", "MessageSourceItem", "MessageOpportunity",
     "MessageEvidence", "MessageOpportunityEvidence", "MessageAgentRun",
     "MessageEntity", "MessageRelation", "MessageRelationEvidence",

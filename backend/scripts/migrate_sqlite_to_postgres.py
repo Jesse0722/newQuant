@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Iterable
 
 from sqlalchemy import Column, create_engine, func, inspect, select
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, make_url
+from contextlib import nullcontext
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -16,6 +17,7 @@ if str(ROOT_DIR) not in sys.path:
 from app.config import DATABASE_URL  # noqa: E402
 from app.database import Base  # noqa: E402
 import app.models  # noqa: F401,E402
+from app.services.market_data_quality_service import readonly_connection  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -35,23 +37,20 @@ def _batched(rows: Iterable[dict], size: int) -> Iterable[list[dict]]:
         yield batch
 
 
-def _count_rows(engine: Engine, table_name: str) -> int:
-    if not inspect(engine).has_table(table_name):
+def _count_rows(conn: Connection, table_name: str) -> int:
+    if not inspect(conn).has_table(table_name):
         return 0
-    table = Base.metadata.tables[table_name]
-    with engine.connect() as conn:
-        return int(conn.execute(select(func.count()).select_from(table)).scalar_one())
+    return int(conn.execute(select(func.count()).select_from(Base.metadata.tables[table_name])).scalar_one())
 
 
-def _source_id_set(source: Engine, table_name: str) -> set[str]:
-    if not inspect(source).has_table(table_name):
+def _source_id_set(conn: Connection, table_name: str) -> set[str]:
+    if not inspect(conn).has_table(table_name):
         return set()
     table = Base.metadata.tables[table_name]
-    with source.connect() as conn:
-        return {str(row[0]) for row in conn.execute(select(table.c.id)).all() if row[0]}
+    return {str(row[0]) for row in conn.execute(select(table.c.id)) if row[0]}
 
 
-def _copy_table(source: Engine, target: Engine, table_name: str, batch_size: int, dry_run: bool) -> int:
+def _copy_table(source: Connection, target: Connection | None, table_name: str, batch_size: int, dry_run: bool) -> int:
     if not inspect(source).has_table(table_name):
         return 0
     table = Base.metadata.tables[table_name]
@@ -59,28 +58,23 @@ def _copy_table(source: Engine, target: Engine, table_name: str, batch_size: int
     selected_columns = [column for column in table.columns if column.name in source_columns]
     if not selected_columns:
         return 0
-    copied = 0
     fk_context = {
         "trade_plan_ids": _source_id_set(source, "trade_plan") if table_name == "alert" else set(),
         "monitor_rule_ids": _source_id_set(source, "monitor_rule") if table_name == "alert" else set(),
         "watch_stock_ids": _source_id_set(source, "watch_stock") if table_name == "alert" else set(),
     }
-    with source.connect() as source_conn:
-        result = source_conn.execute(select(*selected_columns))
-        rows = (
-            normalized
-            for row in result
-            for normalized in [_normalize_legacy_row(table_name, _row_with_defaults(dict(row._mapping), table.columns), fk_context)]
-            if normalized is not None
-        )
-        if dry_run:
-            copied = sum(1 for _ in rows)
-            return copied
-
-        with target.begin() as target_conn:
-            for batch in _batched(rows, batch_size):
-                target_conn.execute(table.insert(), batch)
-                copied += len(batch)
+    result = source.execute(select(*selected_columns))
+    rows = (
+        normalized for row in result
+        for normalized in [_normalize_legacy_row(table_name, _row_with_defaults(dict(row._mapping), table.columns), fk_context)]
+        if normalized is not None
+    )
+    if dry_run:
+        return sum(1 for _ in rows)
+    copied = 0
+    for batch in _batched(rows, batch_size):
+        target.execute(table.insert(), batch)
+        copied += len(batch)
     return copied
 
 
@@ -121,69 +115,49 @@ def _normalize_legacy_row(table_name: str, row: dict, context: dict) -> dict | N
     return row
 
 
-def _truncate_target(target: Engine) -> None:
-    with target.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            conn.execute(table.delete())
-
-
 def migrate(
-    *,
-    sqlite_url: str,
-    target_url: str,
-    batch_size: int = 1000,
-    create_schema: bool = True,
-    truncate: bool = False,
-    dry_run: bool = False,
+    *, sqlite_url: str, target_url: str, batch_size: int = 1000,
+    create_schema: bool = True, truncate: bool = False, dry_run: bool = False,
 ) -> list[dict[str, int | str]]:
-    if not sqlite_url.startswith("sqlite"):
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    source_url, destination = make_url(sqlite_url), make_url(target_url)
+    if source_url.get_backend_name() != "sqlite":
         raise ValueError("source database must be SQLite")
-    if target_url.startswith("sqlite") and target_url == sqlite_url:
-        raise ValueError("target database must be different from source database")
-
-    source = create_engine(sqlite_url, connect_args={"check_same_thread": False})
-    target = create_engine(target_url)
-
-    if create_schema and not dry_run:
-        Base.metadata.create_all(bind=target)
-    if truncate and not dry_run:
-        _truncate_target(target)
-
-    summaries: list[dict[str, int | str]] = []
-    for table in Base.metadata.sorted_tables:
-        table_name = table.name
-        source_count = _count_rows(source, table_name)
-        if source_count == 0:
-            target_count = _count_rows(target, table_name) if not dry_run else 0
-            summaries.append(
-                {
-                    "table": table_name,
-                    "source_count": source_count,
-                    "copied_count": 0,
-                    "skipped_count": 0,
-                    "target_count": target_count,
-                    "status": "empty",
-                }
-            )
-            continue
-
-        copied_count = _copy_table(source, target, table_name, batch_size, dry_run)
-        target_count = _count_rows(target, table_name) if not dry_run else 0
-        skipped_count = max(0, source_count - copied_count)
-        status = "dry_run" if dry_run else ("ok" if target_count >= copied_count else "mismatch")
-        if skipped_count and status == "ok":
-            status = "ok_with_legacy_cleanup"
-        summaries.append(
-            {
-                "table": table_name,
-                "source_count": source_count,
-                "copied_count": copied_count,
-                "skipped_count": skipped_count,
-                "target_count": target_count,
-                "status": status,
-            }
-        )
-    return summaries
+    if destination.get_backend_name() == "sqlite" and destination.database:
+        if Path(source_url.database or "").resolve() == Path(destination.database).resolve():
+            raise ValueError("target database must be different from source database")
+    # A single read-only snapshot and a single target transaction. A failure in a
+    # later table must also undo earlier copies and an explicitly requested clear.
+    target = None if dry_run else create_engine(target_url)
+    try:
+        if target is not None and create_schema:
+            Base.metadata.create_all(bind=target)
+        with readonly_connection(sqlite_url, ROOT_DIR) as (source, _):
+            with target.begin() if target is not None else nullcontext(None) as target_conn:
+                if target_conn is not None:
+                    if truncate:
+                        for table in reversed(Base.metadata.sorted_tables):
+                            target_conn.execute(table.delete())
+                    elif any(_count_rows(target_conn, table.name) for table in Base.metadata.sorted_tables):
+                        raise ValueError("target must be empty; back up first and explicitly use --truncate to replace")
+                summaries = []
+                for table in Base.metadata.sorted_tables:
+                    name = table.name
+                    source_count = _count_rows(source, name)
+                    copied = _copy_table(source, target_conn, name, batch_size, dry_run) if source_count else 0
+                    target_count = _count_rows(target_conn, name) if target_conn is not None else 0
+                    if target_conn is not None and target_count != copied:
+                        raise ValueError("row-count validation failed for " + name)
+                    skipped = source_count - copied
+                    status = "dry_run" if dry_run else "empty" if not source_count else "ok_with_legacy_cleanup" if skipped else "ok"
+                    summaries.append({"table": name, "source_count": source_count,
+                                      "copied_count": copied, "skipped_count": skipped,
+                                      "target_count": target_count, "status": status})
+                return summaries
+    finally:
+        if target is not None:
+            target.dispose()
 
 
 def _print_summary(summaries: list[dict[str, int | str]]) -> None:

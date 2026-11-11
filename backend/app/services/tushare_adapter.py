@@ -10,8 +10,10 @@ from typing import Protocol
 
 import akshare as ak
 import pandas as pd
+import requests
 
 from app.services.provider_daily_normalization import normalize_provider_daily
+from app.services.source_identity import attach_identity, identity_code
 import tushare as ts
 
 try:
@@ -106,7 +108,10 @@ class TushareAdapter:
         }
         if ts_code:
             params["ts_code"] = ts_code
-        return self.pro.stock_basic(**params)
+        frame = self.pro.stock_basic(**params)
+        if frame is not None and "list_status" in frame.columns:
+            frame.attrs["newquant_authoritative_fields"] = ("list_status",)
+        return frame
 
     def get_daily(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
         params = {"ts_code": ts_code}
@@ -114,7 +119,14 @@ class TushareAdapter:
             params["start_date"] = start_date
         if end_date:
             params["end_date"] = end_date
-        return self.pro.daily(**params)
+        frame = self.pro.daily(**params)
+        if frame is not None and not frame.empty and {"ts_code", "trade_date"}.issubset(frame.columns):
+            identities = [{"provider": "tushare", "raw_code": row["ts_code"], "trade_date": str(row["trade_date"])}
+                          for row in frame.to_dict("records")]
+            if any(identity_code("tushare", item["raw_code"]) != ts_code.upper() for item in identities):
+                raise ValueError("Tushare 原始证券回显与请求不一致")
+            attach_identity(frame, "tushare", identities, frame.to_dict("records"))
+        return frame
 
     def get_daily_basic(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
         params = {"ts_code": ts_code, "fields": "ts_code,trade_date,turnover_rate,float_share"}
@@ -276,10 +288,13 @@ class BaoStockAdapter:
                 "industry": industry,
                 "market": self._infer_market(ts_code),
                 "list_date": self._fmt_date(row.get("ipoDate")),
-                "list_status": "L" if str(row.get("status", "")).strip() == "1" else "D",
+                "list_status": {"1": "L", "0": "D"}.get(str(row.get("status", "")).strip()),
                 "float_share": None,
             }])
-            return out[cols]
+            out = out[cols]
+            if str(row.get("status", "")).strip() in ("0", "1"):
+                out.attrs["newquant_authoritative_fields"] = ("list_status",)
+            return out
 
         day = datetime.now().strftime("%Y-%m-%d")
         base = self._query_df(f"bs.query_all_stock({day})", lambda: client.query_all_stock(day=day))
@@ -330,6 +345,8 @@ class BaoStockAdapter:
         )
         if df is None or df.empty:
             return AkshareAdapter._empty_daily()
+        if "code" in df.columns and any(self._to_ts_code(code) != ts_code.upper() for code in df["code"]):
+            raise ValueError("BaoStock 原始证券回显与请求不一致")
         out = pd.DataFrame(index=df.index)
         out["ts_code"] = ts_code
         out["trade_date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y%m%d")
@@ -343,7 +360,13 @@ class BaoStockAdapter:
         out["vol"] = pd.to_numeric(df.get("volume"), errors="coerce")
         out["amount"] = pd.to_numeric(df.get("amount"), errors="coerce")
         out["turnover_rate"] = pd.to_numeric(df.get("turn"), errors="coerce")
-        return out.dropna(subset=["trade_date"]).sort_values("trade_date", ascending=False).reset_index(drop=True)
+        out = out.dropna(subset=["trade_date"]).sort_values("trade_date", ascending=False).reset_index(drop=True)
+        if "code" in df.columns:
+            identities = [{"provider": "baostock", "raw_code": row["code"],
+                           "trade_date": pd.to_datetime(row["date"]).strftime("%Y%m%d")}
+                          for row in df.to_dict("records") if pd.notna(pd.to_datetime(row["date"], errors="coerce"))]
+            attach_identity(out, "baostock", identities, df.to_dict("records"))
+        return out
 
     def get_daily_basic(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
         client = self._require_client()
@@ -780,6 +803,40 @@ class AkshareAdapter:
         out["amount"] = pd.to_numeric(df.get("成交额"), errors="coerce")
         out["turnover_rate"] = pd.to_numeric(df.get("换手率"), errors="coerce")
         return out.dropna(subset=["trade_date"]).sort_values("trade_date", ascending=False).reset_index(drop=True)
+
+    def get_daily_for_repair(self, ts_code: str, start_date=None, end_date=None):
+        """Keep the actual Eastmoney code/market echo, which the SDK discards."""
+        symbol, _, exchange = ts_code.upper().partition(".")
+        market = "1" if exchange == "SH" else "0"
+        params = {
+            "fields1": "f1,f2,f3,f4,f5,f6", "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+            "klt": "101", "fqt": "0", "secid": market + "." + symbol,
+            "beg": start_date or "19700101", "end": end_date or "20500101",
+        }
+        response = requests.get("https://push2his.eastmoney.com/api/qt/stock/kline/get",
+                                params=params, timeout=self.REQUEST_TIMEOUT)
+        response.raise_for_status()
+        raw = response.json().get("data")
+        if not raw or not raw.get("klines"):
+            return self._empty_daily()
+        if identity_code("akshare", raw.get("code"), raw.get("market")) != ts_code.upper():
+            raise ValueError("Eastmoney 原始证券回显与请求不一致")
+        records, identities = [], []
+        for line in raw["klines"]:
+            values = line.split(",")
+            if len(values) != 11:
+                raise ValueError("Eastmoney 原始日线字段数量不匹配")
+            day = pd.to_datetime(values[0], errors="raise").strftime("%Y%m%d")
+            numbers = [float(value) for value in values[1:]]
+            opening, close, high, low, volume, amount, amplitude, pct, change, turnover = numbers
+            records.append({"ts_code": ts_code, "trade_date": day, "open": opening,
+                            "close": close, "high": high, "low": low, "pre_close": close - change,
+                            "change": change, "pct_chg": pct, "vol": volume,
+                            "amount": amount, "turnover_rate": turnover})
+            identities.append({"provider": "akshare", "raw_code": str(raw["code"]),
+                               "raw_market": str(raw["market"]), "trade_date": day})
+        frame = pd.DataFrame(records).sort_values("trade_date", ascending=False).reset_index(drop=True)
+        return attach_identity(frame, "akshare", identities, raw)
 
     def get_daily_basic(self, ts_code: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
         empty = pd.DataFrame(columns=["ts_code", "trade_date", "turnover_rate", "float_share"])

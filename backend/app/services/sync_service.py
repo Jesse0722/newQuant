@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import time
 import uuid
+import logging
+import math
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
@@ -13,27 +15,195 @@ from app.models.pool import WatchStock
 from app.models.sync_log import SyncLog
 from app.services.tushare_adapter import tushare_adapter
 from app.services.provider_daily_normalization import normalize_provider_daily
+from app.services.market_data_capabilities import configured_providers, provider_capabilities
 from app.services.trading_session import shanghai_trade_date_str, latest_daily_k_trade_date_str
 from app.tasks.background import task_registry
 
+logger = logging.getLogger(__name__)
+CORE_DAILY_FIELDS = ("open", "high", "low", "close", "pre_close", "pct_chg")
+
+
+class MarketDataValidationError(ValueError):
+    pass
+
+
+def _validated_daily_rows(db: Session, frame, ts_code: str, start: str, end: str):
+    """Reject incomplete/invalid bars before any normal quote write. Never repair old rows."""
+    import pandas as pd
+    reasons: dict[str, int] = {}
+    unavailable: dict[str, int] = {}
+    rows = []
+    seen = set()
+    columns = {column.name for column in DailyQuote.__table__.columns}
+    for _, raw in frame.iterrows():
+        data = raw.to_dict()
+        reason = None
+        code, day = str(data.get("ts_code", "")).strip().upper(), str(data.get("trade_date", "")).strip()
+        try:
+            if code != ts_code.upper():
+                raise ValueError("security_mismatch")
+            if len(day) != 8 or not day.isdigit() or not start <= day <= end:
+                raise ValueError("date_out_of_range")
+            try:
+                datetime.strptime(day, "%Y%m%d")
+            except ValueError:
+                raise ValueError("invalid_date") from None
+            values = {}
+            for field in CORE_DAILY_FIELDS:
+                try:
+                    value = float(data[field])
+                except (KeyError, ValueError, TypeError):
+                    raise ValueError("missing_core_field") from None
+                if not math.isfinite(value):
+                    raise ValueError("nonfinite_core_field")
+                values[field] = value
+            if any(values[key] <= 0 for key in ("open", "high", "low", "close", "pre_close")):
+                raise ValueError("nonpositive_price")
+            if not values["low"] <= min(values["open"], values["close"]) <= max(values["open"], values["close"]) <= values["high"]:
+                raise ValueError("invalid_ohlc")
+            if (code, day) in seen:
+                raise ValueError("duplicate_quote")
+            data.update(values, ts_code=code, trade_date=day)
+            for key in ("vol", "amount"):
+                try:
+                    value = float(data.get(key))
+                    if not math.isfinite(value) or value < 0:
+                        raise ValueError
+                    data[key] = value
+                except (TypeError, ValueError):
+                    data[key] = None
+                    unavailable[key] = unavailable.get(key, 0) + 1
+            for key in ("change", "turnover_rate", "float_share"):
+                if key not in data:
+                    continue
+                if data[key] is None or pd.isna(data[key]):
+                    data[key] = None
+                    continue
+                try:
+                    value = float(data[key])
+                    if not math.isfinite(value) or (key != "change" and value < 0):
+                        raise ValueError
+                    data[key] = value
+                except (ValueError, TypeError):
+                    data[key] = None
+                    if key != "change":
+                        unavailable[key] = unavailable.get(key, 0) + 1
+            rows.append({key: value for key, value in data.items() if key in columns})
+            seen.add((code, day))
+        except ValueError as exc:
+            reason = str(exc)
+        if reason:
+            reasons[reason] = reasons.get(reason, 0) + 1
+    quality = {"accepted_quote_count": len(rows), "rejected_quote_count": sum(reasons.values()),
+               "rejected_reasons": reasons, "unavailable_fields": unavailable,
+               "outcome": "partial" if reasons else "warning" if unavailable else "validated"}
+    if hasattr(db, "info"):
+        db.info["daily_sync_quality"] = quality
+    if reasons:
+        logger.warning("Rejected daily quotes for %s %s..%s: %s", ts_code, start, end, reasons)
+    if not rows and not frame.empty:
+        raise MarketDataValidationError("行情证据不足，全部返回行被拒绝：" + str(reasons))
+    return rows
+
+
+def _fetch_validated_daily(db: Session, ts_code: str, start: str, end: str):
+    """Try only configured leaves; select one source, never mix quote rows/units.
+
+    A fallback must preserve all valid dates already returned by an earlier source.
+    Missing volume/amount stays NULL and does not invalidate valid price evidence.
+    """
+    best, best_quality, attempts = [], {}, []
+    last_error = None
+    for source in configured_providers(tushare_adapter):
+        try:
+            caps = provider_capabilities(source)
+            name = caps.name
+            if not caps.enabled:
+                continue
+        except ValueError:
+            name = type(source).__name__
+        try:
+            frame = normalize_provider_daily(source.get_daily(ts_code=ts_code, start_date=start, end_date=end), source)
+            if frame.empty:
+                attempts.append({"provider": name, "outcome": "no_data"})
+                continue
+            rows = _validated_daily_rows(db, frame, ts_code, start, end)
+            quality = dict(getattr(db, "info", {}).get("daily_sync_quality", {}))
+            quality["provider"] = name
+            attempts.append({"provider": name, "outcome": quality.get("outcome", "validated")})
+            dates, best_dates = {row["trade_date"] for row in rows}, {row["trade_date"] for row in best}
+            if not best or (dates >= best_dates and (len(rows) > len(best) or
+                quality.get("rejected_quote_count", 0) < best_quality.get("rejected_quote_count", 0))):
+                best, best_quality = rows, quality
+            if best and not best_quality.get("rejected_quote_count"):
+                break
+        except Exception as exc:
+            last_error = exc
+            attempts.append({"provider": name, "outcome": "failed", "error_type": type(exc).__name__})
+    if best:
+        if hasattr(db, "info"):
+            db.info["daily_sync_quality"] = {**best_quality, "source_attempts": attempts}
+        return best
+    if hasattr(db, "info"):
+        rejected = dict(db.info.get("daily_sync_quality", {})) if last_error else {}
+        db.info["daily_sync_quality"] = {**rejected, "outcome": "rejected" if last_error else "no_data",
+                                         "source_attempts": attempts}
+    if last_error:
+        if isinstance(last_error, MarketDataValidationError):
+            raise last_error
+        raise RuntimeError("配置行情源请求失败：" + type(last_error).__name__) from None
+    return []
+
 
 def _commit_with_retry(db: Session, retries: int = 3, wait_s: float = 0.6):
-    """针对 sqlite database is locked 做有限重试。"""
-    for i in range(retries):
-        try:
-            db.commit()
-            return
-        except OperationalError as e:
-            db.rollback()
-            msg = str(e).lower()
-            if "database is locked" not in msg or i == retries - 1:
-                raise
-            time.sleep(wait_s * (i + 1))
+    """Commit once; after rollback the caller must rebuild the entire transaction.
+
+    Keep the legacy arguments for callers, but never retry an empty transaction
+    after a lock error: doing so would report rolled-back writes as successful.
+    SQLite's busy_timeout already waits for transient lock contention.
+    """
+    try:
+        db.commit()
+    except OperationalError:
+        db.rollback()
+        raise
 
 
 def _get_trade_dates(days: int = 60) -> list[str]:
     from app.services.full_market_history_service import resolve_history_dates
     return resolve_history_dates(tushare_adapter, days)[0]
+
+
+def _stock_metadata(row, authoritative_fields=()):
+    import pandas as pd
+    fields = {column.name for column in StockBasic.__table__.columns}
+    cleaned = {}
+    for key, value in row.items():
+        if key not in fields or value is None or pd.isna(value):
+            continue
+        if isinstance(value, str):
+            value = value.strip()
+            if not value or value.lower() in {"nan", "none", "null"}:
+                continue
+        if key == "list_status" and (key not in authoritative_fields or value not in {"L", "D", "P"}):
+            continue
+        if key == "float_share":
+            try:
+                value = float(value)
+                if not math.isfinite(value) or value <= 0:
+                    continue
+            except (TypeError, ValueError):
+                continue
+        if key == "list_date":
+            try:
+                value = str(value)
+                if len(value) != 8 or not value.isdigit():
+                    continue
+                datetime.strptime(value, "%Y%m%d")
+            except ValueError:
+                continue
+        cleaned[key] = value
+    return cleaned
 
 
 def _sync_stock_basic_full(db: Session) -> tuple[int, bool]:
@@ -42,14 +212,17 @@ def _sync_stock_basic_full(db: Session) -> tuple[int, bool]:
     if df.empty:
         return 0, False
     count = 0
+    authority = df.attrs.get("newquant_authoritative_fields", ())
     for _, row in df.iterrows():
+        values = _stock_metadata(row, authority)
+        if not values.get("ts_code"):
+            continue
         existing = db.query(StockBasic).filter(StockBasic.ts_code == row["ts_code"]).first()
         if existing:
-            for col in df.columns:
-                if hasattr(existing, col):
-                    setattr(existing, col, row[col])
+            for col, value in values.items():
+                setattr(existing, col, value)
         else:
-            db.add(StockBasic(**row.to_dict()))
+            db.add(StockBasic(**values))
             count += 1
     _commit_with_retry(db)
     return count, True
@@ -61,12 +234,15 @@ def sync_stock_info(db: Session, ts_code: str):
     if df.empty:
         return
     row = df.iloc[0]
+    values = _stock_metadata(row, df.attrs.get("newquant_authoritative_fields", ()))
+    if values.get("ts_code") != ts_code:
+        raise ValueError("股票基础信息与请求标的不一致")
     existing = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
     if existing:
-        for col in df.columns:
-            setattr(existing, col, row[col])
+        for col, value in values.items():
+            setattr(existing, col, value)
     else:
-        db.add(StockBasic(**row.to_dict()))
+        db.add(StockBasic(**values))
     _commit_with_retry(db)
 
 
@@ -112,6 +288,8 @@ def _find_gap_repair_start(
 
 def sync_daily(db: Session, ts_code: str, days: int = 250):
     """增量同步日线行情"""
+    if hasattr(db, "info"):
+        db.info["daily_sync_quality"] = {}
     hist_count = (
         db.query(func.count(DailyQuote.trade_date))
         .filter(DailyQuote.ts_code == ts_code)
@@ -134,34 +312,21 @@ def sync_daily(db: Session, ts_code: str, days: int = 250):
 
     end_date = latest_daily_k_trade_date_str()
     if start_date > end_date:
+        if hasattr(db, "info"):
+            db.info["daily_sync_quality"] = {"outcome": "up_to_date", "rejected_quote_count": 0}
         return 0
 
-    df = normalize_provider_daily(
-        tushare_adapter.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date),
-        tushare_adapter,
-    )
-    if df.empty:
+    rows = _fetch_validated_daily(db, ts_code, start_date, end_date)
+    if not rows:
         return 0
-    if "ts_code" in df.columns:
-        df = df.copy()
-        df["ts_code"] = df["ts_code"].astype(str).str.strip().str.upper()
-        df = df[df["ts_code"] == ts_code.upper()]
-    if "trade_date" in df.columns:
-        df = df.copy()
-        df["trade_date"] = df["trade_date"].astype(str).str.strip()
-        df = df[df["trade_date"].str.match(r"^\d{8}$", na=False)]
-    df = df.dropna(subset=["ts_code", "trade_date"]) if {"ts_code", "trade_date"}.issubset(df.columns) else df
-    if df.empty:
-        return 0
-
     added_count = 0
-    for _, row in df.iterrows():
+    for row in rows:
         existing = db.query(DailyQuote).filter(
             DailyQuote.ts_code == row["ts_code"],
             DailyQuote.trade_date == row["trade_date"],
         ).first()
         if not existing:
-            db.add(DailyQuote(**row.to_dict()))
+            db.add(DailyQuote(**row))
             added_count += 1
     _commit_with_retry(db)
 
@@ -175,6 +340,8 @@ def sync_daily_backward(db: Session, ts_code: str, target_min_rows: int) -> int:
     从当前最早交易日向前增量拉取日线，直至本地条数 >= target_min_rows，或已无更早数据 / 触及上市日。
     用于 K 线周期选择（如 250 日）时本地历史不足的场景。
     """
+    if hasattr(db, "info"):
+        db.info["daily_sync_quality"] = {}
     total_added = 0
     max_rounds = 8
     for _ in range(max_rounds):
@@ -216,21 +383,17 @@ def sync_daily_backward(db: Session, ts_code: str, target_min_rows: int) -> int:
         if start_date > end_date:
             break
 
-        df = normalize_provider_daily(
-            tushare_adapter.get_daily(ts_code=ts_code, start_date=start_date, end_date=end_date),
-            tushare_adapter,
-        )
-        if df is None or df.empty:
+        rows = _fetch_validated_daily(db, ts_code, start_date, end_date)
+        if not rows:
             break
-
         round_added = 0
-        for _, row in df.iterrows():
+        for row in rows:
             existing = db.query(DailyQuote).filter(
                 DailyQuote.ts_code == row["ts_code"],
                 DailyQuote.trade_date == row["trade_date"],
             ).first()
             if not existing:
-                db.add(DailyQuote(**row.to_dict()))
+                db.add(DailyQuote(**row))
                 round_added += 1
 
         if round_added == 0:
@@ -280,7 +443,8 @@ def _backfill_turnover_rate(db: Session, ts_code: str, start_date: str, end_date
                 basic_row.float_share = latest_fs
         _commit_with_retry(db)
     except Exception:
-        pass
+        db.rollback()
+        logger.warning("Optional daily_basic enrichment failed for %s", ts_code, exc_info=True)
 
 
 def sync_pool(task_id: str, pool_id: str, days: int = 250):
@@ -290,6 +454,7 @@ def sync_pool(task_id: str, pool_id: str, days: int = 250):
     failed_count = 0
     skipped_count = 0
     failed_items: list[dict] = []
+    quote_quality: list[dict] = []
     try:
         # 持久化：创建同步记录
         log = SyncLog(
@@ -307,10 +472,14 @@ def sync_pool(task_id: str, pool_id: str, days: int = 250):
             try:
                 sync_stock_info(db, ws.ts_code)
                 added = sync_daily(db, ws.ts_code, days)
+                quality = getattr(db, "info", {}).get("daily_sync_quality", {})
+                if quality.get("rejected_quote_count") or quality.get("unavailable_fields") or quality.get("outcome") == "no_data":
+                    quote_quality.append({"ts_code": ws.ts_code, **quality})
                 success_count += 1
                 if added == 0:
                     skipped_count += 1
             except Exception as e:
+                db.rollback()
                 failed_count += 1
                 failed_items.append({"ts_code": ws.ts_code, "message": str(e)[:120]})
             task_registry[task_id].progress = (i + 1) / total if total else 1.0
@@ -322,21 +491,29 @@ def sync_pool(task_id: str, pool_id: str, days: int = 250):
             "skipped_count": skipped_count,
             "days_synced": days,
             "failed_items": failed_items[:50],
-            "message": f"池同步完成：成功 {success_count}，失败 {failed_count}，无新增 {skipped_count}",
+            "quote_quality": quote_quality[:100],
+            "outcome": "partial" if failed_count or any(q.get("outcome") in {"partial", "no_data"} for q in quote_quality)
+                       else "warning" if quote_quality else "completed",
+            "message": f"池同步完成：成功 {success_count}，失败 {failed_count}，无新增 {skipped_count}，数据不足 {len(quote_quality)}",
         }
 
         # 持久化：更新同步记录
         log = db.query(SyncLog).filter(SyncLog.id == task_id).first()
         if log:
-            log.status = "completed"
+            log.status = "failed" if task_registry[task_id].result["outcome"] == "partial" else "completed"
             log.completed_at = datetime.utcnow()
             log.result = json.dumps(task_registry[task_id].result, ensure_ascii=False)
             db.commit()
+        price_incomplete = task_registry[task_id].result["outcome"] == "partial"
+        if price_incomplete:
+            task_registry[task_id].status = "failed"
+            task_registry[task_id].message = task_registry[task_id].result["message"]
 
         # 同步完成后自动触发监控扫描
         from app.services.monitor_engine import scan_pool as _scan_pool
         from app.tasks.background import submit_task as _submit
-        _submit("scan", _scan_pool, pool_id)
+        if not price_incomplete:
+            _submit("scan", _scan_pool, pool_id)
     except Exception as e:
         task_registry[task_id].result = {
             "success_count": success_count,
@@ -374,21 +551,27 @@ def sync_single_stock(task_id: str, ts_code: str, days: int = 250):
         try:
             sync_stock_info(db, ts_code)
         except Exception:
-            pass
+            db.rollback()
         added = sync_daily(db, ts_code, days)
+        quality = getattr(db, "info", {}).get("daily_sync_quality", {})
         task_registry[task_id].progress = 1.0
-        task_registry[task_id].message = f"{ts_code} 同步完成"
+        incomplete = quality.get("outcome") in {"partial", "no_data"}
+        task_registry[task_id].message = f"{ts_code} 同步完成" if not incomplete else f"{ts_code} 行情证据不足，请检查数据质量"
+        if incomplete:
+            task_registry[task_id].status = "failed"
         task_registry[task_id].result = {
             "success_count": 1,
             "failed_count": 0,
             "skipped_count": 1 if added == 0 else 0,
             "days_synced": days,
-            "message": f"{ts_code} 同步完成，新增 {added} 条",
+            "quote_quality": quality,
+            "outcome": "partial" if incomplete else "completed",
+            "message": f"{ts_code} 新增 {added} 条；数据状态 {quality.get('outcome', 'unknown')}",
         }
 
         log = db.query(SyncLog).filter(SyncLog.id == task_id).first()
         if log:
-            log.status = "completed"
+            log.status = "failed" if incomplete else "completed"
             log.completed_at = datetime.utcnow()
             log.result = json.dumps(task_registry[task_id].result, ensure_ascii=False)
             db.commit()

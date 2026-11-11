@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "purpose": "Offline source-anchoring, mapping, spam and bilingual regression corpus; no paid model calls",
+  "cases": [
+    {"name": "bilingual_quote", "content": "公司新增订单，HBM supply remains tight.", "theme": "存储芯片", "ts_code": "300475.SZ", "output": {"quality_score": 82, "evidence": [{"text": "HBM supply remains tight", "stance": "support", "confidence": 80}]}, "accepted": true},
+    {"name": "summary_with_anchor", "content": "HBM supply remains tight.", "theme": "存储芯片", "output": {"evidence": [{"text": "供应偏紧，待进一步核实", "text_kind": "summary", "source_quote": "HBM supply remains tight", "confidence": 50}]}, "accepted": true},
+    {"name": "seed_weak_mapping", "content": "HBM supply remains tight.", "theme": "存储芯片", "output": {"ts_code": "300475.SZ", "theme": "存储芯片", "evidence": [{"text": "HBM supply remains tight", "confidence": 50}]}, "accepted": true},
+    {"name": "official_refutation", "content": "公司公告否认新增订单。", "channel": "exchange", "output": {"evidence": [{"text": "公司公告否认新增订单", "stance": "contradiction", "confidence": 95}]}, "accepted": true},
+    {"name": "spam", "content": "Join my discord for guaranteed profit.", "output": {"is_relevant": false, "quality_score": 0, "evidence": []}, "accepted": true},
+    {"name": "fabricated_quote", "content": "公司仅披露研发进度。", "output": {"evidence": [{"text": "新增百亿订单", "confidence": 100}]}, "accepted": false},
+    {"name": "fabricated_stock", "content": "公司仅披露研发进度。", "output": {"ts_code": "999999.SZ", "evidence": [{"text": "公司仅披露研发进度", "confidence": 50}]}, "accepted": false},
+    {"name": "unanchored_summary", "content": "公司仅披露研发进度。", "output": {"evidence": [{"text": "订单翻倍", "text_kind": "summary", "confidence": 50}]}, "accepted": false},
+    {"name": "fabricated_entity", "content": "公司仅披露研发进度。", "output": {"entities": [{"type": "company", "name": "Nvidia", "confidence": 90}], "evidence": [{"text": "公司仅披露研发进度", "confidence": 50}]}, "accepted": false},
+    {"name": "string_boolean", "content": "公司仅披露研发进度。", "output": {"is_relevant": "false", "evidence": []}, "accepted": false},
+    {"name": "malformed_json", "content": "公司仅披露研发进度。", "raw": "{broken", "accepted": false},
+    {"name": "wrong_root", "content": "公司仅披露研发进度。", "output": [], "accepted": false}
+  ]
+}

@@ -23,10 +23,10 @@ from app.services.limit_up_tactics import TACTIC_REGISTRY, common_pre_filter
 from app.services.llm_client import call_llm_model
 from app.services.industry_report_service import get_stock_graph_context
 from app.services.sync_service import sync_daily, sync_stock_info
-from app.services.trading_session import latest_daily_k_trade_date_str
+from app.services.trading_session import latest_daily_k_trade_date_str, shanghai_datetime
 from app.services.x_message_service import collect_x_stock_analysis_posts
 
-PROMPT_VERSION = "1.0"
+PROMPT_VERSION = "1.1"
 DISCLAIMER = "仅基于系统内数据生成，用于研究记录，不构成投资建议"
 OFFICIAL_CONTEXT_KEYWORDS = (
     "年度报告",
@@ -1380,18 +1380,31 @@ def _collect_x_for_analysis(db: Session, ts_code: str, basic: StockBasic | None)
         return {"attempted": True, "status": "failed", "message": str(e)[:180]}
 
 
-def _query_messages(db: Session, ts_code: str) -> dict:
-    cutoff = (datetime.utcnow() - timedelta(days=45)).strftime("%Y%m%d")
+def _query_messages(db: Session, ts_code: str, *, as_of: datetime | None = None) -> dict:
+    current = shanghai_datetime(as_of)
+    cutoff = (current - timedelta(days=45)).strftime("%Y%m%d")
+    end_date = current.strftime("%Y%m%d")
     opportunities = (
         db.query(MessageOpportunity)
-        .filter(MessageOpportunity.ts_code == ts_code, MessageOpportunity.trade_date >= cutoff)
+        .filter(
+            MessageOpportunity.ts_code == ts_code,
+            MessageOpportunity.trade_date >= cutoff,
+            MessageOpportunity.trade_date <= end_date,
+            MessageOpportunity.status == "active",
+            MessageOpportunity.review_status.notin_(["dismissed", "archived"]),
+        )
         .order_by(MessageOpportunity.trade_date.desc(), MessageOpportunity.opportunity_score.desc())
         .limit(8)
         .all()
     )
     sources = (
         db.query(MessageSourceItem)
-        .filter(MessageSourceItem.ts_code == ts_code, MessageSourceItem.trade_date >= cutoff)
+        .filter(
+            MessageSourceItem.ts_code == ts_code,
+            MessageSourceItem.trade_date >= cutoff,
+            MessageSourceItem.trade_date <= end_date,
+            MessageSourceItem.status.in_(["new", "processed"]),
+        )
         .order_by(MessageSourceItem.trade_date.desc(), MessageSourceItem.heat_score.desc())
         .limit(6)
         .all()
@@ -1413,6 +1426,10 @@ def _query_messages(db: Session, ts_code: str) -> dict:
         order_like = _text_contains_order_signal(o.reason, catalysts, risks, o.theme)
         row = {
             "type": "opportunity",
+            "opportunity_id": o.id,
+            "review_status": o.review_status,
+            "review_reason": o.review_reason,
+            "source_links": o.source_links or [],
             "source_confidence": confidence,
             "source_note": _source_note(confidence),
             "trade_date": o.trade_date,
@@ -1933,6 +1950,11 @@ def _compact_news(news: dict) -> dict:
     ]
     return {
         "official_context": official_context,
+        "human_reviews": [
+            {"opportunity_id": item.get("opportunity_id"), "review_status": item.get("review_status"),
+             "review_reason": _compact_text(item.get("review_reason"), 160)}
+            for item in news.get("items") or [] if item.get("type") == "opportunity" and item.get("review_reason")
+        ][:5],
         "top_value_signals": _dedupe_rows(value_signals, ("trade_date", "title", "theme"), 4),
         "top_order_signals": _dedupe_rows(order_signals, ("trade_date", "title", "theme"), 3),
         "social_rumors": _dedupe_rows(social_rumors, ("trade_date", "title", "theme"), 2),
@@ -2220,6 +2242,7 @@ def analyze_stock_detail(
     provider, model_name = _select_model(mode)
     prompt = _build_prompt(snapshot)
     now = datetime.utcnow()
+    raw = None
     try:
         raw = call_llm_model(prompt, provider=provider, model=model_name, temperature=0.15)
         parsed = _sanitize_result(_extract_json(raw), snapshot)
@@ -2234,7 +2257,7 @@ def analyze_stock_detail(
             model_name=model_name,
             prompt_version=PROMPT_VERSION,
             snapshot_json=snapshot,
-            raw_response=None,
+            raw_response=raw,
             data_trade_date=data_trade_date,
             status="failed",
             error_message=str(e)[:500],

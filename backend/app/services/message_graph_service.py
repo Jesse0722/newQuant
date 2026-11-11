@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
+from datetime import timezone
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.models.message import MessageEntity, MessageRelation, MessageRelationEvidence
+from app.models.message import MessageEntity, MessageRelation, MessageRelationEvidence, MessageSourceItem
 from app.schemas.industry_report import GraphPathOut, GraphPathStep, GraphSeedImportOut
+from app.services.message_llm_validation import anchored_quote
+from app.services.trading_session import shanghai_datetime
 
 SEED_DIR = Path(__file__).resolve().parent.parent / "seeds"
 INDUSTRY_GRAPH_SEED = SEED_DIR / "industry_graph_seed.csv"
@@ -72,9 +75,9 @@ def upsert_entity(
     )
     values = {
         "name": name.strip(),
-        "ts_code": ts_code,
-        "aliases": aliases or [],
-        "confidence": max(confidence, entity.confidence if entity else confidence),
+        "ts_code": ts_code or (entity.ts_code if entity else None),
+        "aliases": list(dict.fromkeys([*(entity.aliases or [] if entity else []), *(aliases or [])])),
+        "confidence": max(0, min(100, max(confidence, entity.confidence if entity else confidence))),
         "status": "active",
     }
     if entity:
@@ -115,6 +118,11 @@ def upsert_relation(
     if relation_type not in OBJECTIVE_RELATIONS:
         relation_type = "mentions"
         confidence = min(confidence, 50)
+    confidence = max(0, min(100, confidence))
+    if relation_type == "mentions":
+        confidence = min(confidence, 50)
+    if relation_type == "refutes":
+        polarity = "negative"
 
     relation = (
         db.query(MessageRelation)
@@ -126,7 +134,9 @@ def upsert_relation(
         )
         .first()
     )
-    resolved_strength = strength if strength is not None else confidence
+    resolved_strength = max(0, min(100, strength if strength is not None else confidence))
+    if relation_type == "mentions":
+        resolved_strength = min(resolved_strength, 50)
     if relation:
         relation.confidence = max(relation.confidence, confidence)
         relation.strength = max(relation.strength, resolved_strength)
@@ -157,6 +167,7 @@ def upsert_relation(
                 MessageRelationEvidence.relation_id == relation.id,
                 MessageRelationEvidence.extraction_method == source_type,
                 MessageRelationEvidence.evidence_text == evidence_text,
+                MessageRelationEvidence.source_item_id == source_item_id,
             )
             .first()
         )
@@ -241,14 +252,77 @@ def find_entity(db: Session, name: str) -> MessageEntity | None:
     )
 
 
-def find_paths(db: Session, start_name: str, max_depth: int = 3) -> list[GraphPathOut]:
+def relation_is_effective(relation: MessageRelation, as_of: str | None) -> bool:
+    return relation.status == "active" and (
+        as_of is None or ((not relation.valid_from or relation.valid_from <= as_of)
+                          and (not relation.valid_to or relation.valid_to >= as_of))
+    )
+
+
+def source_item_available_on(item: MessageSourceItem | None, as_of: str | None) -> bool:
+    if item is None or item.status not in {"new", "processed"}:
+        return False
+    if as_of is None:
+        return True
+    if item.trade_date > as_of:
+        return False
+    if item.published_at:
+        published = item.published_at
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=timezone.utc)
+        if shanghai_datetime(published).strftime("%Y%m%d") > as_of:
+            return False
+    return True
+
+
+def relation_evidence_as_of(db: Session, *, as_of: str | None = None) -> dict[str, list[dict]]:
+    """Apply one evidence cutoff to every hop, including stock/business mapping.
+
+    as_of is the Shanghai source/publication day, not an ingestion replay clock.
+    Source-free versioned seed notes are static mappings; their import timestamp
+    does not establish a contemporary catalyst or suppress historical fixtures.
+    """
+    source_by_id = {row.id: row for row in db.query(MessageSourceItem).filter(
+        MessageSourceItem.status.in_(["new", "processed"])
+    ).all()}
+    evidence_by_relation: dict[str, list[dict]] = {}
+    for evidence in db.query(MessageRelationEvidence).all():
+        item = source_by_id.get(evidence.source_item_id)
+        static_seed = evidence.extraction_method == "seed" and evidence.source_item_id is None
+        if not static_seed and not source_item_available_on(item, as_of):
+            continue
+        if not static_seed:
+            try:
+                anchored_quote(evidence.evidence_text, item.title, item.content)
+            except ValueError:
+                continue
+        evidence_by_relation.setdefault(evidence.relation_id, []).append({
+            "evidence_id": evidence.id, "relation_id": evidence.relation_id,
+            "source_item_id": evidence.source_item_id, "evidence_text": evidence.evidence_text,
+            "evidence_kind": "seed_note" if static_seed else "quote",
+            "url": evidence.evidence_url, "channel": evidence.source_channel,
+            "source_name": item.source_name if item else "versioned_seed",
+            "source_trade_date": item.trade_date if item else None,
+            "source_published_at": item.published_at.isoformat() if item and item.published_at else None,
+            "static_mapping": static_seed,
+            "confidence": evidence.confidence, "extraction_method": evidence.extraction_method,
+            "stance": "neutral",
+        })
+    return evidence_by_relation
+
+
+def find_paths(db: Session, start_name: str, max_depth: int = 3, *, as_of: str | None = None) -> list[GraphPathOut]:
     start = find_entity(db, start_name)
     if not start:
         return []
-    relations = db.query(MessageRelation).filter(MessageRelation.status == "active").all()
+    relations = [row for row in db.query(MessageRelation).filter(MessageRelation.status == "active").all()
+                 if relation_is_effective(row, as_of)]
+    evidence_by_relation = relation_evidence_as_of(db, as_of=as_of)
     entity_by_id = {row.id: row for row in db.query(MessageEntity).filter(MessageEntity.status == "active").all()}
     outgoing: dict[str, list[MessageRelation]] = {}
     for relation in relations:
+        if not evidence_by_relation.get(relation.id):
+            continue
         outgoing.setdefault(relation.source_entity_id, []).append(relation)
 
     results: list[GraphPathOut] = []
@@ -264,7 +338,13 @@ def find_paths(db: Session, start_name: str, max_depth: int = 3) -> list[GraphPa
             target = entity_by_id.get(relation.target_entity_id)
             if not target:
                 continue
-            score = int(sum(step.confidence for step in next_path) / len(next_path))
+            confidence_by_relation = {
+                step.id: min(step.confidence, max(row["confidence"] for row in evidence_by_relation[step.id]))
+                for step in next_path
+            }
+            score = min(confidence_by_relation.values())
+            if any(step.relation_type in {"mentions", "refutes"} for step in next_path):
+                score = min(score, 40)
             results.append(
                 GraphPathOut(
                     start=start.name,
@@ -276,8 +356,12 @@ def find_paths(db: Session, start_name: str, max_depth: int = 3) -> list[GraphPa
                             source=entity_by_id[step.source_entity_id].name,
                             relation=step.relation_type,
                             target=entity_by_id[step.target_entity_id].name,
-                            confidence=step.confidence,
-                            strength=step.strength,
+                            confidence=confidence_by_relation[step.id],
+                            strength=min(step.strength, confidence_by_relation[step.id]),
+                            relation_id=step.id,
+                            source_type=step.source_type,
+                            evidence=[dict(row, stance="contradiction" if step.relation_type == "refutes" else "neutral")
+                                      for row in evidence_by_relation.get(step.id, [])],
                         )
                         for step in next_path
                     ],

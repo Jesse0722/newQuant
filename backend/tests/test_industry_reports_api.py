@@ -119,6 +119,14 @@ def test_industry_report_candidate_includes_message_evidence():
 
 def test_generate_industry_report_with_mocked_llm(monkeypatch):
     client = _client()
+    imported = client.post("/api/messages/source-items/import", json={
+        "aggregate": True,
+        "items": [{"trade_date": "20260528", "channel": "announcement",
+                   "content": "工业富联披露AI服务器业务进度，相关交付仍需持续核实。",
+                   "theme": "AI服务器", "ts_code": "601138.SH", "stock_name": "工业富联",
+                   "credibility_score": 90, "heat_score": 85}],
+    })
+    assert imported.status_code == 201
 
     def fake_llm(_prompt: str, provider: str, model: str, temperature: float = 0.1):
         assert provider == "deepseek"
@@ -144,7 +152,8 @@ def test_generate_industry_report_with_mocked_llm(monkeypatch):
     body = resp.json()
     assert body["headline"] == "今日主线：AI服务器"
     assert body["model_provider"] == "deepseek"
-    assert body["report_json"]["risk_flags"] == ["待验证"]
+    assert "待验证" in body["report_json"]["risk_flags"]
+    assert any("研究候选" in flag for flag in body["report_json"]["risk_flags"])
 
 
 def test_llm_report_output_is_sanitized(monkeypatch):
@@ -176,7 +185,8 @@ def test_llm_report_output_is_sanitized(monkeypatch):
     assert "稳赚" not in text
     assert "强烈推荐买入" not in text
     assert "无风险" not in text
-    assert body["headline"] == "今日主线：AI算力"
+    assert body["headline"].startswith("产业链映射观察：")
+    assert body["error_message"]
 
 
 def test_extract_relations_from_source_item(monkeypatch):
@@ -227,3 +237,28 @@ def test_extract_relations_from_source_item(monkeypatch):
     assert body["processed_count"] == 1
     assert body["relation_count"] >= 1
     assert body["evidence_count"] == 1
+
+
+def test_industry_report_rejects_unknown_actions_and_falls_back(monkeypatch):
+    client = _client()
+    monkeypatch.setattr("app.services.industry_report_service.call_llm_model", lambda *a, **k: '''{
+        "headline":"模型候选摘要", "summary":"待验证", "next_actions":["观察","开盘全仓买入并追涨"]
+    }''')
+    response = client.post("/api/industry-reports/generate", json={"trade_date": "20261111", "use_llm": True})
+    assert response.status_code == 200
+    report = response.json()
+    assert report["model_provider"] == "rules" and report["error_message"]
+    assert set(report["report_json"]["next_actions"]) <= {"观察", "补证", "加入观察池等待买点雷达确认", "风险观察"}
+    assert "开盘全仓买入并追涨" not in report["report_json"]["next_actions"]
+
+
+def test_industry_report_normalizes_only_known_research_action_aliases(monkeypatch):
+    client = _client()
+    monkeypatch.setattr("app.services.industry_report_service.call_llm_model", lambda *a, **k: '''{
+        "headline":"产业映射待验证", "summary":"观察候选", "next_actions":["继续观察","补充证据","加入观察池后等待买点雷达确认"]
+    }''')
+    response = client.post("/api/industry-reports/generate", json={"trade_date": "20261111", "use_llm": True})
+    assert response.status_code == 200
+    report = response.json()
+    assert report["model_provider"] == "deepseek"
+    assert report["report_json"]["next_actions"] == ["观察", "补证", "加入观察池等待买点雷达确认"]

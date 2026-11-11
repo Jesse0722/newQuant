@@ -27,9 +27,13 @@ def row(code="000001.SZ", day="20261008", **changes):
 
 
 def snapshot(rows):
+    from app.services.source_identity import IDENTITY_POLICY
+    rows = [{**r, "source_identity": {"provider": "baostock", "raw_code": r["ts_code"].split(".")[1].lower() + "." + r["ts_code"].split(".")[0],
+                                     "trade_date": r["trade_date"], "response_sha256": "1" * 64}} for r in rows]
     return {"version": SNAPSHOT_VERSION, "id": "fixture-snapshot", "dates": ["20261008", "20261009"],
-            "codes": ["000001.SZ"], "rows": rows, "requests": [], "source": {
+            "codes": ["000001.SZ"], "rows": rows, "requests": [], "outcome": "success", "source": {
                 "name": "baostock", "volume_unit": "share", "amount_unit": "cny",
+                "identity_policy": IDENTITY_POLICY,
                 "data_stage": "final", "adjustment": "none", "captured_at": "2026-11-04T12:00:00+00:00"}}
 
 
@@ -308,6 +312,20 @@ def test_immutable_artifacts_cannot_be_overwritten(tmp_path):
     with pytest.raises(FileExistsError):
         cli.write_json(path, {"test": 2})
     assert json.loads(path.read_text()) == {"test": 1}
+
+
+def test_unapplied_legacy_plan_cannot_bypass_upstream_identity_gate(db):
+    legacy = snapshot([row()])
+    legacy["source"].pop("identity_policy")
+    with readonly_connection(db[0], db[1]) as (conn, _):
+        proposal = make_repair_plan(conn, legacy)
+    validate_plan(proposal)  # Legacy audit proofs remain readable.
+    initial = states(db)
+    manifest = backup(db)
+    with pytest.raises(RepairError, match="原始身份"):
+        with writer_connection(db[0], str(db[1])) as conn:
+            apply_repair_plan(conn, proposal, manifest)
+    assert states(db) == initial
 
 
 def test_load_hashes_and_decodes_same_buffer_despite_file_replacement(tmp_path, monkeypatch):

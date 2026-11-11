@@ -58,7 +58,8 @@ def _enrich_plan(db: Session, plan: TradePlan, include_details: bool = False) ->
         title=plan.title,
         status=plan.status,
         alert_id=plan.alert_id,
-        actual_pnl=plan.actual_pnl if plan.actual_pnl is not None else pnl.net_pnl,
+        actual_pnl=pnl.net_pnl,
+        review_pnl_snapshot=plan.actual_pnl,
         review_summary=plan.review_summary,
         lessons_learned=plan.lessons_learned,
         note=plan.note,
@@ -78,7 +79,7 @@ def _enrich_plan(db: Session, plan: TradePlan, include_details: bool = False) ->
             planned_buy_price=ps.planned_buy_price,
             target_price=ps.target_price,
             stop_loss_price=ps.stop_loss_price,
-            risk_reward_ratio=_calc_risk_reward(ps) or ps.risk_reward_ratio,
+            risk_reward_ratio=_calc_risk_reward(ps),
             position_plan=ps.position_plan,
             note=ps.note,
             details=[],
@@ -119,6 +120,22 @@ def list_plans(
 def create_plan(body: TradePlanCreate, db: Session = Depends(get_db)):
     if not body.stocks:
         raise AppError(code=4004, message="至少需要一只股票", status_code=400)
+    from app.models.monitor import Alert
+    if body.alert_id:
+        alert = db.get(Alert, body.alert_id)
+        if not alert:
+            raise AppError(code=3003, message="提醒不存在", status_code=404)
+        if alert.plan_id:
+            existing = db.get(TradePlan, alert.plan_id)
+            if existing is None:
+                raise AppError(code=4001, message="提醒关联的计划不存在，请先修复关联", status_code=409)
+            return _enrich_plan(db, existing, include_details=True)
+        try:
+            codes = {normalize_ts_code(stock.ts_code) for stock in body.stocks}
+        except ValueError as exc:
+            raise AppError(code=4004, message=str(exc)) from exc
+        if alert.ts_code not in codes:
+            raise AppError(code=4004, message="计划必须包含触发提醒的股票", status_code=400)
     plan = TradePlan(
         title=body.title,
         alert_id=body.alert_id,
@@ -126,6 +143,13 @@ def create_plan(body: TradePlanCreate, db: Session = Depends(get_db)):
     )
     db.add(plan)
     db.flush()
+    if body.alert_id:
+        claimed = db.query(Alert).filter(Alert.id == body.alert_id, Alert.plan_id.is_(None)).update(
+            {"plan_id": plan.id, "status": "processed"}, synchronize_session=False)
+        if not claimed:
+            db.rollback()
+            db.expire_all()
+            return create_plan(body, db)
     for s in body.stocks:
         try:
             ts_code = normalize_ts_code(s.ts_code)
@@ -175,7 +199,10 @@ def update_plan(plan_id: str, body: TradePlanUpdate, db: Session = Depends(get_d
                 for s in v:
                     # model_dump 后 s 为 dict，使用 .get() 访问
                     raw = s if isinstance(s, dict) else s.model_dump()
-                    ts_code = normalize_ts_code(raw.get("ts_code") or "")
+                    try:
+                        ts_code = normalize_ts_code(raw.get("ts_code") or "")
+                    except ValueError as exc:
+                        raise AppError(code=4004, message=str(exc), status_code=400) from exc
                     basic = db.query(StockBasic).filter(StockBasic.ts_code == ts_code).first()
                     rr = None
                     pb, tp, sl = raw.get("planned_buy_price"), raw.get("target_price"), raw.get("stop_loss_price")
@@ -207,6 +234,10 @@ def delete_plan(plan_id: str, db: Session = Depends(get_db)):
     plan = db.query(TradePlan).filter(TradePlan.id == plan_id).first()
     if not plan:
         raise AppError(code=4001, message="交易计划不存在", status_code=404)
+    from app.models.monitor import Alert
+    db.query(Alert).filter(Alert.plan_id == plan_id).update(
+        {"plan_id": None, "status": "pending"}, synchronize_session=False,
+    )
     db.delete(plan)
     db.commit()
 

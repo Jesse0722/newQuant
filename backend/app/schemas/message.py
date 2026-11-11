@@ -269,6 +269,7 @@ class MessageAgentRunRequest(BaseModel):
     provider: Optional[str] = Field(default=None, max_length=32)
     model: Optional[str] = Field(default=None, max_length=80)
     dry_run: bool = False
+    force: bool = False
 
 
 class MessageAgentRunResult(BaseModel):
@@ -423,6 +424,7 @@ class MessageAgentDailyGenerateRequest(BaseModel):
 
 
 class MessageAgentDailyCandidate(BaseModel):
+    opportunity_id: str
     theme: str
     ts_code: Optional[str] = None
     stock_name: Optional[str] = None

@@ -115,8 +115,19 @@ def collect_full_market_history(db, provider, dates, progress=None, request_inte
                     code = str(basic_record.get("ts_code", ""))
                     if not CODE.fullmatch(code) or db.get(StockBasic, code) is not None:
                         continue
-                    db.add(StockBasic(ts_code=code, name=str(basic_record.get("name") or code),
-                                      list_status="L"))
+                    metadata = {}
+                    for field in ("symbol", "area", "industry", "market", "list_date", "list_status", "float_share"):
+                        value = basic_record.get(field)
+                        if value is not None and pd.notna(value):
+                            metadata[field] = value
+                    # A snapshot is not evidence of a historical IPO/status date.
+                    # Keep supplied metadata, and leave unavailable values unknown.
+                    if metadata.get("list_date"):
+                        try:
+                            metadata["list_date"] = parse_date(str(metadata["list_date"]))
+                        except ValueError:
+                            metadata.pop("list_date")
+                    db.add(StockBasic(ts_code=code, name=str(basic_record.get("name") or code), **metadata))
                 db.commit()
                 master = db.query(StockBasic).all()
                 if any(CODE.fullmatch(s.ts_code) for s in master):

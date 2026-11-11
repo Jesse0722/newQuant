@@ -24,6 +24,7 @@ from app.services.daily_quote_repair_service import (
 from app.services.market_data_quality_service import CODE, readonly_connection
 from app.services.quote_repair_io import QuoteRepairIOError, create_backup, database_identity, writer_connection
 from app.services.quote_repair_source_service import fetch_repair_snapshot, repair_dates, select_repair_source
+from app.services.source_identity import IDENTITY_POLICY
 from scripts.audit_market_data_quality import configured_database
 
 
@@ -143,6 +144,10 @@ def main(argv=None):
                       "rows": len(snapshot["rows"]), "valid_rows": snapshot["valid_row_count"], "requests": snapshot["requests"]}
         elif args.command == "plan":
             snapshot = load_json(args.snapshot)
+            if snapshot.get("source", {}).get("identity_policy") != IDENTITY_POLICY:
+                raise RepairError("旧快照缺少自动原始身份校验；保留历史工件并重新采集生成新快照")
+            if snapshot.get("outcome") != "success":
+                raise RepairError("来源冻结批次不完整，禁止以部分响应生成可执行计划")
             if not snapshot.get("rows") or snapshot.get("outcome") in ("failed", "no_data", "unsupported"):
                 raise RepairError("来源快照没有有效修复数据；请先处理上游空数据或失败")
             with readonly_connection(url, args.app_cwd) as (conn, _):

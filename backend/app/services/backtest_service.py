@@ -73,7 +73,7 @@ def run_single_strategy_backtest(
             if limit_up_date > T:
                 continue
 
-            df_full = _get_df(db, ts_code)
+            df_full = _get_df(db, ts_code, as_of_date=T)
             if df_full.empty:
                 continue
             df = df_full[df_full["trade_date"] <= T].copy()

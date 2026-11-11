@@ -11,6 +11,7 @@ from app.services.daily_quote_repair_service import SNAPSHOT_VERSION, SPECS, VAL
 from app.services.market_data_capabilities import configured_providers, provider_capabilities
 from app.services.market_data_quality_service import CODE, finite, parse_date, read_csv
 from app.services.trading_session import shanghai_datetime
+from app.services.source_identity import IDENTITY_POLICY, frame_identities
 
 
 def repair_dates(start_date, end_date, calendar_file: Path, now=None):
@@ -59,7 +60,8 @@ def fetch_repair_snapshot(source, caps, dates, codes, calendar, request_interval
         raise RepairError("证券范围为空或包含非普通A股代码")
     rows, requests = [], []
     source_info = {"name": caps.name, "volume_unit": caps.volume_unit, "amount_unit": caps.amount_unit,
-                   "data_stage": "final", "adjustment": "none", "captured_at": datetime.now(timezone.utc).isoformat()}
+                   "data_stage": "final", "adjustment": "none", "identity_policy": IDENTITY_POLICY,
+                   "captured_at": datetime.now(timezone.utc).isoformat()}
     valid_keys = set()
     for code in codes:
         if code.rsplit(".", 1)[-1] not in caps.markets:
@@ -69,15 +71,16 @@ def fetch_repair_snapshot(source, caps, dates, codes, calendar, request_interval
             if request_interval > 0:
                 clock.sleep(max(1.25, request_interval) if caps.name == "tushare" else request_interval)
             kwargs = {"ts_code": code, "start_date": min(dates), "end_date": max(dates)}
-            if type(source).__name__ == "AkshareAdapter":
-                kwargs["strict"] = True
-            frame = source.get_daily(**kwargs)
+            method = getattr(source, "get_daily_for_repair", source.get_daily)
+            frame = method(**kwargs)
             if frame is None or frame.empty:
                 requests.append({"ts_code": code, "status": "empty"})
                 continue
+            identities = frame_identities(frame, caps.name, code)
             valid_count = 0
             for raw in frame.to_dict("records"):
                 record = {"ts_code": str(raw.get("ts_code", "")), "trade_date": str(raw.get("trade_date", ""))}
+                record["source_identity"] = identities.get(record["trade_date"])
                 for field in VALUE_FIELDS:
                     v = raw.get(field)
                     record[field] = float(v) if finite(v) else v if isinstance(v, (str, float, int)) else None

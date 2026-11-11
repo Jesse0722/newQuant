@@ -24,7 +24,7 @@ from app.config import (
 )
 from app.services.limit_up_service import get_or_create_limit_up_pool, collect_limit_up_stocks
 from app.services.trade_date_resolver import resolve_dashboard_trade_date
-from app.services.trading_session import is_a_share_trading_session
+from app.services.trading_session import is_a_share_trading_session, shanghai_datetime
 from app.services.buy_signal_service import scan_pool_buy_signals
 from app.services.main_wave_sector_backfill_service import _ensure_stock_f10_sectors, _get_main_wave_pool
 from app.services.sync_service import _sync_stock_basic_full, sync_stock_info, sync_daily, sync_daily_backward
@@ -124,7 +124,7 @@ def run_5pm_sync_latest_kline_job() -> dict:
         )
         db.commit()
 
-        today = datetime.now().strftime("%Y%m%d")
+        today = shanghai_datetime().strftime("%Y%m%d")
         rows = db.query(WatchStock.ts_code).distinct().all()
         ts_codes = [r[0] for r in rows if r and r[0]]
 
@@ -207,7 +207,8 @@ def run_5pm_sync_latest_kline_job() -> dict:
 
 
 def _has_kline_sync_running() -> bool:
-    from app.tasks.background import task_registry
+    from app.tasks import background
+    from app.models.task import BackgroundTask
 
     kline_task_types = (
         "sync",
@@ -215,10 +216,15 @@ def _has_kline_sync_running() -> bool:
         "idle_pool_kline_backfill",
         "main_wave_sector_backfill",
     )
-    return any(
-        task.status == "running" and task.type in kline_task_types
-        for task in task_registry.values()
-    )
+    if any(task.status in {"pending", "running"} and task.type in kline_task_types
+           for task in background.task_registry.values()):
+        return True
+    with background.SessionLocal() as db:
+        return db.query(BackgroundTask.id).filter(
+            BackgroundTask.type.in_(kline_task_types),
+            BackgroundTask.status.in_(["pending", "running"]),
+            BackgroundTask.heartbeat_at >= datetime.utcnow() - timedelta(seconds=background.STALE_SECONDS),
+        ).first() is not None
 
 
 def _recent_idle_backfill_attempts(db) -> set[str]:
@@ -751,7 +757,7 @@ def run_intraday_scan_job() -> dict:
     - 按每个配置的 interval_minutes 触发
     """
     db = SessionLocal()
-    now = datetime.now()
+    now = shanghai_datetime().replace(tzinfo=None)
     result = {
         "job": "intraday_scan",
         "ran": 0,

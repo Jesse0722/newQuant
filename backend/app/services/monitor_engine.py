@@ -22,10 +22,14 @@ TEMPLATE_INFO = {
 }
 
 
-def _get_df(db: Session, ts_code: str, limit: int = 250) -> pd.DataFrame:
-    rows = db.query(DailyQuote).filter(
+def _get_df(db: Session, ts_code: str, limit: int = 250, *, as_of_date: str | None = None) -> pd.DataFrame:
+    query = db.query(DailyQuote).filter(
         DailyQuote.ts_code == ts_code
-    ).order_by(DailyQuote.trade_date.asc()).limit(limit).all()
+    )
+    if as_of_date:
+        query = query.filter(DailyQuote.trade_date <= as_of_date)
+    rows = query.order_by(DailyQuote.trade_date.desc()).limit(limit).all()
+    rows.reverse()
     if not rows:
         return pd.DataFrame()
     data = [{"trade_date": r.trade_date, "open": r.open, "high": r.high, "low": r.low,

@@ -84,6 +84,11 @@ def state_hash(row):
 
 
 def normalized_source_row(raw, source):
+    if source.get("identity_policy"):
+        from app.services.source_identity import IDENTITY_POLICY, verify_row_identity
+        if source["identity_policy"] != IDENTITY_POLICY:
+            raise RepairError("原始身份验证策略不支持")
+        verify_row_identity(raw.get("source_identity"), source.get("name"), raw.get("ts_code"), raw.get("trade_date"))
     if source.get("name") not in SPECS or (source.get("volume_unit"), source.get("amount_unit")) != SPECS[source["name"]]:
         raise RepairError("来源或量额单位未认证")
     if source.get("data_stage") != "final" or source.get("adjustment") != "none":
@@ -292,6 +297,9 @@ def apply_repair_plan(conn, plan, backup_manifest, *, approved_file_sha256=None)
                 "approved_file_sha256": batch["summary"].get("approved_file_sha256")}
     if not plan["items"]:
         return {"batch_id": None, "status": "no_changes"}
+    from app.services.source_identity import IDENTITY_POLICY
+    if plan.get("source", {}).get("identity_policy") != IDENTITY_POLICY:
+        raise RepairError("尚未应用的旧计划缺少原始身份强校验；请保留工件并重新采集生成计划")
     _backup_state(conn, backup_manifest)
     _preflight(conn, plan["items"], "old_hash")
     now, batch_id = utc_now(), str(uuid.uuid4())

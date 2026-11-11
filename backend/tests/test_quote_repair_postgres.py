@@ -54,6 +54,11 @@ def test_real_postgres_repair_backup_restore_roundtrip(tmp_path):
                 "dates": ["20261008", "20261009"], "rows": [raw, {**raw, "trade_date": "20261009"}],
                 "source": {"name": "baostock", "volume_unit": "share", "amount_unit": "cny",
                            "data_stage": "final", "adjustment": "none", "captured_at": "2026-11-04T00:00:00Z"}}
+        from app.services.source_identity import IDENTITY_POLICY
+        snap["source"]["identity_policy"] = IDENTITY_POLICY
+        for row in snap["rows"]:
+            row["source_identity"] = {"provider": "baostock", "raw_code": "sz.000001",
+                                      "trade_date": row["trade_date"], "response_sha256": "1" * 64}
         with readonly_connection(url, ROOT) as (conn, _):
             before = [quote_state(r) for r in conn.execute(select(Q)).mappings()]
             plan = make_repair_plan(conn, snap)

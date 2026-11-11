@@ -149,6 +149,21 @@ def test_first_run_can_bootstrap_master_without_non_stock_codes(database):
     assert db.query(StockBasic).count() == 1
 
 
+def test_bootstrap_preserves_supplied_ipo_metadata_and_does_not_invent_status(database):
+    db, _ = database
+    db.query(StockBasic).delete()
+    db.commit()
+    class BootstrapProvider(Provider):
+        def get_stock_basic(self):
+            return pd.DataFrame([{"ts_code": "000001.SZ", "name": "fixture", "list_date": "19910403", "industry": "bank"},
+                                 {"ts_code": "600000.SH", "name": "unknown", "list_date": "not-a-date"}])
+    collect(db, BootstrapProvider([quote(day=d) for d in DATES]))
+    known = db.get(StockBasic, "000001.SZ")
+    assert known.list_date == "19910403" and known.industry == "bank"
+    assert known.list_status is None
+    assert db.get(StockBasic, "600000.SH").list_date is None
+
+
 def test_existing_invalid_only_is_classified_as_repair_not_unsupported(database):
     db, _ = database
     for day in DATES:

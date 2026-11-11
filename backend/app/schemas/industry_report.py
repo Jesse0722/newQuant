@@ -66,6 +66,7 @@ class GraphExtractRequest(BaseModel):
     limit: int = Field(default=20, ge=1, le=100)
     provider: str = "deepseek"
     model: str = "deepseek-v4-flash"
+    force: bool = False
 
 
 class GraphExtractOut(BaseModel):
@@ -74,6 +75,7 @@ class GraphExtractOut(BaseModel):
     relation_count: int
     evidence_count: int
     error_count: int
+    skipped_count: int = 0
 
 
 class GraphPathStep(BaseModel):
@@ -82,6 +84,9 @@ class GraphPathStep(BaseModel):
     target: str
     confidence: int
     strength: int
+    relation_id: str | None = None
+    source_type: str | None = None
+    evidence: list[dict] = Field(default_factory=list)
 
 
 class GraphPathOut(BaseModel):
