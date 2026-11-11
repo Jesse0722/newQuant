@@ -26,6 +26,11 @@
 | -- | `plans/2026-05-28-industry-graphrag-report-technical-design.md` | 产业链 GraphRAG 舆情日报技术方案：PostgreSQL、图谱模型、DeepSeek 抽取、候选评分、调度与前端展示 | MVP 已实现 |
 | -- | `plans/2026-05-28-industry-graphrag-report-tasks.md` | 产业链 GraphRAG 舆情日报任务拆解：多 agent 分工、验收标准、测试清单 | MVP 已实现 |
 | -- | `development-postgresql.md` | PostgreSQL 本地开发运行手册：Docker/Colima、Homebrew fallback、迁移、验证、回滚 | 当前推荐 |
+| -- | `reliability.md` | Python 3.11 锁定环境、持久任务/调度、消息证据边界、迁移与发布恢复 | 当前运行标准 |
+| -- | `plans/2026-11-11-reliability-hardening-plan.md` | P1/P2 集中治理范围、分工、验收与保留边界 | 本轮实施 |
+| -- | `reports/2026-11-11-reliability-verification.md` | 本轮实际验证、交叉审查、备份/重启及残余限制 | 验证记录 |
+| -- | `plans/2026-06-12-message-agent-technical-design.md` | 消息证据清洗、映射、复核及日报 Agent | 已有实现，默认关闭自动流水线 |
+| -- | `plans/2026-05-24-main-wave-trend-technical-design.md` | 主升浪趋势研究、扫描与回测 | 已有实现 |
 | -- | `plans/2026-05-22-task-notification-center-design.md` | 顶部任务消息中心设计：异步任务完成通知、任务收件箱、分期范围；策略回溯/回测放第二期 | 进行中 |
 | -- | `plans/2026-07-15-market-regime-reversal-technical-design.md` | 市场状态识别与反转证据评分：数据质量闸门、市场宽度、全球因子、资金压力、状态机及主升浪集成边界 | 设计评审稿 |
 | -- | `market-data-quality-audit.md` | T02 全市场日线只读校验命令、日历与点时分母输入、质量快照及退出码 | 工具已实现 |
@@ -73,7 +78,7 @@ Phase 4 → 交易计划（计划 CRUD + 明细 + 复盘 + 盈亏汇总 + 仪表
 Phase 5 → 前端（React + Ant Design，6 个页面 + 联调）
 ```
 
-当前进度：**V1 全部功能已完成**，前后端联调通过，真实数据验证完毕。
+当前进度：**V1 及后续消息/图谱/主升浪功能已有实现**。运行质量、剩余验收与当前路线以 `TODO.md` 和最新验证记录为准；不能将历史联调通过等同当前全市场数据已达标。
 
 ---
 
@@ -124,7 +129,7 @@ cd frontend && npm run dev
 | 数据同步 | 仅观察池中股票、Tushare Pro（支持代理）、增量同步、加入时自动拉 250 天 |
 | 监控提醒 | 6 个预置模板 + 自定义组合、同步后自动扫描 + 手动、系统内提醒 |
 | 交易计划 | 列表内嵌详情（expandable）、默认展开最近计划、CRUD + 编辑（含成功/失败反馈）、价格目标 + 盈亏比、风险等级、计划级复盘；`/plans/:id` 重定向至 `/plans?expand=id` |
-| 交易明细 | 手动记录 + 编辑、关联交易计划、自动算金额/印花税、盈亏自动汇总 |
+| 交易明细 | 手动记录 + 编辑、按股票累计账本、自动算金额/印花税；当前现金流与复盘快照分列，不宣称计划级归因 |
 | 策略选股 | 指标组合（10 条件）+ AI 智能选股、批量添加 / 快捷建池 |
 | 消息中心 | 今日题材、个股机会、X recent search 小批量采集、海外线索到 A 股候选映射、加入核心关注 |
 | 数据管理 | 全市场 60 日 K 线增量同步、数据概览、涨停筛选、异步任务结果（成功/失败/跳过） |
@@ -155,10 +160,10 @@ cd frontend && npm run dev
 
 ---
 
-## V2 规划（后续）
+## 当前后续路线
 
-- AI 工作流驱动选股（一键导入观察池）
-- 回测模块
-- 微信/钉钉 webhook 推送
-- 周期性复盘报告、PDF 导出
-- 实盘接口
+1. 完成可靠性变更的运行验收，继续修复真实行情与权威点时证券分母；保持评分质量闸门。
+2. 数据达标后进入市场状态 Phase 1，再逐步评估全球因子及资金证据。
+3. 历史分析对比、通知跨设备与新增授权来源按独立产品决策安排。
+
+回测及 AI 候选入池已经存在；本项目保持研究支持定位，不把自动交易列为默认路线。

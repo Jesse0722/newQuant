@@ -3,6 +3,12 @@
 .vscode
 .pytest_cache
 backend/venv
+backend/venv-*
+backend/data
+data
+backend.env
+frontend/test-results
+frontend/playwright-report
 backend/.pytest_cache
 backend/data/*.db
 backend/data/*.db-*

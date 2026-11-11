@@ -23,7 +23,7 @@
 cd /Users/lijiajun/ai-coding/newQuant/backend
 python3.11 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock
 cp .env.example .env
 python scripts/init_db.py
 uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -32,7 +32,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```bash
 cd /Users/lijiajun/ai-coding/newQuant/frontend
 npm install
-npm run dev
+npm run dev -- --port 5173
 ```
 
 前端默认访问 `http://localhost:5173`，后端默认访问 `http://localhost:8000`。
@@ -73,6 +73,7 @@ python scripts/migrate_sqlite_to_postgres.py \
 cd /Users/lijiajun/ai-coding/newQuant/frontend
 npm run lint
 npm run build
+npm run test:e2e
 ```
 
 ```bash
@@ -125,6 +126,8 @@ python scripts/run_scheduler.py
 如果仍想保持原来的单进程行为，可以在 `.env` 中设置 `AUTO_START_SCHEDULER=true`。
 
 更多业务背景和设计说明见 [docs/README.md](/Users/lijiajun/ai-coding/newQuant/docs/README.md)。
+
+可靠性治理、任务持久化、数据质量边界、显式迁移与备份恢复见 [可靠性运行手册](docs/reliability.md)。默认测试隔离业务数据库；真实 PostgreSQL 和浏览器回归命令、CI/发布边界见该手册。
 
 ## 消息中心 / X 舆情采集
 

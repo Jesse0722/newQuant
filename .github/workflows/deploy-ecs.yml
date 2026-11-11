@@ -7,10 +7,13 @@ on:
 
 concurrency:
   group: deploy-ecs
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  quality:
+    uses: ./.github/workflows/quality.yml
   deploy:
+    needs: quality
     runs-on: ubuntu-latest
 
     steps:
@@ -32,5 +35,17 @@ jobs:
         run: |
           ssh -i ~/.ssh/ecs_key \
             -o IdentitiesOnly=yes \
-            "${{ secrets.ECS_USER }}@${{ secrets.ECS_HOST }}" \
-            'APP_DIR=/opt/newquant REPO_DIR=/root/newQuant REPO_URL=https://github.com/Jesse0722/newQuant.git BRANCH=master bash /opt/newquant/deploy-local-build.sh'
+            "${{ secrets.ECS_USER }}@${{ secrets.ECS_HOST }}" bash -s -- '${{ github.sha }}' <<'REMOTE'
+          set -euo pipefail
+          revision="$1"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          repo=/root/newQuant
+          if [[ ! -d "$repo/.git" ]]; then
+            git clone --no-checkout https://github.com/Jesse0722/newQuant.git "$repo"
+          fi
+          git -C "$repo" fetch origin master
+          script=$(mktemp /tmp/newquant-deploy.XXXXXX)
+          trap 'rm -f "$script"' EXIT
+          git -C "$repo" show "$revision:deploy/aliyun/deploy-local-build.sh" > "$script"
+          APP_DIR=/opt/newquant REPO_DIR="$repo" BRANCH=master DEPLOY_REVISION="$revision" bash "$script"
+          REMOTE

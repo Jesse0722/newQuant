@@ -75,7 +75,7 @@ Use Alembic for schema changes:
 ```bash
 cd /Users/lijiajun/ai-coding/newQuant/backend
 source venv/bin/activate
-alembic upgrade head
+python -m alembic -c ../alembic.ini upgrade head
 ```
 
 Then start the backend:
@@ -155,3 +155,7 @@ Data rollback:
 - SQLite: restore the backed-up `quant.db` file.
 
 Do not keep SQLite and PostgreSQL as two active write databases. During migration, choose one active database for the running app.
+
+## 6. Reliability migration and rollback validation
+
+Use [the reliability runbook](reliability.md) for the message evidence/review increments, durable task/scheduler tables, and report input/raw audit columns. It includes checked adoption of an unversioned legacy schema, isolated PostgreSQL tests, exact-count transactional SQLite→PG copying, and deployment backup/restore commands. PostgreSQL automatic deployment rollback is restricted to a dedicated application database containing only the public business schema; it rebuilds and restores that schema in one transaction, including removal of objects introduced after the backup. Never run integration tests against the active application database.
