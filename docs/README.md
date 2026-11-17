@@ -40,6 +40,8 @@
 | -- | `plans/2026-11-11-real-market-evidence-plan.md` | 新量额疑点、历史证券池和真实证据包的实施范围 | 本轮实施 |
 | -- | `reports/2026-11-11-920083-amount-evidence.md` | 920083 当日大宗与量额统计范围核验，原行保留及解释限制 | 官方事实已核验，不豁免金额闸门 |
 | -- | `reports/2026-11-11-real-market-evidence-execution.md` | 两日3400证券日、13源证据绑定、主库缺口、完整回归及重启 | 子集验证通过，全市场仍不放行 |
+| -- | `plans/2026-11-11-history-gap-recovery-plan.md` | 已识别缺口分批修复、显式保留旧可选字段、120日成员与独立挂牌证据 | 本轮实施 |
+| -- | `reports/2026-11-11-history-gap-recovery-execution.md` | 8批400格、199股本保留、120日204118状态、真实PG及重启后运行期变化 | 修复验收通过，全市场仍不放行 |
 | -- | `full-market-history-sync.md` | T06 数据源能力、历史按日/逐股回补、缺口请求、日期覆盖与失败结果 | 代码已实现，真实回补待验收 |
 | -- | `daily-quote-repair.md` | T07/T08 单源快照、只读差异、备份、逐行审计、批次回滚及恢复验证 | 受控修复与沪市 pilot 通过，全市场质量未达标 |
 | -- | `reports/2026-11-04-quote-repair-implementation.md` | T07/T08 验证结果、真实只读样例和操作边界 | 实施记录 |

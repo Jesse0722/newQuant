@@ -1,0 +1,1042 @@
+{
+  "schema_version": "history-gap-recovery-execution-v1",
+  "execution_date": "2026-11-11",
+  "date_note": "Dates describe retained execution receipts, not a new capture or current live database snapshot.",
+  "base_commit": "ce69c258b7a9ce809ae16bace6ba0a14d3cb0423",
+  "branch": "codex/history-gap-recovery",
+  "status": "bounded_execution_verified",
+  "private_artifact_root": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2",
+  "private_artifact_note": "Raw SDK/HTTP sources, databases and bulk lineage are private. Git carries this index only; replay on another device requires the pinned originals. Hashes bind bytes, not source authority or historical availability.",
+  "code_files": [
+    {
+      "repository_path": "backend/app/services/daily_quote_repair_service.py",
+      "path": "/Users/lijiajun/ai-coding/newQuant/backend/app/services/daily_quote_repair_service.py",
+      "bytes": 35523,
+      "sha256": "f88f85918c393bae42afa1a5561608069abd5ff298aec21a94c9115ea2026dff"
+    },
+    {
+      "repository_path": "backend/scripts/repair_daily_quotes.py",
+      "path": "/Users/lijiajun/ai-coding/newQuant/backend/scripts/repair_daily_quotes.py",
+      "bytes": 12366,
+      "sha256": "158d5843ab7ad0fb2b0bb8b3d0c6ae38ea649d518fdf11be8772e77612b18384"
+    },
+    {
+      "repository_path": "backend/tests/test_daily_quote_repair_preserve_optional.py",
+      "path": "/Users/lijiajun/ai-coding/newQuant/backend/tests/test_daily_quote_repair_preserve_optional.py",
+      "bytes": 12743,
+      "sha256": "b0384baeaf1889f090e391a761ccc2ec2e804bf99a6a2b9a7bdf1c90a771a9ff"
+    },
+    {
+      "repository_path": "backend/tests/test_quote_repair_postgres.py",
+      "path": "/Users/lijiajun/ai-coding/newQuant/backend/tests/test_quote_repair_postgres.py",
+      "bytes": 6098,
+      "sha256": "3a8a775796f3c50ccd146eef0841d246e715e9773a4fdb0473725ebdb2c28370"
+    }
+  ],
+  "repair": {
+    "logical_cells": 400,
+    "sdk_data_query_attempts": 401,
+    "inserts": 200,
+    "updates": 200,
+    "deletes": 0,
+    "waves": [
+      {
+        "groups": 4,
+        "cells_per_group": 15
+      },
+      {
+        "groups": 4,
+        "cells_per_group": 85
+      }
+    ],
+    "selection": "Frozen original defect candidates; no replacement by successful samples.",
+    "retry": "One retained 600075.SH/20261110 failed query plus one separately authorized same-cell retry. Original 340-request capture is not rewritten as 341 requests or zero failures.",
+    "core_source": "BaoStock formal historical unadjusted row; volume share, amount CNY. Exact decoded SDK cells, not network frames. Row adjustflag3; response attribute blank remains blank.",
+    "preserved_float_share_rows": 199,
+    "preservation_note": "Only valid pre-existing optional values are retained when source lacks them, with old-row hash lineage. No new source certification of retained values; no derived shares. Source provided values win. Default skip policy remains unchanged.",
+    "ohlc_changed_update_rows": 0,
+    "changed_update_field_counts": {
+      "pct_chg": 200,
+      "vol": 159,
+      "amount": 200,
+      "turnover_rate": 200,
+      "pre_close": 100,
+      "change": 100
+    },
+    "groups": [
+      {
+        "name": "quote-evidence-v1--20261030-missing",
+        "plan": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/20261030-missing/plan-default-skip.json",
+          "bytes": 61152,
+          "sha256": "41aba0954efebca8d2c18c63a453b323d3e7ad1d6ad375954c8e3e533fa19739"
+        },
+        "source": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/20261030-missing/source.json",
+          "bytes": 15470,
+          "sha256": "2fd25b7f259d8641a98cdc0b6767bcc9ccd7eb66ecdf14a3c228d85e00683654"
+        },
+        "scope": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/scope.json",
+          "bytes": 23383,
+          "sha256": "6533560b0e48b2b975b36060982f9ffda011b3a34420f888f9d2ca8b5e92ba09"
+        },
+        "preserve_mode": false,
+        "preserved_optional_rows": 0,
+        "apply": {
+          "batch_id": "e61e77b8-ce31-49dc-8f07-b79ef6c36753",
+          "plan_hash": "76a5bbcc60182ed481d0d2210abd318d3f6f178993397e813ba99f2e4fe57701",
+          "approved_file_sha256": "41aba0954efebca8d2c18c63a453b323d3e7ad1d6ad375954c8e3e533fa19739",
+          "inserts": 15,
+          "updates": 0,
+          "row_count_before": 1965322,
+          "row_count_after": 1965337,
+          "backup_path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/main-execution-v1/quote-evidence-v1--20261030-missing-pre-apply/90580954-f8b1-4ecb-af62-e903152c4f80.db"
+        },
+        "verify": {
+          "approved_file_sha256": "41aba0954efebca8d2c18c63a453b323d3e7ad1d6ad375954c8e3e533fa19739",
+          "audit_integrity": true,
+          "audit_rows": 15,
+          "batch_id": "e61e77b8-ce31-49dc-8f07-b79ef6c36753",
+          "matches": true,
+          "mismatches": [],
+          "plan_hash": "76a5bbcc60182ed481d0d2210abd318d3f6f178993397e813ba99f2e4fe57701",
+          "scope_rows": 15,
+          "status": "applied",
+          "verification_scope": "full_input_grid"
+        }
+      },
+      {
+        "name": "quote-evidence-v1--20261110-missing",
+        "plan": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/20261110-missing/plan-default-skip.json",
+          "bytes": 61144,
+          "sha256": "d6097ad27269f9bd9d1e9d493e9634a91ed63fced32e8780e0ce226310a61846"
+        },
+        "source": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/20261110-missing/source.json",
+          "bytes": 15469,
+          "sha256": "77b1bd8a5022283f1ca04bbafbe9d8c7527f5227461a73b3d8edb09b932156cc"
+        },
+        "scope": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/scope.json",
+          "bytes": 23383,
+          "sha256": "6533560b0e48b2b975b36060982f9ffda011b3a34420f888f9d2ca8b5e92ba09"
+        },
+        "preserve_mode": false,
+        "preserved_optional_rows": 0,
+        "apply": {
+          "batch_id": "a79fb222-ff59-4a14-8e74-4e37a2a084af",
+          "plan_hash": "cb1bd47b096d37e90f169cf794e09ef0447ca75992d585b040531037b597ddb8",
+          "approved_file_sha256": "d6097ad27269f9bd9d1e9d493e9634a91ed63fced32e8780e0ce226310a61846",
+          "inserts": 15,
+          "updates": 0,
+          "row_count_before": 1965337,
+          "row_count_after": 1965352,
+          "backup_path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/main-execution-v1/quote-evidence-v1--20261110-missing-pre-apply/52cab5b0-37c2-4a4c-9230-daff80d6ee59.db"
+        },
+        "verify": {
+          "approved_file_sha256": "d6097ad27269f9bd9d1e9d493e9634a91ed63fced32e8780e0ce226310a61846",
+          "audit_integrity": true,
+          "audit_rows": 15,
+          "batch_id": "a79fb222-ff59-4a14-8e74-4e37a2a084af",
+          "matches": true,
+          "mismatches": [],
+          "plan_hash": "cb1bd47b096d37e90f169cf794e09ef0447ca75992d585b040531037b597ddb8",
+          "scope_rows": 15,
+          "status": "applied",
+          "verification_scope": "full_input_grid"
+        }
+      },
+      {
+        "name": "quote-evidence-v1--20261030-amount_incomplete",
+        "plan": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/20261030-amount_incomplete/plan-preserve-v1.json",
+          "bytes": 69403,
+          "sha256": "e1a6daec5c9376516abcd3cb85c93be108f6813e2a524d15c892acd35e010407"
+        },
+        "source": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/20261030-amount_incomplete/source.json",
+          "bytes": 15649,
+          "sha256": "e5eca1ec4b97f9d46d3e5e6ccd95944c6ea262fd91a9c3d11f41bc35c1edaf36"
+        },
+        "scope": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/scope.json",
+          "bytes": 23383,
+          "sha256": "6533560b0e48b2b975b36060982f9ffda011b3a34420f888f9d2ca8b5e92ba09"
+        },
+        "preserve_mode": true,
+        "preserved_optional_rows": 15,
+        "apply": {
+          "batch_id": "e4e2b2cd-085e-415c-ad40-9fb39633c143",
+          "plan_hash": "bdc8fa36076d1de7f893c6debe1469f70082cda42bc91503a262c6ac51193c49",
+          "approved_file_sha256": "e1a6daec5c9376516abcd3cb85c93be108f6813e2a524d15c892acd35e010407",
+          "inserts": 0,
+          "updates": 15,
+          "row_count_before": 1965352,
+          "row_count_after": 1965352,
+          "backup_path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/main-execution-v1/quote-evidence-v1--20261030-amount_incomplete-pre-apply/03298b6f-ae99-4699-b83d-5a2ea59f84c6.db"
+        },
+        "verify": {
+          "approved_file_sha256": "e1a6daec5c9376516abcd3cb85c93be108f6813e2a524d15c892acd35e010407",
+          "audit_integrity": true,
+          "audit_rows": 15,
+          "batch_id": "e4e2b2cd-085e-415c-ad40-9fb39633c143",
+          "matches": true,
+          "mismatches": [],
+          "plan_hash": "bdc8fa36076d1de7f893c6debe1469f70082cda42bc91503a262c6ac51193c49",
+          "scope_rows": 15,
+          "status": "applied",
+          "verification_scope": "full_input_grid"
+        }
+      },
+      {
+        "name": "quote-evidence-v1--20261110-invalid_core",
+        "plan": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/20261110-invalid_core/plan-preserve-v1.json",
+          "bytes": 69479,
+          "sha256": "7fd694d3383059a27a916a28e5cedb09a27bc9abb8dae7b98efba9f5570b7d69"
+        },
+        "source": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/20261110-invalid_core/source.json",
+          "bytes": 15563,
+          "sha256": "207afab307a487bc7df1b6c576eef6923502c2ecd7d47821e22fadcaa7467f4c"
+        },
+        "scope": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/scope.json",
+          "bytes": 23383,
+          "sha256": "6533560b0e48b2b975b36060982f9ffda011b3a34420f888f9d2ca8b5e92ba09"
+        },
+        "preserve_mode": true,
+        "preserved_optional_rows": 15,
+        "apply": {
+          "batch_id": "811bc251-c809-44fa-8890-826702393f24",
+          "plan_hash": "62aedd0a1fcb9f7c05edb69d008420a98b659d1f5e6a3e49430e5048d46489b9",
+          "approved_file_sha256": "7fd694d3383059a27a916a28e5cedb09a27bc9abb8dae7b98efba9f5570b7d69",
+          "inserts": 0,
+          "updates": 15,
+          "row_count_before": 1965352,
+          "row_count_after": 1965352,
+          "backup_path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/main-execution-v1/quote-evidence-v1--20261110-invalid_core-pre-apply/84057b39-f229-43b1-bac9-cb94523bc4c9.db"
+        },
+        "verify": {
+          "approved_file_sha256": "7fd694d3383059a27a916a28e5cedb09a27bc9abb8dae7b98efba9f5570b7d69",
+          "audit_integrity": true,
+          "audit_rows": 15,
+          "batch_id": "811bc251-c809-44fa-8890-826702393f24",
+          "matches": true,
+          "mismatches": [],
+          "plan_hash": "62aedd0a1fcb9f7c05edb69d008420a98b659d1f5e6a3e49430e5048d46489b9",
+          "scope_rows": 15,
+          "status": "applied",
+          "verification_scope": "full_input_grid"
+        }
+      },
+      {
+        "name": "quote-evidence-wave2-v1--20261030-missing",
+        "plan": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/20261030-missing/plan-default-skip.json",
+          "bytes": 339250,
+          "sha256": "39d0056611b9967b96ac0445481db6b35898d3f1c19c9473d0e0c2044a8af5c4"
+        },
+        "source": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/20261030-missing/source.json",
+          "bytes": 83063,
+          "sha256": "f5debcbdca75356c84417165d5c5f7e4440d05c4a7463b79dfd2acccab598d51"
+        },
+        "scope": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/scope.json",
+          "bytes": 124406,
+          "sha256": "c3c8f9c019ff4a89c20510c44837a5b539cbf4afbbdfa06df40dcdf9600a638e"
+        },
+        "preserve_mode": false,
+        "preserved_optional_rows": 0,
+        "apply": {
+          "batch_id": "22298980-ee98-4bc2-87d1-f0bb55988b42",
+          "plan_hash": "bbb39328d859a01e90f74f9d53ad021a6473428a48988079e6911b25631ba189",
+          "approved_file_sha256": "39d0056611b9967b96ac0445481db6b35898d3f1c19c9473d0e0c2044a8af5c4",
+          "inserts": 85,
+          "updates": 0,
+          "row_count_before": 1965352,
+          "row_count_after": 1965437,
+          "backup_path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/main-execution-v1/quote-evidence-wave2-v1--20261030-missing-pre-apply/74ad8a7c-e09b-4077-88d8-661078df4a88.db"
+        },
+        "verify": {
+          "approved_file_sha256": "39d0056611b9967b96ac0445481db6b35898d3f1c19c9473d0e0c2044a8af5c4",
+          "audit_integrity": true,
+          "audit_rows": 85,
+          "batch_id": "22298980-ee98-4bc2-87d1-f0bb55988b42",
+          "matches": true,
+          "mismatches": [],
+          "plan_hash": "bbb39328d859a01e90f74f9d53ad021a6473428a48988079e6911b25631ba189",
+          "scope_rows": 85,
+          "status": "applied",
+          "verification_scope": "full_input_grid"
+        }
+      },
+      {
+        "name": "quote-evidence-wave2-v1--20261110-missing",
+        "plan": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/20261110-missing/plan-default-skip.json",
+          "bytes": 339026,
+          "sha256": "00fba7d0208c0c6753b1ef4b17899f54fed9b0c5bf7e38eda0f655d0ba686604"
+        },
+        "source": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/20261110-missing/source.json",
+          "bytes": 82928,
+          "sha256": "2c3282c6029d39ef3b3ef891c20334f094ae121cf95f2a900006d29d615c1b7b"
+        },
+        "scope": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/scope.json",
+          "bytes": 124406,
+          "sha256": "c3c8f9c019ff4a89c20510c44837a5b539cbf4afbbdfa06df40dcdf9600a638e"
+        },
+        "preserve_mode": false,
+        "preserved_optional_rows": 0,
+        "apply": {
+          "batch_id": "d2e4b50b-b50b-4e3c-9cdb-125c36317699",
+          "plan_hash": "abfecd40e8821907042a276e443c44cee18b438542a8ca2ab1c3f62e1441e06b",
+          "approved_file_sha256": "00fba7d0208c0c6753b1ef4b17899f54fed9b0c5bf7e38eda0f655d0ba686604",
+          "inserts": 85,
+          "updates": 0,
+          "row_count_before": 1965437,
+          "row_count_after": 1965522,
+          "backup_path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/main-execution-v1/quote-evidence-wave2-v1--20261110-missing-pre-apply/4ba67cf5-adfa-467a-974e-e4b7add0ce95.db"
+        },
+        "verify": {
+          "approved_file_sha256": "00fba7d0208c0c6753b1ef4b17899f54fed9b0c5bf7e38eda0f655d0ba686604",
+          "audit_integrity": true,
+          "audit_rows": 85,
+          "batch_id": "d2e4b50b-b50b-4e3c-9cdb-125c36317699",
+          "matches": true,
+          "mismatches": [],
+          "plan_hash": "abfecd40e8821907042a276e443c44cee18b438542a8ca2ab1c3f62e1441e06b",
+          "scope_rows": 85,
+          "status": "applied",
+          "verification_scope": "full_input_grid"
+        }
+      },
+      {
+        "name": "quote-evidence-wave2-v1--20261030-amount_incomplete",
+        "plan": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/20261030-amount_incomplete/plan-preserve-v1.json",
+          "bytes": 385645,
+          "sha256": "be21cc375b865bf51073504115a1882851a68d04b74ed902d133e82048034767"
+        },
+        "source": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/20261030-amount_incomplete/source.json",
+          "bytes": 84021,
+          "sha256": "b07a6a1d2a33098f888548e108cbd13c4970c4b0296c76c1a8529d032db44ef8"
+        },
+        "scope": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/scope.json",
+          "bytes": 124406,
+          "sha256": "c3c8f9c019ff4a89c20510c44837a5b539cbf4afbbdfa06df40dcdf9600a638e"
+        },
+        "preserve_mode": true,
+        "preserved_optional_rows": 84,
+        "apply": {
+          "batch_id": "9063536c-66c6-4f32-b38a-d2bf701cfb47",
+          "plan_hash": "97ec90294c391a215938a48f0053ff82f08aaa8c6f5f31b1296916e80cfc1901",
+          "approved_file_sha256": "be21cc375b865bf51073504115a1882851a68d04b74ed902d133e82048034767",
+          "inserts": 0,
+          "updates": 85,
+          "row_count_before": 1965522,
+          "row_count_after": 1965522,
+          "backup_path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/main-execution-v1/quote-evidence-wave2-v1--20261030-amount_incomplete-pre-apply/7688d29d-ecf4-4f96-b4bc-7fec298f5162.db"
+        },
+        "verify": {
+          "approved_file_sha256": "be21cc375b865bf51073504115a1882851a68d04b74ed902d133e82048034767",
+          "audit_integrity": true,
+          "audit_rows": 85,
+          "batch_id": "9063536c-66c6-4f32-b38a-d2bf701cfb47",
+          "matches": true,
+          "mismatches": [],
+          "plan_hash": "97ec90294c391a215938a48f0053ff82f08aaa8c6f5f31b1296916e80cfc1901",
+          "scope_rows": 85,
+          "status": "applied",
+          "verification_scope": "full_input_grid"
+        }
+      },
+      {
+        "name": "quote-evidence-wave2-v1--20261110-invalid_core",
+        "plan": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/20261110-invalid_core/plan-preserve-v1.json",
+          "bytes": 386010,
+          "sha256": "118653b44e924acfd1c8d7816d6dd0537d0bbef777db98eead1f14ee781d0842"
+        },
+        "source": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/20261110-invalid_core/source.json",
+          "bytes": 83533,
+          "sha256": "71edb17ff18be5947e8599587fa5f9944190beedbdc481c5276c487dfc0aa861"
+        },
+        "scope": {
+          "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/scope.json",
+          "bytes": 124406,
+          "sha256": "c3c8f9c019ff4a89c20510c44837a5b539cbf4afbbdfa06df40dcdf9600a638e"
+        },
+        "preserve_mode": true,
+        "preserved_optional_rows": 85,
+        "apply": {
+          "batch_id": "fc70d28c-25bd-4ff6-a01d-ac439434577c",
+          "plan_hash": "8dfd803c37eee233f7c8cce749b2b5a9f5c863bb1a1f5c2f883072b1c6915ddd",
+          "approved_file_sha256": "118653b44e924acfd1c8d7816d6dd0537d0bbef777db98eead1f14ee781d0842",
+          "inserts": 0,
+          "updates": 85,
+          "row_count_before": 1965522,
+          "row_count_after": 1965522,
+          "backup_path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/main-execution-v1/quote-evidence-wave2-v1--20261110-invalid_core-pre-apply/3c833ca4-125d-40b9-ae1c-c70502fefc54.db"
+        },
+        "verify": {
+          "approved_file_sha256": "118653b44e924acfd1c8d7816d6dd0537d0bbef777db98eead1f14ee781d0842",
+          "audit_integrity": true,
+          "audit_rows": 85,
+          "batch_id": "fc70d28c-25bd-4ff6-a01d-ac439434577c",
+          "matches": true,
+          "mismatches": [],
+          "plan_hash": "8dfd803c37eee233f7c8cce749b2b5a9f5c863bb1a1f5c2f883072b1c6915ddd",
+          "scope_rows": 85,
+          "status": "applied",
+          "verification_scope": "full_input_grid"
+        }
+      }
+    ]
+  },
+  "database": {
+    "schema_migration": false,
+    "maintenance_quote_comparison": {
+      "quote_diff": {
+        "deletes": 0,
+        "inserts": 200,
+        "unchanged": 1965122,
+        "updates": 200
+      },
+      "quote_fingerprint_before": {
+        "daily_quote_row_count": 1965322,
+        "daily_quote_sha256": "66342e084af5fedc28d01db34ffa36f5c14247083014e24369c5c94dd3f1c1f1"
+      },
+      "quote_fingerprint_after": {
+        "daily_quote_row_count": 1965522,
+        "daily_quote_sha256": "a0419bfd7194995277727a6f26e7e26527bd4b74461104da5d09a678b1b4105a"
+      },
+      "schema_unchanged": true
+    },
+    "maintenance_other_business_tables_unchanged": 31,
+    "old_batches_preserved": 6,
+    "old_audit_rows_preserved": 167,
+    "all_batches_verified": 14,
+    "all_audit_rows_verified": 567,
+    "legacy_scope_note": "Three old batches retain written-row-only proof; no invented historical nonwriting-grid proof.",
+    "backup": "Complete SQLite online backup plus manifest before each of eight main transactions; separate complete post-apply pre-restart backup. File hashes/manifests and key-state full-table comparisons independently checked.",
+    "post_apply_backup_manifest": {
+      "created_at": "2026-11-11T07:05:31.315233Z",
+      "daily_quote_row_count": 1965522,
+      "daily_quote_sha256": "a0419bfd7194995277727a6f26e7e26527bd4b74461104da5d09a678b1b4105a",
+      "database_identity": {
+        "database": "/Users/lijiajun/ai-coding/newQuant/backend/data/quant.db",
+        "dialect": "sqlite"
+      },
+      "format": "sqlite",
+      "id": "1f0519a2-65f8-4c97-a6fd-5a5cce29e186",
+      "integrity_check": "ok",
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/main-execution-v1/post-apply-state/1f0519a2-65f8-4c97-a6fd-5a5cce29e186.db",
+      "sha256": "eed483f7ea4d08241a3a1f914e0d52598a409bb2a4165e5b000e9e8198227784"
+    },
+    "copy_rehearsal": "Eight applies/verifications then reverse eight rollbacks; exact baseline fingerprint restored. Seventeen backup hashes/manifests checked, with three critical states fully independently compared.",
+    "main_rollback_executed": false,
+    "rollback": "Keep this version of the repair tool and source/audit chain. First take a fresh backup; verify old/new states; rollback batches in reverse order. Reverting code does not revert data; old tools cannot verify or rollback the new selection policy. Never overwrite a running DB or delete dates wholesale."
+  },
+  "runtime_after_restart": {
+    "snapshot_started_utc": "2026-11-11T07:13:47.075643+00:00",
+    "quote_fingerprint": {
+      "columns": [
+        "ts_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount",
+        "turnover_rate",
+        "float_share"
+      ],
+      "row_count": 1965542,
+      "sha256": "95831f64494f6b63c3f452b42ec5ed34d9270c985d49e68340712efb33b8272e"
+    },
+    "additional_current_day_quote_rows": 20,
+    "quote_trade_date": "20261111",
+    "job_key": "idle_pool_kline_backfill",
+    "job_id": "0b6c5c43-0377-470d-ae79-4a7b23a10d2f",
+    "sync_log_id": "d12cc6a5-e60d-48bc-b2ec-a38fdcc2820e",
+    "stock_master_change": {
+      "ts_code": "301630.SZ",
+      "field": "market",
+      "before": "主板",
+      "after": "创业板"
+    },
+    "attribution": "Persisted job/log exact20 code/date added_recent1 transitions and existing code path independently matched. Normal scheduler configuration preserved; these changes are separate from 400 maintenance repairs.",
+    "historical_window_and_repaired_cells_match_post_apply": true,
+    "new_provider_evidence_created_for_runtime_attribution": false,
+    "live_state_is_permanent_claim": false
+  },
+  "two_date_audit": {
+    "pre": {
+      "audit_quality": "unverifiable_subset_not_full_market",
+      "days": [
+        {
+          "consistency": {
+            "amount_checkable_ratio": 0.015600624024960999,
+            "amount_checked_rows": 10,
+            "amount_inconsistent_rows": 0,
+            "amount_uncheckable_rows": 631,
+            "pct_checked_rows": 641,
+            "pct_inconsistent_rows": 0,
+            "vwap_out_of_range_rows": 0,
+            "zero_pair_mismatch_rows": 0
+          },
+          "coverage_ratio": 0.37750294464075385,
+          "expected_count": 1698,
+          "invalid_core_count": 0,
+          "missing_count": 1057,
+          "raw_rows": 1581,
+          "report_sha256": "86c29e49953f19d2783178e3082d047d636db6c01869a95d24164f0c3fdf7818",
+          "scoped_rows": 641,
+          "trade_date": "20261030",
+          "valid_core_codes": 641
+        },
+        {
+          "consistency": {
+            "amount_checkable_ratio": 0.0,
+            "amount_checked_rows": 0,
+            "amount_inconsistent_rows": 0,
+            "amount_uncheckable_rows": 632,
+            "pct_checked_rows": 24,
+            "pct_inconsistent_rows": 0,
+            "vwap_out_of_range_rows": 0,
+            "zero_pair_mismatch_rows": 0
+          },
+          "coverage_ratio": 0.01411764705882353,
+          "expected_count": 1700,
+          "invalid_core_count": 608,
+          "missing_count": 1068,
+          "raw_rows": 1592,
+          "report_sha256": "6e615902beb6975878c137e70d569a70de5eeb77cd606f40229176bd73ae783f",
+          "scoped_rows": 632,
+          "trade_date": "20261110",
+          "valid_core_codes": 24
+        }
+      ],
+      "phase": "pre",
+      "status": "passed"
+    },
+    "post": {
+      "audit_quality": "unverifiable_subset_not_full_market",
+      "days": [
+        {
+          "consistency": {
+            "amount_checkable_ratio": 0.2834008097165992,
+            "amount_checked_rows": 210,
+            "amount_inconsistent_rows": 0,
+            "amount_uncheckable_rows": 531,
+            "pct_checked_rows": 741,
+            "pct_inconsistent_rows": 0,
+            "vwap_out_of_range_rows": 0,
+            "zero_pair_mismatch_rows": 0
+          },
+          "coverage_ratio": 0.4363957597173145,
+          "expected_count": 1698,
+          "invalid_core_count": 0,
+          "missing_count": 957,
+          "raw_rows": 1681,
+          "report_sha256": "68c3e7505ae80717a0e90f5d60fb595d00147aad6585c59f6eeb7b9132b6f019",
+          "scoped_rows": 741,
+          "trade_date": "20261030",
+          "valid_core_codes": 741
+        },
+        {
+          "consistency": {
+            "amount_checkable_ratio": 0.273224043715847,
+            "amount_checked_rows": 200,
+            "amount_inconsistent_rows": 0,
+            "amount_uncheckable_rows": 532,
+            "pct_checked_rows": 224,
+            "pct_inconsistent_rows": 0,
+            "vwap_out_of_range_rows": 0,
+            "zero_pair_mismatch_rows": 0
+          },
+          "coverage_ratio": 0.13176470588235295,
+          "expected_count": 1700,
+          "invalid_core_count": 508,
+          "missing_count": 968,
+          "raw_rows": 1692,
+          "report_sha256": "493c3a1445ae85c1257b6d59bb14f9bc2b2d6eabe1d254ccd9257caa922c1ad6",
+          "scoped_rows": 732,
+          "trade_date": "20261110",
+          "valid_core_codes": 224
+        }
+      ],
+      "phase": "post",
+      "status": "passed"
+    }
+  },
+  "historical_universe": {
+    "start_date": "20260518",
+    "end_date": "20261110",
+    "trade_dates": 120,
+    "scope": "security_subset: SSE main-board ordinary A, 600/601/603/605 prefixes",
+    "temporal_basis": "retrospective",
+    "raw_unfiltered_rows": 881247,
+    "canonical_state_rows": 204118,
+    "lineage_references": 408236,
+    "new_sdk_attempts": 129,
+    "new_successful_dates": 118,
+    "retained_failed_attempts": 11,
+    "old_dates_reused": 2,
+    "currently_delisted_securities_retained": {
+      "600193.SH": 34,
+      "600421.SH": 28,
+      "600599.SH": 28,
+      "600608.SH": 33,
+      "600636.SH": 29,
+      "600696.SH": 29,
+      "601059.SH": 103,
+      "601198.SH": 103,
+      "605081.SH": 33
+    },
+    "retained_currently_delisted_security_days": 420,
+    "names": "Names returned by dated queries, not independently certified historical rename dates.",
+    "independent_full_reparse": true,
+    "listed_totals_match": true,
+    "official_listed_min": 1698,
+    "official_listed_max": 1705,
+    "official_listed_sum": 204118,
+    "official_new_http_requests": 117,
+    "official_sources_reused": 3,
+    "listed_counts_are_tradable_controls": false,
+    "quality_diagnostic": {
+      "requested_days": 120,
+      "detail_days": 20,
+      "empty_slots": 0,
+      "verified_pass_days": 0,
+      "scoring_allowed": false,
+      "amount_metrics_allowed": false,
+      "expected_count": 203758,
+      "valid_core_codes": 63647,
+      "missing_count": 120545,
+      "invalid_core_count": 19566,
+      "status": "diagnostic_universe_only",
+      "counts_match": false,
+      "evidence_bound": false,
+      "control_totals_verified": false
+    }
+  },
+  "other_market_evidence": {
+    "phase1_http_requests": 51,
+    "phase1_discovery_searches": 3,
+    "SSE_earliest_halts": "12 records match 6+6 pagination. Seven main-board candidates; blank/continuous halt boundaries not independently closed. 1697 is only an arithmetic candidate.",
+    "SZ_date_labels": {
+      "20261030": {
+        "main_A": 1494,
+        "ChiNext_A": 1411,
+        "B": 36
+      },
+      "20261110": {
+        "main_A": 1495,
+        "ChiNext_A": 1411,
+        "B": 36
+      }
+    },
+    "SZ_qualification": "2905/2906 label sums are not independently certified ordinary-A tradable counts; company/security/CDR scope and all-day halts remain open.",
+    "BSE_20261030_company_count": 354,
+    "BSE_scope": "Official JS renders company count. POST/JSONP parsed payloads match; raw byte hashes differ. Not ordinary-A security count or tradable denominator.",
+    "BSE_20261110": "unknown_transport_challenge; no October/current extrapolation",
+    "superseded_review": "independent-official-evidence-review-v1.json retained failed QA harness (wrong October-membership filter for May candidates). Corrected frozen-prefix harness v2 passed; underlying evidence not altered."
+  },
+  "verification": {
+    "backend_default_passed": 629,
+    "backend_default_skipped": 9,
+    "real_postgres_passed": 9,
+    "distinct_tests_passed": 638,
+    "new_specialized_tests_included_in_default": 39,
+    "after_actual_backend_restart": true,
+    "existing_warning": "pandas concat empty/all-NA FutureWarning",
+    "postgres": "Own isolated PostgreSQL16 port55439 stopped after tests; system5432 untouched.",
+    "not_tested": [
+      "frontend build/browser (no frontend changes)",
+      "main disaster failover",
+      "actual main data rollback",
+      "paid LLM",
+      "cloud deployment",
+      "master merge"
+    ]
+  },
+  "gates": {
+    "full_market_qualified": false,
+    "scoring_allowed": false,
+    "amount_metrics_allowed": false
+  },
+  "remaining": [
+    "Two diagnostic dates still miss957/968 rows; second date has508 invalid core rows.",
+    "120-day subset diagnostic has120545 missing and19566 invalid core security-days.",
+    "Independent tradable denominators after all-day suspensions, STAR ordinary-A/CDR, SZ/BSE membership/control and lifecycle evidence remain incomplete.",
+    "920083.BJ unchanged and not exempted; direct source field-scope contract or complete official volume/amount totals remain missing.",
+    "Existing same-UID directory replacement and nontransactional multi-file publication limits remain."
+  ],
+  "artifacts": [
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/baseline-v1.json",
+      "bytes": 1189,
+      "sha256": "cf608c36ad40cab7d223aae36a5a32d1c4b127f9d3d67dedcb7b9a78a58db275"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/repair-execution-plan-index-v1.json",
+      "bytes": 39347,
+      "sha256": "ce537f90d1bf9f81efef769c509a6ea8bdb50b50bf52a159d64fe3d3ca68df05"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/supervisor-main-authorization-v1.json",
+      "bytes": 2469,
+      "sha256": "88ff5a495155f9b5940b1cd63fced4ce820eade797899937c5afbdd34d28f144"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/main-execution-v1/result.json",
+      "bytes": 102111,
+      "sha256": "dec996cc848be9e04096d355d61f7ad8cc6159aa866200b5f3300824362f8c7c"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/rehearsal-v1/result.json",
+      "bytes": 118834,
+      "sha256": "4e85ae96c1dadba1aa2a56f3a2b62f7f608a30156cbcc4201dc91a6ef617ae6b"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/runtime-post-restart-attribution-v1.json",
+      "bytes": 23289,
+      "sha256": "d1a35b148314194e5aeda09ea7a0ab661cc0068746e51297f115c5bc5bd47603"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/backend-restart-v1.json",
+      "bytes": 688,
+      "sha256": "a1fb2f4b1670ec14baceeea741863c8f3fdedd0f090d7813249922ca52e062f9"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/postgres-cleanup-v1.json",
+      "bytes": 239,
+      "sha256": "8753a79ec483df77f11aa9b542d8ef7c6570d80e2e2773407ff44eacdf470784"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/verification-v1/all-results.json",
+      "bytes": 2239,
+      "sha256": "1a3aeb585aa64402cc3de9e614b5bea26563447b0efb83deeb9f17dbd664a4cb"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/verification-v1/backend-default.log",
+      "bytes": 1449,
+      "sha256": "ae91a530ba2e28504da7bc02588cb8fc2a6d2ffe09008d01872c6622496f7523"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/verification-v1/postgres-real.log",
+      "bytes": 98,
+      "sha256": "14289a25795ea7d56daa9be9ccae18450096005ac0e4ae6ba28b4ddea33d9aac"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/two-date-audit-pre-v1/summary.json",
+      "bytes": 1491,
+      "sha256": "187f5eb74fd9a89847ca334591a749543beafcd85b240b28ba15aea12bacbdd4"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/two-date-audit-post-v1/summary.json",
+      "bytes": 1506,
+      "sha256": "1aa209accc49921b8a57f02f5812da75a25a61620dc0a1ad40429fce9b1f34ce"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/history-universe120-audit-v1/main.json",
+      "bytes": 4185812,
+      "sha256": "17af503d3d9e5da4dfc2061bef9a5ef5686410c7df08fbcbbd6ade7969b33f1b"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/history-universe120-audit-v1/command.json",
+      "bytes": 1301,
+      "sha256": "38629a011d776d359e878863fc6b58db91ecbda08e74008943d8109b06262af8"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/history-universe-v1/source-attempt-index-v1.json",
+      "bytes": 81321,
+      "sha256": "432e25c82f07a920bee4133a680db9fc17a16febb9bf398708265ed1ec61745e"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/history-universe-v1/input-package.json",
+      "bytes": 25157,
+      "sha256": "008177aaad30a0c53c10cae08c496be9e2238a58873eb76521b641608c5a3509"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/history-universe-v1/build-command-v1.json",
+      "bytes": 1390,
+      "sha256": "d1d85fac8e46961fd96e5c6c1e0ea50f4c0d61eda34764015502336728b62262"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/history-universe-v1/build-validation-v1.json",
+      "bytes": 76159,
+      "sha256": "7dc4396095daee77c299f279dd331ac09406dadf05a6c978d0d3066905c27694"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/history-universe-v1/build-v1/universe.csv",
+      "bytes": 8891143,
+      "sha256": "296857039ab103f828f7321015a39863062210539c1b3c32470d67db68bc02b3"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/history-universe-v1/build-v1/row-lineage.jsonl",
+      "bytes": 184643792,
+      "sha256": "8954720c86eb75b49181a963303f54e56f4a065a2d6bfdf4a32449465b2c8284"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/history-universe-v1/build-v1/build-report.json",
+      "bytes": 85651,
+      "sha256": "92a8d10eb4dd371b54fd3a0bdc3f7923de18fa5935b959d663831f22765a32ee"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/history-universe-v1/build-v1/complete-index.json",
+      "bytes": 2758,
+      "sha256": "60eae2f69e3c95db43ccca5958ea30607547ac824a3dd568a4771717df19f712"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/provider-bar-definition-v1/stockKData.md",
+      "bytes": 16292,
+      "sha256": "2cdd9a72c54b18e5c7152ddce008d4e0af3e9cba53a5cd69577fc7c3e759ffd0"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/provider-bar-definition-v1/request.json",
+      "bytes": 655,
+      "sha256": "b2bb1c7e4642171c2f7a944e29cf60e9c887e465920b65ba7f38b2ee3414c027"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/provider-bar-definition-v1/sdk-response-day-provenance.json",
+      "bytes": 558,
+      "sha256": "e5015cfaf6e1a98e80f070c31333ab803b40cf810e18c874a3256f91e1a90893"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/resolved-capture-result-v1.json",
+      "bytes": 154650,
+      "sha256": "ea10dbcd003052ac8b9f46dfc9baaef69b23fb66963c5c3c22f2bf45bc266310"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-wave2-v1/resolution-accounting-v1.json",
+      "bytes": 1132,
+      "sha256": "e5f419edc976c582951e841857fdda01c98330e39387b8fc503846bae872a12d"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/official-market-evidence-v1/research-conclusions-v1.json",
+      "bytes": 64837,
+      "sha256": "7840ec6fe6360cb5c5c7298836fbab5b7fffffb6243ac4629386aa6c17dc261a"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/official-market-evidence-v1/capture-index-v1.json",
+      "bytes": 89513,
+      "sha256": "d187d170afbade525facfc522ae8414abdb24f518ec08e610a34e39498e83999"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/official-market-evidence-v1/sse-listed120-v1/result.json",
+      "bytes": 173172,
+      "sha256": "fcf4ae3e7ae35ea8eed367a95943fb17f922768c34c9698b6c34bef1c65f3d1e"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/preserve-optional-spec-review-v1.json",
+      "bytes": 5258,
+      "sha256": "6a024628a10837f16f2a047343d3b7c50207438cb9463dddb8f5f7bd1f09f7c8"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/preserve-optional-code-review-v1.json",
+      "bytes": 5664,
+      "sha256": "c39ef8e40aa781dd723956f6f4332c601254f470e008215ff0a134d04844694d"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/quote-evidence-v1/independent-source-review-v1.json",
+      "bytes": 201258,
+      "sha256": "9a8fb4626231ab4335265e3435840c2cad5d79df0a669995c1e43346a3567be0"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/repair-plans-review-v1.json",
+      "bytes": 1664569,
+      "sha256": "abd09a234681e96ef891e99ce8aefaf87886029575cfdb4b11014ab2810b4c6c"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/repair-plans-resolution-accounting-review-v1.json",
+      "bytes": 1092,
+      "sha256": "1144f0047474d9fef0a2d27ea3a5f80eb40cac3d7dca5aa52ebc00d84a92f184"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/repair-rehearsal-review-v1.json",
+      "bytes": 1657361,
+      "sha256": "a97256f174059d3fbe45cab0cca855c29ca1ca99d59b751e06746baaff9819bd"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/historical-universe120-review-v1.json",
+      "bytes": 239406,
+      "sha256": "dc9ce8ad0a9edebd303289f1ea5e6a3060d2dc220f91d95d410c08bde99365ba"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/independent-official-evidence-review-v2.json",
+      "bytes": 202171,
+      "sha256": "3fb6028d8bfb0332a3091b25d467532071735691ff8fe101982e525725589c92"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/final-main-review-v1.json",
+      "bytes": 686537,
+      "sha256": "c6ca819f41ee5711b299a09e55c3e84aec6fb4e63295305322f0d46e4131b450"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/verification-tools-v1/newquant-apply-history-recovery-20261111.py",
+      "bytes": 6331,
+      "sha256": "65e25120a7fdc91887fcacb264722dfc093243b1f9459f94d9743f57ac5662b1"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/verification-tools-v1/newquant-audit-recovery-dates-20261111.py",
+      "bytes": 2226,
+      "sha256": "45541c2da1e07bbeead6e7cf60d2259ea7a53818df599818a7ca168e7494af12"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/verification-tools-v1/newquant-plan-history-recovery-20261111.py",
+      "bytes": 3657,
+      "sha256": "19278011eca93b69eaf3bad394259d294bd594fe4a7ee9f3e61a853ae9210fa0"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/verification-tools-v1/newquant-rehearse-history-recovery-20261111.py",
+      "bytes": 6527,
+      "sha256": "347bb5ac72fb60a571ac7f32ecf46d5b27e4fc251fa9747bd670058380d9fb9d"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/verification-tools-v1/newquant-review-recovery-sources-v1.py",
+      "bytes": 5910,
+      "sha256": "d91c73da32220dab91279ef5c5df27989af1965a7381f2ae2061705016c5a56f"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/verification-tools-v1/newquant-review-recovery-sources-v2.py",
+      "bytes": 6940,
+      "sha256": "3753232266de7f4ec60655001151b988ea529310e5880324e786d7305e25f62c"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/verification-tools-v1/newquant-verify-repair-20261111.py",
+      "bytes": 4167,
+      "sha256": "f9a4308827ee348caf93d6db277b85c334ab24a9a7f85886726b9dc4884405ff"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/two-date-audit-pre-v1/20261030.json",
+      "bytes": 132876,
+      "sha256": "86c29e49953f19d2783178e3082d047d636db6c01869a95d24164f0c3fdf7818"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/two-date-audit-pre-v1/20261110.json",
+      "bytes": 244640,
+      "sha256": "6e615902beb6975878c137e70d569a70de5eeb77cd606f40229176bd73ae783f"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/two-date-audit-post-v1/20261030.json",
+      "bytes": 128472,
+      "sha256": "68c3e7505ae80717a0e90f5d60fb595d00147aad6585c59f6eeb7b9132b6f019"
+    },
+    {
+      "path": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/two-date-audit-post-v1/20261110.json",
+      "bytes": 222078,
+      "sha256": "493c3a1445ae85c1257b6d59bb14f9bc2b2d6eabe1d254ccd9257caa922c1ad6"
+    }
+  ],
+  "official_http_source_examples": [
+    {
+      "label": "sse-listed-earliest-day",
+      "method": "GET",
+      "url": "https://query.sse.com.cn/commonQuery.do?sqlId=COMMON_SSE_SJ_GPSJ_CJGK_MRGK_C&SEARCH_DATE=2026-05-18&isPagination=false",
+      "params": [
+        [
+          "sqlId",
+          "COMMON_SSE_SJ_GPSJ_CJGK_MRGK_C"
+        ],
+        [
+          "SEARCH_DATE",
+          "2026-05-18"
+        ],
+        [
+          "isPagination",
+          "false"
+        ]
+      ],
+      "data": null,
+      "status": 200,
+      "file": "http-15-sse-listed-earliest-day.body",
+      "sha256": "de8cea3d1082e7ec3cd0bfda2cdc8852ad4f99fbd90814b66b9aabb3fcca06fd"
+    },
+    {
+      "label": "bse-daily-unmin-js",
+      "method": "GET",
+      "url": "https://www.bse.cn/template/6/bluewise/_files/js/marketData/daily.js",
+      "params": [],
+      "data": null,
+      "status": 200,
+      "file": "http-43-bse-daily-unmin-js.body",
+      "sha256": "5ef461b313af81830f42c1485bb72042e3256bc0d7c2872665bea1f2db2e7ffe"
+    },
+    {
+      "label": "bse-daily-20261030",
+      "method": "POST",
+      "url": "https://www.bse.cn/marketStatController/dailyReport.do",
+      "params": [],
+      "data": {
+        "HQJSRQ": "20261030"
+      },
+      "status": 200,
+      "file": "http-45-bse-daily-20261030.body",
+      "sha256": "e4773790264fb461e27d13021eb1b99448d084fd09eea0a328fd47223babe7c5"
+    },
+    {
+      "label": "bse-daily-jsonp-get-20261030",
+      "method": "GET",
+      "url": "https://www.bse.cn/marketStatController/dailyReport.do?HQJSRQ=20261030&callback=newquantOfficialPilot",
+      "params": [
+        [
+          "HQJSRQ",
+          "20261030"
+        ],
+        [
+          "callback",
+          "newquantOfficialPilot"
+        ]
+      ],
+      "data": null,
+      "status": 200,
+      "file": "http-48-bse-daily-jsonp-get-20261030.body",
+      "sha256": "e5423847983db6bc5f941838694ffcf5ae10553cfe68739502c14583e730e0a9"
+    },
+    {
+      "bytes": 4290,
+      "content_type": "application/json;charset=UTF-8",
+      "date": "20260519",
+      "file": "/Users/lijiajun/.local/share/newquant/history-recovery/2026-11-11-round2/official-market-evidence-v1/sse-listed120-v1/20260519-attempt0.body",
+      "final_url": "https://query.sse.com.cn/commonQuery.do?sqlId=COMMON_SSE_SJ_GPSJ_CJGK_MRGK_C&SEARCH_DATE=2026-05-19&isPagination=false",
+      "method": "GET",
+      "observed_end_utc": "2026-11-11T06:21:16.364123+00:00",
+      "observed_start_utc": "2026-11-11T06:21:16.192007+00:00",
+      "redirects_automatic": false,
+      "retry": 0,
+      "reused": false,
+      "sha256": "f136fde346a4b90a9e3f9ae8f9df0272186180832211aad0cc4e63db04b21dee",
+      "status": 200,
+      "url": "https://query.sse.com.cn/commonQuery.do?sqlId=COMMON_SSE_SJ_GPSJ_CJGK_MRGK_C&SEARCH_DATE=2026-05-19&isPagination=false"
+    }
+  ],
+  "provider_bar_definition_request": {
+    "url": "https://www.baostock.com/helpdocs/api/markdown/stockKData.md",
+    "method": "POST",
+    "request_body": "empty",
+    "status": 200,
+    "content_type": "text/plain;charset=UTF-8",
+    "observed_start_utc": "2026-11-11T06:28:19.616448+00:00",
+    "observed_end_utc": "2026-11-11T06:28:20.013929+00:00",
+    "sha256": "2cdd9a72c54b18e5c7152ddce008d4e0af3e9cba53a5cd69577fc7c3e759ffd0",
+    "bytes": 16292,
+    "redirects_automatic": false,
+    "discovery": "previously frozen official helpdocs menu maps A股K线数据 to stockKData.md",
+    "source_menu_file": "/Users/lijiajun/.local/share/newquant/market-evidence/2026-11-11/baostock-history-v1/docs-menu.json"
+  }
+}

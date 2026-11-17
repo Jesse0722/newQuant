@@ -19,7 +19,7 @@ from sqlalchemy import inspect, select
 from app.models.stock import StockBasic
 from app.models.daily_quote_repair import DailyQuoteRepairAudit, DailyQuoteRepairBatch
 from app.services.daily_quote_repair_service import (
-    RepairError, apply_repair_plan, make_repair_plan, rollback_repair_batch, validate_plan, verify_repair_batch,
+    PRESERVE_OPTIONAL_SELECTION, RepairError, apply_repair_plan, make_repair_plan, rollback_repair_batch, validate_plan, verify_repair_batch,
     validate_snapshot_grid,
 )
 from app.services.market_data_quality_service import CODE, readonly_connection
@@ -67,10 +67,14 @@ def write_json(path, value):
 
 
 def render_plan(plan):
+    preserve = plan["policy"]["selection"] == PRESERVE_OPTIONAL_SELECTION
+    provenance_note = ("- 核心行情全部来自本次同一个来源；仅源缺失的有效既有换手率/股本可原样保留。"
+                       "保留旧值不是本次供应商提供，逐字段血缘绑定旧行哈希。" if preserve else
+                       "- 旧行情来源未知；新行全部字段来自本次同一个来源。缺少已有附加字段时默认跳过整条修复。")
     lines = ["# 行情修复差异计划", "", f"- 计划：{plan['id']}", f"- 目标库：`{plan['database_identity']}`",
              f"- 权威来源：{plan['source']['name']}，不复权正式日线",
              f"- 汇总：{plan['summary']}",
-             "- 旧行情来源未知；新行全部字段来自本次同一个来源。缺少已有附加字段时默认跳过整条修复。", "",
+             provenance_note, "",
              "| 股票 | 日期 | 操作 | 变化字段 |", "|---|---|---|---|"]
     lines += [f"| {i['ts_code']} | {i['trade_date']} | {i['operation']} | {', '.join(i['changed_fields'])} |" for i in plan["items"][:1000]]
     lines += ["", "JSON 含所有逐字段新旧值、哈希、原始来源和跳过原因；本摘要最多显示前 1000 条。",
@@ -99,7 +103,10 @@ def parser():
     plan = sub.add_parser("plan", help="只读dry-run，输出逐字段差异计划")
     plan.add_argument("--snapshot", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
-    plan.add_argument("--allow-clear-optional", action="store_true", help="允许计划清空来源缺失的换手率/股本；默认跳过")
+    optional_policy = plan.add_mutually_exclusive_group()
+    optional_policy.add_argument("--allow-clear-optional", action="store_true", help="允许计划清空来源缺失的换手率/股本；默认跳过")
+    optional_policy.add_argument("--preserve-existing-optional", action="store_true",
+                                 help="显式保留来源缺失的有效既有换手率/股本，标注旧行血缘；默认仍跳过")
     apply = sub.add_parser("apply", help="验证计划哈希，自动备份后应用")
     apply.add_argument("--plan", type=Path, required=True)
     apply.add_argument("--plan-sha256", required=True)
@@ -155,7 +162,8 @@ def main(argv=None):
             with readonly_connection(url, args.app_cwd) as (conn, _):
                 if snapshot.get("target_at_fetch") not in (None, database_identity(conn)):
                     raise RepairError("快照采集目标与当前库不一致")
-                plan = make_repair_plan(conn, snapshot, allow_clear_optional=args.allow_clear_optional)
+                plan = make_repair_plan(conn, snapshot, allow_clear_optional=args.allow_clear_optional,
+                                        preserve_existing_optional=args.preserve_existing_optional)
             validate_plan(plan)
             write_json(args.output, plan)
             report = args.output.with_suffix(".md")

@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.integration
-def test_real_postgres_repair_backup_restore_roundtrip(tmp_path):
+@pytest.mark.parametrize("preserve_optional", [False, True])
+def test_real_postgres_repair_backup_restore_roundtrip(tmp_path, preserve_optional):
     admin_url = os.environ.get("QUOTE_REPAIR_POSTGRES_ADMIN_URL")
     if not admin_url:
         pytest.skip("set QUOTE_REPAIR_POSTGRES_ADMIN_URL for isolated scratch DB test")
@@ -49,7 +50,9 @@ def test_real_postgres_repair_backup_restore_roundtrip(tmp_path):
         raw = dict(ts_code="000001.SZ", trade_date="20261008", open=10., high=11., low=9., close=10.,
                    pre_close=10., pct_chg=0., change=0., vol=1000., amount=10000., turnover_rate=None, float_share=None)
         with engine.begin() as conn:
-            conn.execute(insert(Q).values(**{**raw, "amount": None, "pre_close": None}))
+            conn.execute(insert(Q).values(**{**raw, "amount": None, "pre_close": None,
+                "turnover_rate": 3.25 if preserve_optional else None,
+                "float_share": 12345.6789012345 if preserve_optional else None}))
         snap = {"version": SNAPSHOT_VERSION, "id": "real-pg-fixture", "codes": ["000001.SZ"],
                 "dates": ["20261008", "20261009"], "rows": [raw, {**raw, "trade_date": "20261009"}],
                 "source": {"name": "baostock", "volume_unit": "share", "amount_unit": "cny",
@@ -61,7 +64,13 @@ def test_real_postgres_repair_backup_restore_roundtrip(tmp_path):
                                       "trade_date": row["trade_date"], "response_sha256": "1" * 64}
         with readonly_connection(url, ROOT) as (conn, _):
             before = [quote_state(r) for r in conn.execute(select(Q)).mappings()]
-            plan = make_repair_plan(conn, snap)
+            plan = make_repair_plan(conn, snap, preserve_existing_optional=preserve_optional)
+        if preserve_optional:
+            item = plan["items"][0]
+            assert item["new_values"]["float_share"] == 12345.6789012345
+            assert item["source_json"]["preserved_optional_fields"] == ["turnover_rate", "float_share"]
+            assert item["source_json"]["field_source"]["float_share"] == {
+                "kind": "retained_existing_optional", "field": "float_share", "old_row_hash": item["old_hash"]}
         manifest = create_backup(url, str(ROOT), str(tmp_path))
         with writer_connection(url, str(ROOT)) as conn:
             applied = apply_repair_plan(conn, plan, manifest)

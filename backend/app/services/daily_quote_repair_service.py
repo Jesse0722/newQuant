@@ -18,6 +18,7 @@ from app.services.quote_repair_io import database_identity, validate_backup, quo
 PLAN_VERSION = "daily-quote-repair-v1"
 SNAPSHOT_VERSION = "daily-quote-source-v1"
 INPUT_VALIDATION_POLICY = "complete-grid-price-volume-v1"
+PRESERVE_OPTIONAL_SELECTION = "single_authoritative_core_preserve_optional_v1"
 Q = DailyQuote.__table__
 B = DailyQuoteRepairBatch.__table__
 A = DailyQuoteRepairAudit.__table__
@@ -147,6 +148,22 @@ def _losses(old, new):
     return [f for f in ("turnover_rate", "float_share") if old and valid_field(f, old.get(f)) and new.get(f) is None]
 
 
+def _effective_row(raw, source, old, preserve, *, enforce_market_consistency=True):
+    """Recompute core from source and explicitly label any retained old values."""
+    new = normalized_source_row(raw, source, enforce_market_consistency=enforce_market_consistency)
+    raw_hash = digest(raw)
+    field_source = {f: raw_hash for f in VALUE_FIELDS}
+    preserved = []
+    if preserve and old is not None:
+        for field in ("turnover_rate", "float_share"):
+            if new[field] is None and not isinstance(old[field], bool) and valid_field(field, old[field]):
+                new[field] = old[field]
+                preserved.append(field)
+                field_source[field] = {"kind": "retained_existing_optional", "field": field,
+                                       "old_row_hash": state_hash(old)}
+    return new, field_source, preserved
+
+
 def _grid_scope(codes, dates):
     if not isinstance(codes, list) or not isinstance(dates, list) or not codes or not dates or len(dates) > 250:
         raise RepairError("来源网格范围为空或格式无效")
@@ -193,11 +210,31 @@ def validate_snapshot_grid(snapshot):
 
 
 def _input_grid_digest(plan):
-    return digest({"policy": INPUT_VALIDATION_POLICY, "codes": plan["codes"], "dates": plan["dates"],
-                   "source": plan["source"], "cells": plan["input_grid"]})
+    payload = {"policy": INPUT_VALIDATION_POLICY, "codes": plan["codes"], "dates": plan["dates"],
+               "source": plan["source"], "cells": plan["input_grid"]}
+    if plan["policy"].get("selection") == PRESERVE_OPTIONAL_SELECTION:
+        payload["repair_policy"] = plan["policy"]
+    return digest(payload)
 
 
-def make_repair_plan(conn, snapshot, *, allow_clear_optional=False):
+def _recompute_evidence(evidence, raw, source, old, preserve, *, enforce_market_consistency=True):
+    new, field_source, preserved = _effective_row(raw, source, old, preserve,
+        enforce_market_consistency=enforce_market_consistency)
+    if evidence.get("field_source") != field_source:
+        raise RepairError("字段来源血缘不一致")
+    if preserve:
+        if evidence.get("preserved_optional_fields") != preserved:
+            raise RepairError("保留已有附加字段清单不一致")
+    elif "preserved_optional_fields" in evidence:
+        raise RepairError("默认策略不能声明保留旧值血缘")
+    return new
+
+
+def make_repair_plan(conn, snapshot, *, allow_clear_optional=False, preserve_existing_optional=False):
+    if type(allow_clear_optional) is not bool or type(preserve_existing_optional) is not bool:
+        raise RepairError("附加字段策略必须为严格布尔值")
+    if allow_clear_optional and preserve_existing_optional:
+        raise RepairError("保留已有附加字段与允许清空策略互斥")
     normalized = validate_snapshot_grid(snapshot)
     dates, codes = snapshot["dates"], snapshot["codes"]
     source = snapshot["source"]
@@ -213,10 +250,11 @@ def make_repair_plan(conn, snapshot, *, allow_clear_optional=False):
     unchanged = 0
     for raw in sorted(raw_rows, key=_key):
         key = _key(raw)
-        new = normalized[key]
         old = existing.get(key)
         raw_state = canonical(raw)
         raw_hash = digest(raw_state)
+        new, field_source, preserved = (_effective_row(raw_state, source, old, True)
+            if preserve_existing_optional else (normalized[key], {f: raw_hash for f in VALUE_FIELDS}, []))
         cell = {"ts_code": key[0], "trade_date": key[1], "raw_hash": raw_hash}
         input_grid.append(cell)
         if _losses(old, new) and not allow_clear_optional:
@@ -228,11 +266,15 @@ def make_repair_plan(conn, snapshot, *, allow_clear_optional=False):
         if not changed:
             unchanged += 1
             cell.update(disposition="unchanged", proof={"raw_values": raw_state, "old_values": old})
+            if preserve_existing_optional:
+                cell["proof"].update(field_source=field_source, preserved_optional_fields=preserved)
             continue
         cell["disposition"] = "insert" if old is None else "update"
         source_json = {"source": source, "snapshot_id": snapshot["id"], "snapshot_hash": snapshot_hash,
                        "raw_values": raw_state, "raw_hash": raw_hash, "normalization_version": PLAN_VERSION,
-                       "field_source": {f: raw_hash for f in VALUE_FIELDS}}
+                       "field_source": field_source}
+        if preserve_existing_optional:
+            source_json["preserved_optional_fields"] = preserved
         items.append({"operation": "insert" if old is None else "update", "ts_code": key[0], "trade_date": key[1],
                       "old_values": old, "new_values": new, "old_hash": state_hash(old), "new_hash": digest(new),
                       "changed_fields": changed, "source_json": source_json})
@@ -246,6 +288,8 @@ def make_repair_plan(conn, snapshot, *, allow_clear_optional=False):
                         "unchanged": unchanged, "skipped": len(skipped), "requested_cells": len(codes) * len(dates)},
             "items": items, "skipped": skipped, "input_grid": input_grid,
             "source_requests": snapshot.get("requests", []), "calendar": snapshot.get("calendar", {})}
+    if preserve_existing_optional:
+        result["policy"].update(selection=PRESERVE_OPTIONAL_SELECTION, preserve_existing_optional=True)
     result["input_grid_digest"] = _input_grid_digest(result)
     return result
 
@@ -262,6 +306,7 @@ def _validate_input_grid(plan):
     seen = set()
     writes = {_key(item): item for item in plan["items"]}
     skipped = {}
+    preserve = plan["policy"].get("selection") == PRESERVE_OPTIONAL_SELECTION
     for item in plan.get("skipped", []):
         key = _key(item)
         if key in skipped or key not in expected or item.get("reason") != "optional_field_loss":
@@ -278,6 +323,19 @@ def _validate_input_grid(plan):
             item = writes[key]
             if disposition != item["operation"] or cell.get("raw_hash") != item["source_json"]["raw_hash"] or key in skipped:
                 raise RepairError("计划写入与输入网格证明不一致")
+            if preserve:
+                # Independently recompute written cells here as well as in
+                # validate_plan; the grid must prove effective values/lineage.
+                evidence, old = item["source_json"], item["old_values"]
+                raw = evidence["raw_values"]
+                if (_key(raw) != key or digest(raw) != cell["raw_hash"] or evidence["source"] != plan["source"]
+                        or (old is not None and (set(old) != ROW_FIELDS or _key(old) != key))):
+                    raise RepairError("保留旧值策略输入证明不一致")
+                new = _recompute_evidence(evidence, raw, plan["source"], old, True)
+                changed = [f for f in VALUE_FIELDS if old is None or old[f] != new[f]]
+                if (digest(new) != digest(item["new_values"]) or state_hash(old) != item["old_hash"]
+                        or digest(new) != item["new_hash"] or not changed or changed != item["changed_fields"]):
+                    raise RepairError("保留旧值策略的网格有效值或差异不一致")
             continue
         proof = cell.get("proof")
         if not isinstance(proof, dict) or not isinstance(proof.get("raw_values"), dict):
@@ -287,9 +345,12 @@ def _validate_input_grid(plan):
             raise RepairError("计划输入网格来源证明不一致")
         if not isinstance(old, dict) or set(old) != ROW_FIELDS or _key(old) != key:
             raise RepairError("计划非写入格缺少完整旧值证明")
-        new = normalized_source_row(raw, plan["source"])
+        new = (_recompute_evidence(proof, raw, plan["source"], old, True) if preserve
+               else normalized_source_row(raw, plan["source"]))
+        if not preserve and ("field_source" in proof or "preserved_optional_fields" in proof):
+            raise RepairError("默认策略非写入格不能声明保留旧值血缘")
         if disposition == "unchanged":
-            if old != new or key in skipped:
+            if (digest(old) != digest(new) if preserve else old != new) or key in skipped:
                 raise RepairError("计划未变化格与输入证明不一致")
         elif disposition == "skipped":
             losses = _losses(old, new)
@@ -312,11 +373,22 @@ def _validate_input_grid(plan):
 
 
 def validate_plan(plan, *, allow_legacy=False):
-    if plan.get("version") != PLAN_VERSION or plan.get("policy", {}).get("selection") != "single_authoritative_row":
+    if plan.get("version") != PLAN_VERSION or not isinstance(plan.get("policy"), dict):
         raise RepairError("修复计划版本或策略无效")
-    if not isinstance(plan["policy"].get("allow_clear_optional"), bool):
+    selection = plan["policy"].get("selection")
+    preserve = selection == PRESERVE_OPTIONAL_SELECTION
+    if selection not in ("single_authoritative_row", PRESERVE_OPTIONAL_SELECTION):
+        raise RepairError("修复计划版本或策略无效")
+    if type(plan["policy"].get("allow_clear_optional")) is not bool:
         raise RepairError("计划附加字段策略格式无效")
     policy = plan["policy"].get("input_validation")
+    if preserve:
+        if (set(plan["policy"]) != {"selection", "allow_clear_optional", "preserve_existing_optional", "input_validation"}
+                or plan["policy"].get("preserve_existing_optional") is not True
+                or plan["policy"]["allow_clear_optional"] or policy != INPUT_VALIDATION_POLICY):
+            raise RepairError("保留已有附加字段策略必须显式且具完整输入网格，并与清空互斥")
+    elif "preserve_existing_optional" in plan["policy"] and plan["policy"]["preserve_existing_optional"] is not False:
+        raise RepairError("默认策略不能启用保留已有附加字段")
     if policy not in (None, INPUT_VALIDATION_POLICY):
         raise RepairError("计划输入网格验证版本不支持")
     if policy is None and not allow_legacy:
@@ -344,11 +416,12 @@ def validate_plan(plan, *, allow_legacy=False):
             raise RepairError("来源快照身份不一致")
         if evidence["source"] != plan["source"] or digest(evidence["raw_values"]) != evidence["raw_hash"]:
             raise RepairError("原始来源校验失败")
-        if evidence.get("normalization_version") != PLAN_VERSION or evidence.get("field_source") != {f: evidence["raw_hash"] for f in VALUE_FIELDS}:
+        if evidence.get("normalization_version") != PLAN_VERSION:
             raise RepairError("字段来源血缘不一致")
-        recomputed = normalized_source_row(evidence["raw_values"], evidence["source"],
-                                           enforce_market_consistency=policy == INPUT_VALIDATION_POLICY)
-        if recomputed != new or state_hash(old) != item["old_hash"] or digest(new) != item["new_hash"]:
+        recomputed = _recompute_evidence(evidence, evidence["raw_values"], evidence["source"], old, preserve,
+                                        enforce_market_consistency=policy == INPUT_VALIDATION_POLICY)
+        same_new = digest(recomputed) == digest(new) if preserve else recomputed == new
+        if not same_new or state_hash(old) != item["old_hash"] or digest(new) != item["new_hash"]:
             raise RepairError("新旧值或标准化校验失败")
         changed = [f for f in VALUE_FIELDS if old is None or old[f] != new[f]]
         if not changed or changed != item["changed_fields"]:
